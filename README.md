@@ -45,77 +45,47 @@ For an `answered` response, citation IDs are validated against the evidence actu
 ```mermaid
 ---
 config:
-  look: classic
-  theme: base
-  themeVariables:
-    background: "#FCFCFD"
-    primaryColor: "#F5F7FA"
-    primaryTextColor: "#172033"
-    primaryBorderColor: "#B8C1CF"
-    lineColor: "#64748B"
-    secondaryColor: "#EEF5F3"
-    tertiaryColor: "#F6F3EE"
-    clusterBkg: "#FAFBFC"
-    clusterBorder: "#CBD2DC"
-    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  look: handDrawn
+  handDrawnSeed: 17
   flowchart:
-    curve: linear
-    nodeSpacing: 28
-    rankSpacing: 42
+    curve: stepBefore
+    nodeSpacing: 45
+    rankSpacing: 55
 ---
 flowchart LR
-    Client(["Engineer / API client"])
-    Answer(["Grounded answer<br/>+ validated citations"])
-    KB["Operational knowledge<br/>runbooks · APIs · incidents · SLAs"]
+    Client([Client]) --> APIGW["API Gateway v2"]
 
-    subgraph Floci["Floci · local AWS-compatible runtime"]
+    subgraph F["Floci · AWS-compatible plane"]
       direction TB
-      API["API Gateway v2"]
-      QL["Query Lambda"]
-      IL["Ingest Lambda"]
-      S3["S3 Documents"]
-      VDB["S3 Vectors"]
+      APIGW --> Query["Query Lambda<br/>/v1/query"]
+      APIGW --> Ingest["Ingest Lambda<br/>/v1/ingest"]
+      Ingest --> S3["S3<br/>docs · chunks · manifests"]
+      S3V["S3 Vectors<br/>1024-d · cosine"]
     end
 
-    subgraph App["RAG Ops Guard application"]
+    subgraph A["Application · policy & orchestration"]
       direction TB
-      Graph["LangGraph orchestration"]
-      Resolve["Deterministic evidence resolver<br/>status · version · authority"]
-      Cite["Citation validator"]
-      Chunk["Chunking + manifests"]
+      LG["LangGraph"] --> Resolver["Evidence resolver<br/>version · status · authority"]
+      Resolver --> Context["Context builder<br/>max 5 chunks"]
+      Context --> Cite["Citation validator"]
+      Cite --> Response(["Grounded response"])
     end
 
-    subgraph LocalAI["llama.cpp · CPU local inference"]
+    subgraph AI["Local AI · llama.cpp · CPU"]
       direction TB
-      Embed["Qwen3-Embedding-0.6B<br/>1024-d embeddings"]
-      Gen["Qwen3-4B Q4_K_M<br/>query analysis + generation"]
+      Embed["Qwen3-Embedding-0.6B<br/>llama-embed :8081"]
+      Gen["Qwen3-4B Q4_K_M<br/>llama-gen :8080"]
     end
 
-    Client --> API --> QL --> Graph
-    Graph -->|query embedding| Embed
-    Embed -->|similarity query| VDB
-    VDB --> Resolve
-    Resolve --> Gen
-    Gen --> Cite --> Answer
-
-    KB --> IL --> Chunk
-    IL --> S3
-    Chunk --> Embed
-    Embed -->|store vectors| VDB
-
-    classDef edge fill:#F7F8FA,stroke:#94A3B8,color:#172033,stroke-width:1px;
-    classDef runtime fill:#F3F6FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
-    classDef app fill:#F1F6F5,stroke:#6F948B,color:#172033,stroke-width:1px;
-    classDef ai fill:#F7F3ED,stroke:#A38B6D,color:#172033,stroke-width:1px;
-    classDef data fill:#F4F6F2,stroke:#83977D,color:#172033,stroke-width:1px;
-    classDef answer fill:#EEF5F3,stroke:#6F948B,color:#172033,stroke-width:1.5px;
-
-    class Client,KB edge;
-    class API,QL,IL runtime;
-    class Graph,Resolve,Cite,Chunk app;
-    class Embed,Gen ai;
-    class S3,VDB data;
-    class Answer answer;
+    Query --> LG
+    Ingest --> Embed
+    Embed --> S3V
+    LG --> Embed
+    LG --> S3V
+    S3V --> Resolver
+    S3 -. "chunks" .-> Resolver
+    Context --> Gen
+    Gen --> Cite
 ```
 
 ### Local infrastructure
@@ -143,10 +113,10 @@ flowchart LR
 
 Generation and embeddings are different workloads and are deliberately separated.
 
-| Local service | Model | Responsibility |
+| Local service | Model | Role |
 |---|---|---|
-| `llama-gen :8080` | `Qwen3-4B-Q4_K_M` | Query analysis and grounded generation |
-| `llama-embed :8081` | `Qwen3-Embedding-0.6B-Q8_0` | Document and query embeddings |
+| `llama-gen :8080` | `Qwen3-4B-Q4_K_M` | Query analysis + grounded generation |
+| `llama-embed :8081` | `Qwen3-Embedding-0.6B-Q8_0` | Document + query embeddings |
 
 The vector store does **not** create embeddings. The embedding server converts text into 1024-dimensional vectors; S3 Vectors stores those vectors and performs cosine-similarity retrieval.
 
@@ -176,41 +146,31 @@ LangGraph is used as the actual query state machine rather than as a decorative 
 ---
 config:
   look: handDrawn
-  handDrawnSeed: 23
-  theme: base
-  themeVariables:
-    background: "#FCFCFD"
-    primaryColor: "#F7F8FA"
-    primaryTextColor: "#172033"
-    primaryBorderColor: "#AAB4C2"
-    lineColor: "#64748B"
-    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  handDrawnSeed: 29
   flowchart:
-    curve: linear
-    nodeSpacing: 34
-    rankSpacing: 46
+    curve: stepBefore
+    nodeSpacing: 38
+    rankSpacing: 48
 ---
-flowchart TB
-    subgraph Main["Happy path"]
-      direction LR
-      Validate["1 · Validate request"] --> Analyze["2 · Analyze query"] --> Retrieve["3 · Retrieve evidence"] --> Resolve["4 · Resolve evidence"] --> Generate["5 · Generate grounded answer"] --> Citations["6 · Validate citations"] --> Answered(["7 · answered"])
-    end
+flowchart LR
+    Start([START]) --> Validate["validate_request"]
+    Validate --> Analyze["analyze_query<br/>Qwen · structured output"]
+    Analyze --> Route{"policy / ambiguity"}
 
-    Analyze -. "policy bypass / secret extraction" .-> Blocked["safety_blocked"]
-    Analyze -. "ambiguous target / version / environment" .-> Clarify["clarification_required"]
-    Resolve -. "no admissible evidence" .-> Insufficient["insufficient_evidence"]
-    Generate -. "weak grounding / invalid citation" .-> Insufficient
+    Route -->|unsafe| Blocked["safety_blocked"]
+    Route -->|ambiguous| Clarify["clarification_required"]
+    Route -->|continue| Retrieve["retrieve_evidence<br/>embed + S3 Vectors"]
 
-    classDef main fill:#F5F7FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
-    classDef success fill:#EEF5F3,stroke:#6F948B,color:#17352F,stroke-width:1.5px;
-    classDef exit fill:#F8F2F1,stroke:#A98680,color:#542F2A,stroke-width:1px;
+    Retrieve --> Resolve{"admissible evidence?"}
+    Resolve -->|no| Insufficient["insufficient_evidence"]
+    Resolve -->|yes| Generate["generate_grounded_answer<br/>Qwen"]
 
-    class Validate,Analyze,Retrieve,Resolve,Generate,Citations main;
-    class Answered success;
-    class Blocked,Clarify,Insufficient exit;
+    Generate --> Citations{"citations valid?"}
+    Citations -->|yes| Answered(["answered<br/>answer + citations"])
+    Citations -->|no| SafeAbstain["insufficient_evidence"]
 ```
 
-The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation. Version selection, lifecycle rules, conflict resolution, and citation validation remain deterministic and directly testable.
+The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation. Version selection, lifecycle rules, citation validation, and conflict resolution remain deterministic and testable.
 
 ## Knowledge corpus
 
@@ -280,41 +240,32 @@ The repository uses two permanent branches: `feature/* → develop → main → 
 ```mermaid
 ---
 config:
-  look: classic
-  theme: base
-  themeVariables:
-    background: "#FCFCFD"
-    primaryColor: "#F5F7FA"
-    primaryTextColor: "#172033"
-    primaryBorderColor: "#B8C1CF"
-    lineColor: "#64748B"
-    clusterBkg: "#FAFBFC"
-    clusterBorder: "#CBD2DC"
-    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  look: handDrawn
+  handDrawnSeed: 41
   flowchart:
-    curve: linear
-    nodeSpacing: 26
-    rankSpacing: 40
+    curve: stepBefore
+    nodeSpacing: 42
+    rankSpacing: 50
 ---
-flowchart LR
-    Feature["feature / fix / docs"] --> PR["Pull request<br/>to develop"]
+flowchart TB
+    Feature["feature / fix / docs branch"] --> PR["PR → develop"]
 
     subgraph CI["GitHub-hosted deterministic CI"]
-      direction TB
-      Quality["Ruff + strict mypy"]
+      direction LR
+      Quality["Ruff + mypy"]
       Unit["pytest + coverage"]
       Property["Hypothesis"]
       Security["dependency + secret audit"]
-      Floci["Floci integration<br/>S3 · S3 Vectors · Lambda · API Gateway"]
+      Floci["Floci integration"]
       CDK["CDK test + synth"]
-      CIGate{{"ci/gate"}}
+      Gate["ci/gate"]
 
-      Quality --> CIGate
-      Unit --> CIGate
-      Property --> CIGate
-      Security --> CIGate
-      Floci --> CIGate
-      CDK --> CIGate
+      Quality --> Gate
+      Unit --> Gate
+      Property --> Gate
+      Security --> Gate
+      Floci --> Gate
+      CDK --> Gate
     end
 
     PR --> Quality
@@ -323,32 +274,22 @@ flowchart LR
     PR --> Security
     PR --> Floci
     PR --> CDK
-    CIGate --> Develop["develop"]
 
-    subgraph Release["Trusted local release validation · rag-e2e"]
-      direction TB
-      E2E["release/e2e<br/>Qwen + llama.cpp + Floci<br/>adversarial + golden + RAGAS"]
-      Repro["release/reproducibility<br/>clean checkout + smoke"]
-      ReleaseGate{{"release/gate"}}
+    Gate --> Develop["develop"]
+
+    subgraph Release["Trusted local 8-thread release runner"]
+      direction LR
+      E2E["real Qwen + llama.cpp<br/>Floci E2E + adversarial + RAGAS"]
+      Repro["clean-clone reproducibility"]
+      ReleaseGate["release/gate"]
       E2E --> ReleaseGate
       Repro --> ReleaseGate
     end
 
     Develop --> E2E
     Develop --> Repro
-    ReleaseGate --> Main["main"] --> Tag(["v0.1.0-beta.1"])
-
-    classDef dev fill:#F5F7FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
-    classDef ci fill:#F2F5F8,stroke:#7890AA,color:#172033,stroke-width:1px;
-    classDef release fill:#F1F6F5,stroke:#6F948B,color:#172033,stroke-width:1px;
-    classDef gate fill:#EEF1F5,stroke:#53657D,color:#172033,stroke-width:1.5px;
-    classDef final fill:#F6F3EE,stroke:#9A866D,color:#3A3025,stroke-width:1.5px;
-
-    class Feature,PR,Develop,Main dev;
-    class Quality,Unit,Property,Security,Floci,CDK ci;
-    class E2E,Repro release;
-    class CIGate,ReleaseGate gate;
-    class Tag final;
+    ReleaseGate --> Main["main"]
+    Main --> Tag(["v0.1.0-beta.1"])
 ```
 
 ### Pull requests to `develop`
