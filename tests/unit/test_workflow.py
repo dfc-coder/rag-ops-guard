@@ -53,6 +53,27 @@ def test_answered_path_returns_valid_citation() -> None:
     assert chat.generation_calls == 1
 
 
+def test_invalid_generated_citation_degrades_to_safe_abstention() -> None:
+    item = evidence()
+    chat = FakeChatModel(
+        analysis=normal_analysis(),
+        answer=GroundedAnswer(
+            status="answered",
+            answer="Invented answer.",
+            citation_ids=["not-retrieved:9.9:000:badc0de0"],
+        ),
+    )
+    response = workflow(chat, FakeVectorStore(evidence=[item])).invoke(
+        QueryRequest(
+            question="How many retries are allowed?",
+            context=QueryContext(system="payments", environment="production"),
+        )
+    )
+    assert response.status == QueryStatus.INSUFFICIENT_EVIDENCE
+    assert response.citations == []
+    assert "not provide enough evidence" in (response.answer or "")
+
+
 def test_ambiguity_stops_before_retrieval_generation() -> None:
     chat = FakeChatModel(
         analysis=QueryAnalysis(

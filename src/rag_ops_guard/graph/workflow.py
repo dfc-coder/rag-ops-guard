@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
-from rag_ops_guard.domain.errors import EvidenceConflictError
+from rag_ops_guard.domain.errors import CitationValidationError, EvidenceConflictError
 from rag_ops_guard.domain.models import QueryRequest, QueryResponse, QueryStatus
 from rag_ops_guard.graph.prompts import analysis_prompt, answer_prompt
 from rag_ops_guard.graph.state import RagState
@@ -175,12 +175,21 @@ class RagWorkflow:
         if grounded.status == "insufficient_evidence":
             update["status"] = QueryStatus.INSUFFICIENT_EVIDENCE
             update["citations"] = []
-        else:
-            update["status"] = QueryStatus.ANSWERED
-            update["citations"] = validate_citations(
-                grounded.citation_ids,
-                state["resolved_evidence"],
+            return update
+
+        try:
+            citations = validate_citations(grounded.citation_ids, state["resolved_evidence"])
+        except CitationValidationError as exc:
+            QUERY_LOGGER.warning(
+                "invalid_generated_citation",
+                extra={"request_id": state["request_id"], "detail": str(exc)},
             )
+            update["status"] = QueryStatus.INSUFFICIENT_EVIDENCE
+            update["citations"] = []
+            return update
+
+        update["status"] = QueryStatus.ANSWERED
+        update["citations"] = citations
         return update
 
     @staticmethod
