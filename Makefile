@@ -4,14 +4,7 @@ COMPOSE := docker compose -f docker/docker-compose.yml
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed smoke test test-unit test-property test-integration test-e2e lint types ci eval release-check reset
 
 doctor:
-	@python3 --version
-	@uv --version
-	@node --version
-	@npm --version
-	@docker --version
-	@docker compose version
-	@git --version
-	@for port in 4566 8080 8081; do ! (command -v lsof >/dev/null && lsof -i :$$port -sTCP:LISTEN -t >/dev/null) || { echo "port $$port already in use"; exit 1; }; done
+	@python3 scripts/doctor.py
 
 setup:
 	uv sync --frozen --all-extras --group dev
