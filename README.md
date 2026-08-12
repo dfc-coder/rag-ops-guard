@@ -42,57 +42,80 @@ For an `answered` response, citation IDs are validated against the evidence actu
 
 `v0.1.0-beta.1` is intentionally runnable **without an AWS account and without a hosted LLM API**.
 
-```text
-                               Client
-                                  │
-                                  ▼
-                     Floci API Gateway v2
-                                  │
-                    ┌─────────────┴─────────────┐
-                    ▼                           ▼
-              Query Lambda                Ingest Lambda
-                    │                           │
-                    │                        Floci S3
-                    │                           │
-                    │                        chunking
-                    │                           │
-                    │                           ▼
-                    │                 llama.cpp embeddings
-                    │                Qwen3-Embedding-0.6B
-                    │                           │
-                    │                           ▼
-                    │                  Floci S3 Vectors
-                    │
-                    ▼
-                LangGraph
-                    │
-              query analysis
-                    │
-           ┌────────┼──────────────┐
-           │        │              │
-        blocked  clarify        retrieve
-                                 │
-                                 ▼
-                        local query embedding
-                                 │
-                                 ▼
-                         Floci S3 Vectors
-                                 │
-                                 ▼
-                       deterministic resolver
-                                 │
-                     ┌───────────┴────────────┐
-                     ▼                        ▼
-                 abstain               grounded generation
-                                             │
-                                             ▼
-                                      Qwen3-4B / llama.cpp
-                                             │
-                                             ▼
-                                       citation validator
-                                             │
-                                             ▼
-                                           response
+```mermaid
+---
+config:
+  look: classic
+  theme: base
+  themeVariables:
+    background: "#FCFCFD"
+    primaryColor: "#F5F7FA"
+    primaryTextColor: "#172033"
+    primaryBorderColor: "#B8C1CF"
+    lineColor: "#64748B"
+    secondaryColor: "#EEF5F3"
+    tertiaryColor: "#F6F3EE"
+    clusterBkg: "#FAFBFC"
+    clusterBorder: "#CBD2DC"
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  flowchart:
+    curve: linear
+    nodeSpacing: 28
+    rankSpacing: 42
+---
+flowchart LR
+    Client(["Engineer / API client"])
+    Answer(["Grounded answer<br/>+ validated citations"])
+    KB["Operational knowledge<br/>runbooks · APIs · incidents · SLAs"]
+
+    subgraph Floci["Floci · local AWS-compatible runtime"]
+      direction TB
+      API["API Gateway v2"]
+      QL["Query Lambda"]
+      IL["Ingest Lambda"]
+      S3["S3 Documents"]
+      VDB["S3 Vectors"]
+    end
+
+    subgraph App["RAG Ops Guard application"]
+      direction TB
+      Graph["LangGraph orchestration"]
+      Resolve["Deterministic evidence resolver<br/>status · version · authority"]
+      Cite["Citation validator"]
+      Chunk["Chunking + manifests"]
+    end
+
+    subgraph LocalAI["llama.cpp · CPU local inference"]
+      direction TB
+      Embed["Qwen3-Embedding-0.6B<br/>1024-d embeddings"]
+      Gen["Qwen3-4B Q4_K_M<br/>query analysis + generation"]
+    end
+
+    Client --> API --> QL --> Graph
+    Graph -->|query embedding| Embed
+    Embed -->|similarity query| VDB
+    VDB --> Resolve
+    Resolve --> Gen
+    Gen --> Cite --> Answer
+
+    KB --> IL --> Chunk
+    IL --> S3
+    Chunk --> Embed
+    Embed -->|store vectors| VDB
+
+    classDef edge fill:#F7F8FA,stroke:#94A3B8,color:#172033,stroke-width:1px;
+    classDef runtime fill:#F3F6FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
+    classDef app fill:#F1F6F5,stroke:#6F948B,color:#172033,stroke-width:1px;
+    classDef ai fill:#F7F3ED,stroke:#A38B6D,color:#172033,stroke-width:1px;
+    classDef data fill:#F4F6F2,stroke:#83977D,color:#172033,stroke-width:1px;
+    classDef answer fill:#EEF5F3,stroke:#6F948B,color:#172033,stroke-width:1.5px;
+
+    class Client,KB edge;
+    class API,QL,IL runtime;
+    class Graph,Resolve,Cite,Chunk app;
+    class Embed,Gen ai;
+    class S3,VDB data;
+    class Answer answer;
 ```
 
 ### Local infrastructure
@@ -120,10 +143,10 @@ For an `answered` response, citation IDs are validated against the evidence actu
 
 Generation and embeddings are different workloads and are deliberately separated.
 
-```text
-llama-gen   :8080  → Qwen3-4B-Q4_K_M
-llama-embed :8081  → Qwen3-Embedding-0.6B-Q8_0
-```
+| Local service | Model | Responsibility |
+|---|---|---|
+| `llama-gen :8080` | `Qwen3-4B-Q4_K_M` | Query analysis and grounded generation |
+| `llama-embed :8081` | `Qwen3-Embedding-0.6B-Q8_0` | Document and query embeddings |
 
 The vector store does **not** create embeddings. The embedding server converts text into 1024-dimensional vectors; S3 Vectors stores those vectors and performs cosine-similarity retrieval.
 
@@ -149,35 +172,45 @@ This means an obsolete but semantically similar runbook cannot silently override
 
 LangGraph is used as the actual query state machine rather than as a decorative dependency.
 
-```text
-START
-  │
-  ▼
-validate_request
-  │
-  ▼
-analyze_query
-  │
-  ├── direct policy bypass / secret extraction ──► safety_blocked
-  ├── ambiguity ─────────────────────────────────► clarification_required
-  ▼
-retrieve_evidence
-  │
-  ▼
-resolve_evidence
-  │
-  ├── no admissible evidence ────────────────────► insufficient_evidence
-  ▼
-generate_grounded_answer
-  │
-  ▼
-validate_citations
-  │
-  ▼
-END
+```mermaid
+---
+config:
+  look: handDrawn
+  handDrawnSeed: 23
+  theme: base
+  themeVariables:
+    background: "#FCFCFD"
+    primaryColor: "#F7F8FA"
+    primaryTextColor: "#172033"
+    primaryBorderColor: "#AAB4C2"
+    lineColor: "#64748B"
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  flowchart:
+    curve: linear
+    nodeSpacing: 34
+    rankSpacing: 46
+---
+flowchart TB
+    subgraph Main["Happy path"]
+      direction LR
+      Validate["1 · Validate request"] --> Analyze["2 · Analyze query"] --> Retrieve["3 · Retrieve evidence"] --> Resolve["4 · Resolve evidence"] --> Generate["5 · Generate grounded answer"] --> Citations["6 · Validate citations"] --> Answered(["7 · answered"])
+    end
+
+    Analyze -. "policy bypass / secret extraction" .-> Blocked["safety_blocked"]
+    Analyze -. "ambiguous target / version / environment" .-> Clarify["clarification_required"]
+    Resolve -. "no admissible evidence" .-> Insufficient["insufficient_evidence"]
+    Generate -. "weak grounding / invalid citation" .-> Insufficient
+
+    classDef main fill:#F5F7FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
+    classDef success fill:#EEF5F3,stroke:#6F948B,color:#17352F,stroke-width:1.5px;
+    classDef exit fill:#F8F2F1,stroke:#A98680,color:#542F2A,stroke-width:1px;
+
+    class Validate,Analyze,Retrieve,Resolve,Generate,Citations main;
+    class Answered success;
+    class Blocked,Clarify,Insufficient exit;
 ```
 
-The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation.
+The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation. Version selection, lifecycle rules, conflict resolution, and citation validation remain deterministic and directly testable.
 
 ## Knowledge corpus
 
@@ -242,48 +275,103 @@ LangSmith is optional. When enabled, the same workflow can be traced and evaluat
 
 ## CI and release gates
 
-The repository uses two permanent branches:
+The repository uses two permanent branches: `feature/* → develop → main → SemVer tag`. Feature branches are short-lived and squash-merged.
 
-```text
-feature/* → develop → main → SemVer tag
+```mermaid
+---
+config:
+  look: classic
+  theme: base
+  themeVariables:
+    background: "#FCFCFD"
+    primaryColor: "#F5F7FA"
+    primaryTextColor: "#172033"
+    primaryBorderColor: "#B8C1CF"
+    lineColor: "#64748B"
+    clusterBkg: "#FAFBFC"
+    clusterBorder: "#CBD2DC"
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  flowchart:
+    curve: linear
+    nodeSpacing: 26
+    rankSpacing: 40
+---
+flowchart LR
+    Feature["feature / fix / docs"] --> PR["Pull request<br/>to develop"]
+
+    subgraph CI["GitHub-hosted deterministic CI"]
+      direction TB
+      Quality["Ruff + strict mypy"]
+      Unit["pytest + coverage"]
+      Property["Hypothesis"]
+      Security["dependency + secret audit"]
+      Floci["Floci integration<br/>S3 · S3 Vectors · Lambda · API Gateway"]
+      CDK["CDK test + synth"]
+      CIGate{{"ci/gate"}}
+
+      Quality --> CIGate
+      Unit --> CIGate
+      Property --> CIGate
+      Security --> CIGate
+      Floci --> CIGate
+      CDK --> CIGate
+    end
+
+    PR --> Quality
+    PR --> Unit
+    PR --> Property
+    PR --> Security
+    PR --> Floci
+    PR --> CDK
+    CIGate --> Develop["develop"]
+
+    subgraph Release["Trusted local release validation · rag-e2e"]
+      direction TB
+      E2E["release/e2e<br/>Qwen + llama.cpp + Floci<br/>adversarial + golden + RAGAS"]
+      Repro["release/reproducibility<br/>clean checkout + smoke"]
+      ReleaseGate{{"release/gate"}}
+      E2E --> ReleaseGate
+      Repro --> ReleaseGate
+    end
+
+    Develop --> E2E
+    Develop --> Repro
+    ReleaseGate --> Main["main"] --> Tag(["v0.1.0-beta.1"])
+
+    classDef dev fill:#F5F7FA,stroke:#7C8DA6,color:#172033,stroke-width:1px;
+    classDef ci fill:#F2F5F8,stroke:#7890AA,color:#172033,stroke-width:1px;
+    classDef release fill:#F1F6F5,stroke:#6F948B,color:#172033,stroke-width:1px;
+    classDef gate fill:#EEF1F5,stroke:#53657D,color:#172033,stroke-width:1.5px;
+    classDef final fill:#F6F3EE,stroke:#9A866D,color:#3A3025,stroke-width:1.5px;
+
+    class Feature,PR,Develop,Main dev;
+    class Quality,Unit,Property,Security,Floci,CDK ci;
+    class E2E,Repro release;
+    class CIGate,ReleaseGate gate;
+    class Tag final;
 ```
-
-Feature branches are short-lived and squash-merged.
 
 ### Pull requests to `develop`
 
-GitHub-hosted runners execute deterministic checks:
+GitHub-hosted runners execute deterministic checks: Ruff, strict mypy, unit tests, coverage, Hypothesis, dependency/security auditing, Floci integration, and CDK synthesis.
 
-```text
-ci/quality
-ci/unit
-ci/property
-ci/floci-integration
-ci/cdk
-        │
-        ▼
-     ci/gate
-```
-
-The Floci integration job uses real boto3 calls and real S3/S3 Vectors APIs, but deterministic synthetic vectors instead of downloading multi-gigabyte AI models.
+The Floci integration job uses real boto3 calls and real S3/S3 Vectors/Lambda/API Gateway-compatible APIs, but deterministic synthetic vectors instead of downloading multi-gigabyte AI models.
 
 ### `develop` → `main`
 
-The release workflow is designed for a trusted self-hosted 8-thread runner and performs the real local stack test:
+The release workflow is designed for a trusted self-hosted 8-thread runner and performs the full local stack test with:
 
-```text
-Floci
-+ Qwen3-4B
-+ Qwen3-Embedding-0.6B
-+ llama.cpp
-+ LangGraph
-+ real ingestion
-+ real S3 Vectors retrieval
-+ adversarial suite
-+ golden dataset
-+ RAGAS
-+ clean-clone reproducibility
-```
+- Floci;
+- Qwen3-4B;
+- Qwen3-Embedding-0.6B;
+- llama.cpp;
+- LangGraph;
+- real ingestion;
+- real S3 Vectors retrieval;
+- adversarial tests;
+- the golden dataset;
+- RAGAS;
+- clean-clone reproducibility.
 
 A critical safety, prompt-injection, citation-integrity, model-checksum, or reproducibility failure blocks the beta even if aggregate averages remain high.
 
@@ -300,7 +388,7 @@ See [`docs/acceptance-criteria.md`](docs/acceptance-criteria.md) for the complet
 - Node.js 24
 - npm
 - Git
-- approximately 4 GB of free disk space for model/runtime artifacts
+- at least 8 GiB of free disk space for model/runtime artifacts
 - an 8-thread CPU is the reference development target
 
 No AWS account or hosted model API key is required.
@@ -337,10 +425,11 @@ make local-up
 make local-provision
 ```
 
-### 6. Upload the sample knowledge corpus
+### 6. Upload and ingest the sample knowledge corpus
 
 ```bash
 make seed
+make ingest-corpus
 ```
 
 ### 7. Run the smoke test
@@ -432,11 +521,7 @@ docs/                    architecture, implementation plan, ADRs and threat mode
 
 ## Current milestone
 
-The target of the active implementation is:
-
-```text
-v0.1.0-beta.1 — Local AWS-Compatible Grounded RAG
-```
+The target of the active implementation is **`v0.1.0-beta.1 — Local AWS-Compatible Grounded RAG`**.
 
 The tag is created only after the complete release gate passes on a clean, trusted local runner. Until then, the repository should be treated as an implementation candidate rather than a released beta.
 
