@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ MIN_CPU_THREADS = 8
 MIN_MEMORY_GIB = 8
 MIN_FREE_DISK_GIB = 8
 REQUIRED_PORTS = (4566, 8080, 8081)
-REQUIRED_COMMANDS = ("uv", "node", "npm", "docker", "git")
+REQUIRED_COMMANDS = ("uv", "node", "npm", "podman", "git")
 
 
 def gib(value: int) -> float:
@@ -46,6 +47,13 @@ def assert_port_available(port: int) -> None:
             raise RuntimeError(f"port {port} is already in use")
 
 
+def podman_socket_path() -> Path:
+    configured = os.environ.get("PODMAN_SOCKET")
+    if configured:
+        return Path(configured)
+    return Path(f"/run/user/{os.getuid()}/podman/podman.sock")
+
+
 def main() -> None:
     failures: list[str] = []
 
@@ -58,10 +66,28 @@ def main() -> None:
             failures.append(f"missing command: {command}")
             continue
         try:
-            args = ("compose", "version") if command == "docker" else ("--version",)
-            print(f"{command}: {command_version(command, *args)}")
+            print(f"{command}: {command_version(command, '--version')}")
         except subprocess.CalledProcessError as exc:
             failures.append(f"{command} failed its version check: {exc}")
+
+    if shutil.which("podman") is not None:
+        try:
+            print(f"podman_compose: {command_version('podman', 'compose', 'version')}")
+        except subprocess.CalledProcessError as exc:
+            failures.append(f"podman compose is unavailable: {exc}")
+
+    socket_path = podman_socket_path()
+    try:
+        mode = socket_path.stat().st_mode
+        if not stat.S_ISSOCK(mode):
+            failures.append(f"Podman API path is not a Unix socket: {socket_path}")
+        else:
+            print(f"podman_socket: {socket_path}")
+    except FileNotFoundError:
+        failures.append(
+            f"Podman API socket not found at {socket_path}; run "
+            "`systemctl --user enable --now podman.socket`"
+        )
 
     cpu_threads = os.cpu_count() or 0
     print(f"cpu_threads: {cpu_threads}")
