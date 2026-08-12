@@ -11,11 +11,12 @@ services:
       FLOCI_DEFAULT_REGION: us-east-1
       FLOCI_SERVICES_DOCKER_NETWORK: rag-ops-net
       FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: rag-ops-net
+      FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci
       FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED: "true"
       FLOCI_DNS_CONTAINER_FALLBACK_ENABLED: "false"
     volumes:
       - ../.local/floci:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
+      - "${PODMAN_SOCKET}:/var/run/docker.sock:z"
     networks:
       - rag-ops-net
 
