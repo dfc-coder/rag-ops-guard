@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
+from rag_ops_guard.domain.errors import EvidenceConflictError
 from rag_ops_guard.domain.models import QueryRequest, QueryResponse, QueryStatus
 from rag_ops_guard.graph.prompts import analysis_prompt, answer_prompt
 from rag_ops_guard.graph.state import RagState
@@ -127,11 +128,18 @@ class RagWorkflow:
         }
 
     def _resolve_evidence(self, state: RagState) -> RagState:
-        resolved = self._resolver.resolve(
-            state.get("retrieved_evidence", []),
-            state["context"],
-            limit=self._context_k,
-        )
+        try:
+            resolved = self._resolver.resolve(
+                state.get("retrieved_evidence", []),
+                state["context"],
+                limit=self._context_k,
+            )
+        except EvidenceConflictError as exc:
+            QUERY_LOGGER.warning(
+                "evidence_conflict",
+                extra={"request_id": state["request_id"], "detail": str(exc)},
+            )
+            resolved = []
         update: RagState = {
             "resolved_evidence": resolved,
             "graph_path": self._append_path(state, "resolve_evidence"),

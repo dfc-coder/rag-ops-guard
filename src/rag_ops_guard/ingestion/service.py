@@ -44,13 +44,13 @@ class IngestionService:
         if previous:
             self._vectors.delete(previous.vector_keys)
 
-        vector_keys = self._vectors.put(chunks, vectors)
         for chunk in chunks:
             self._objects.put_text(
                 f"chunks/{chunk.logical_id}/{chunk.version}/chunk-{chunk.chunk_index:03d}.json",
                 json.dumps(chunk.model_dump(mode="json"), indent=2),
                 "application/json",
             )
+        vector_keys = self._vectors.put(chunks, vectors)
 
         save_manifest(
             self._objects,

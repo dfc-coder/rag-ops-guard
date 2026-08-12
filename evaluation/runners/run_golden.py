@@ -9,6 +9,10 @@ from typing import Any
 import httpx
 import yaml
 
+from rag_ops_guard.app import embeddings, vector_store
+from rag_ops_guard.domain.models import Citation
+from rag_ops_guard.retrieval.query_instruction import embedding_query
+
 
 @dataclass
 class Result:
@@ -18,6 +22,7 @@ class Result:
     forbidden_sources_ok: bool
     required_facts_ok: bool
     forbidden_facts_ok: bool
+    retrieval_hit_at_5: bool | None
     actual_status: str
     actual_sources: list[str]
 
@@ -44,8 +49,21 @@ def api_url() -> str:
     return path.read_text().strip().rstrip("/")
 
 
-def source_matches(expected: str, actual: str) -> bool:
-    return actual == expected or actual.startswith(expected)
+def citation_identities(citation: Citation) -> set[str]:
+    major = citation.version.split(".", maxsplit=1)[0]
+    return {citation.logical_id, f"{citation.logical_id}-v{major}"}
+
+
+def retrieved_identities(question: str) -> set[str]:
+    vector = embeddings().embed_query(embedding_query(question))
+    evidence = vector_store().query(vector, top_k=5)
+    identities: set[str] = set()
+    for item in evidence:
+        major = item.chunk.version.split(".", maxsplit=1)[0]
+        identities.add(item.chunk.logical_id)
+        identities.add(f"{item.chunk.logical_id}-v{major}")
+        identities.add(item.chunk.metadata.id)
+    return identities
 
 
 def run_case(base_url: str, case: dict[str, Any]) -> Result:
@@ -56,29 +74,28 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
     )
     response.raise_for_status()
     payload = response.json()
-    actual_sources = [str(item["logical_id"]) for item in payload.get("citations", [])]
+    citations = [Citation.model_validate(item) for item in payload.get("citations", [])]
+    actual_source_ids = set().union(*(citation_identities(item) for item in citations)) if citations else set()
     answer = str(payload.get("answer") or "").lower()
-    expected_sources = [str(value) for value in case.get("expected_source_ids", [])]
-    forbidden_sources = [str(value) for value in case.get("forbidden_source_ids", [])]
+    expected_sources = {str(value) for value in case.get("expected_source_ids", [])}
+    forbidden_sources = {str(value) for value in case.get("forbidden_source_ids", [])}
+    retrieval_ids = retrieved_identities(str(case["question"])) if expected_sources else set()
     return Result(
         id=str(case["id"]),
         status_ok=payload.get("status") == case["expected_status"],
-        sources_ok=all(
-            any(source_matches(expected, actual) for actual in actual_sources)
-            for expected in expected_sources
-        ),
-        forbidden_sources_ok=all(
-            not any(source_matches(forbidden, actual) for actual in actual_sources)
-            for forbidden in forbidden_sources
-        ),
+        sources_ok=expected_sources.issubset(actual_source_ids),
+        forbidden_sources_ok=forbidden_sources.isdisjoint(actual_source_ids),
         required_facts_ok=all(
             str(fact).lower() in answer for fact in case.get("required_facts", [])
         ),
         forbidden_facts_ok=all(
             str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
         ),
+        retrieval_hit_at_5=(
+            expected_sources.issubset(retrieval_ids) if expected_sources else None
+        ),
         actual_status=str(payload.get("status")),
-        actual_sources=actual_sources,
+        actual_sources=sorted(actual_source_ids),
     )
 
 
@@ -88,18 +105,18 @@ def main() -> None:
     base_url = api_url()
     results = [run_case(base_url, case) for case in cases]
     status_accuracy = sum(item.status_ok for item in results) / len(results)
-    cases_with_sources = [case for case in cases if case.get("expected_source_ids")]
-    source_hits = 0
-    for case, result in zip(cases, results, strict=True):
-        if case.get("expected_source_ids") and result.sources_ok:
-            source_hits += 1
-    retrieval_hit = source_hits / max(1, len(cases_with_sources))
+    retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
+    retrieval_hit = sum(bool(item.retrieval_hit_at_5) for item in retrieval_cases) / max(
+        1, len(retrieval_cases)
+    )
     citation_validity = sum(item.forbidden_sources_ok for item in results) / len(results)
 
     by_id = {result.id: result for result in results}
     safety_cases = [case for case in cases if case["category"] == "safety"]
     injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
-    safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(1, len(safety_cases))
+    safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(
+        1, len(safety_cases)
+    )
     injection_rate = sum(by_id[case["id"]].passed for case in injection_cases) / max(
         1, len(injection_cases)
     )
