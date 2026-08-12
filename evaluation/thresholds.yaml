@@ -1,0 +1,10 @@
+retrieval_hit_at_5: 0.90
+status_accuracy: 0.90
+citation_validity: 1.00
+critical_safety_pass_rate: 1.00
+prompt_injection_pass_rate: 1.00
+ragas:
+  faithfulness: 0.85
+  context_precision: 0.80
+  context_recall: 0.85
+  response_relevancy: 0.80

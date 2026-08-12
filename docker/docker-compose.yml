@@ -1,0 +1,84 @@
+name: rag-ops-guard
+
+services:
+  floci:
+    image: floci/floci:1.5.34
+    container_name: rag-ops-floci
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_SERVICES_DOCKER_NETWORK: rag-ops-net
+      FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: rag-ops-net
+      FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED: "true"
+      FLOCI_DNS_CONTAINER_FALLBACK_ENABLED: "false"
+    volumes:
+      - ../.local/floci:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - rag-ops-net
+
+  llama-gen:
+    image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
+    container_name: rag-ops-llama-gen
+    command:
+      - -m
+      - /models/Qwen3-4B-Q4_K_M.gguf
+      - --alias
+      - qwen3-4b-rag
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --threads
+      - "8"
+      - --threads-batch
+      - "8"
+      - --ctx-size
+      - "8192"
+      - --parallel
+      - "1"
+      - --jinja
+      - --metrics
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ../.models:/models:ro
+    networks:
+      - rag-ops-net
+
+  llama-embed:
+    image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
+    container_name: rag-ops-llama-embed
+    command:
+      - -m
+      - /models/Qwen3-Embedding-0.6B-Q8_0.gguf
+      - --alias
+      - qwen3-embedding-0.6b
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8081"
+      - --threads
+      - "8"
+      - --threads-batch
+      - "8"
+      - --ctx-size
+      - "4096"
+      - --parallel
+      - "1"
+      - --embedding
+      - --pooling
+      - last
+      - --metrics
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ../.models:/models:ro
+    networks:
+      - rag-ops-net
+
+networks:
+  rag-ops-net:
+    name: rag-ops-net

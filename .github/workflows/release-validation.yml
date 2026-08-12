@@ -1,0 +1,111 @@
+name: release-validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: release/source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only develop may release to main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          test "$HEAD_REF" = "develop"
+          test "$HEAD_REPO" = "dfc-coder/rag-ops-guard"
+
+  real-e2e:
+    name: release/e2e
+    needs: source
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 60
+    env:
+      RUN_REAL_E2E: '1'
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - run: uv sync --frozen --all-extras --group dev
+      - run: make models
+      - run: make reset || true
+      - run: make local-up
+      - run: make local-provision
+      - run: make seed
+      - name: Ingest corpus
+        run: |
+          API_URL=$(cat .local/api-url)
+          export API_URL
+          python3 - <<'PY'
+          import os, pathlib, httpx
+          api=os.environ['API_URL'].rstrip('/')
+          for path in sorted(pathlib.Path('knowledge-base').rglob('*.md')):
+              key='raw/'+path.relative_to('knowledge-base').as_posix()
+              r=httpx.post(api+'/v1/ingest', json={'s3_key':key}, timeout=180)
+              r.raise_for_status()
+              print(key, r.json()['status'])
+          PY
+      - run: uv run pytest -m e2e tests/e2e
+      - run: uv run pytest tests/adversarial
+      - run: make eval
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beta1-evaluation
+          path: artifacts/
+      - if: always()
+        run: make local-down || true
+
+  reproducibility:
+    name: release/reproducibility
+    needs: source
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          clean: true
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - run: make doctor
+      - run: make setup
+      - run: make models
+      - run: make local-up
+      - run: make local-provision
+      - run: make seed
+      - run: make smoke
+      - if: always()
+        run: make local-down || true
+
+  gate:
+    name: release/gate
+    if: always()
+    needs: [source, real-e2e, reproducibility]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results={k:v['result'] for k,v in json.loads(os.environ['NEEDS_JSON']).items()}
+          print(results)
+          sys.exit(0 if all(v == 'success' for v in results.values()) else 1)
+          PY
