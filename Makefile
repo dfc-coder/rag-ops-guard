@@ -1,0 +1,77 @@
+SHELL := /bin/bash
+COMPOSE := docker compose -f docker/docker-compose.yml
+
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed smoke test test-unit test-property test-integration test-e2e lint types ci eval release-check reset
+
+doctor:
+	@python3 --version
+	@uv --version
+	@node --version
+	@npm --version
+	@docker --version
+	@docker compose version
+	@git --version
+	@for port in 4566 8080 8081; do ! (command -v lsof >/dev/null && lsof -i :$$port -sTCP:LISTEN -t >/dev/null) || { echo "port $$port already in use"; exit 1; }; done
+
+setup:
+	uv sync --frozen --all-extras --group dev
+	cd infra/cdk && npm ci
+
+models:
+	python3 scripts/download_models.py
+
+package-lambda:
+	./scripts/package_lambda.sh
+
+local-up:
+	mkdir -p .local/floci .models
+	$(COMPOSE) up -d
+	uv run python scripts/wait_local.py
+
+local-down:
+	$(COMPOSE) down
+
+local-provision: package-lambda
+	uv run python scripts/local/provision.py
+
+seed:
+	uv run python scripts/seed.py
+
+smoke:
+	uv run python scripts/smoke.py
+
+lint:
+	uv run ruff format --check .
+	uv run ruff check .
+
+types:
+	uv run mypy src/
+
+test-unit:
+	uv run pytest tests/unit --cov=src/rag_ops_guard --cov-report=term-missing --cov-report=xml:artifacts/coverage.xml
+
+test-property:
+	uv run pytest tests/property
+
+test-integration:
+	uv run pytest -m integration tests/integration
+
+test-e2e:
+	uv run pytest -m e2e tests/e2e
+
+test: test-unit test-property
+
+ci: lint types test test-integration
+
+eval:
+	uv run --extra eval python evaluation/runners/run_golden.py
+	uv run --extra eval python evaluation/runners/run_ragas.py
+
+release-check: lint types test test-integration test-e2e eval
+	cd infra/cdk && npm test && npx cdk synth
+
+reset:
+	-uv run python scripts/local/reset.py
+	-$(COMPOSE) down -v
+	rm -rf .local/floci .local/lambda-package .local/api-url artifacts/*
+	touch artifacts/.gitkeep

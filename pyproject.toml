@@ -1,0 +1,73 @@
+[project]
+name = "rag-ops-guard"
+version = "0.1.0b1"
+description = "Local-first, AWS-compatible grounded RAG for integration operations."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "aws-lambda-powertools>=3.20,<4",
+  "boto3>=1.43.0,<2",
+  "httpx>=0.28,<1",
+  "langchain-core>=1.0,<2",
+  "langchain-openai>=1.0,<2",
+  "langgraph>=1.0,<2",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+eval = [
+  "langsmith>=0.4,<1",
+  "openai>=2,<3",
+  "ragas==0.4.3",
+]
+
+[dependency-groups]
+dev = [
+  "hypothesis>=6.130,<7",
+  "mypy>=1.17,<2",
+  "pip-audit>=2.9,<3",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+  "types-PyYAML>=6.0,<7",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+markers = [
+  "integration: requires Floci",
+  "e2e: requires Floci and local llama.cpp servers",
+  "adversarial: adversarial behavior tests",
+]
+
+[tool.coverage.run]
+source = ["src/rag_ops_guard"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["rag_ops_guard"]
+mypy_path = "src"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rag_ops_guard"]

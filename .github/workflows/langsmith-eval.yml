@@ -1,0 +1,25 @@
+name: langsmith-eval
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  optional-eval:
+    if: ${{ github.repository == 'dfc-coder/rag-ops-guard' }}
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    env:
+      LANGSMITH_TRACING: 'true'
+      LANGSMITH_PROJECT: rag-ops-guard-local
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - run: uv sync --frozen --all-extras --group dev
+      - run: test -n "$LANGSMITH_API_KEY"
+      - run: echo "LangSmith tracing is enabled; dataset experiment runner lands in beta.2."

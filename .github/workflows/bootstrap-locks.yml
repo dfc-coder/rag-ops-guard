@@ -1,0 +1,35 @@
+name: bootstrap-locks
+
+on:
+  push:
+    branches: [chore/beta1-foundation]
+
+permissions:
+  contents: write
+
+jobs:
+  locks:
+    if: "${{ !contains(github.event.head_commit.message, 'chore: generate dependency locks') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: false
+      - run: uv lock
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - working-directory: infra/cdk
+        run: npm install --package-lock-only
+      - name: Remove one-shot bootstrap workflow
+        run: rm .github/workflows/bootstrap-locks.yml
+      - name: Commit locks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock infra/cdk/package-lock.json .github/workflows/bootstrap-locks.yml
+          git commit -m "chore: generate dependency locks"
+          git push
