@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose -f docker/docker-compose.yml
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed smoke test test-unit test-property test-integration test-e2e lint types ci eval release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@python3 scripts/doctor.py
@@ -29,6 +29,9 @@ local-provision: package-lambda
 
 seed:
 	uv run python scripts/seed.py
+
+ingest-corpus:
+	uv run python scripts/ingest_corpus.py
 
 smoke:
 	uv run python scripts/smoke.py
@@ -59,6 +62,9 @@ ci: lint types test test-integration
 eval:
 	uv run --extra eval python evaluation/runners/run_golden.py
 	uv run --extra eval python evaluation/runners/run_ragas.py
+
+eval-langsmith:
+	uv run --extra eval python evaluation/runners/run_langsmith.py
 
 release-check: lint types test test-integration test-e2e eval
 	cd infra/cdk && npm test && npx cdk synth

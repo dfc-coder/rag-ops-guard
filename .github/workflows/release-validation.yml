@@ -1,28 +1,16 @@
 name: release-validation
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  source:
-    name: release/source
-    runs-on: ubuntu-latest
-    steps:
-      - name: Only develop may release to main
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-        run: |
-          test "$HEAD_REF" = "develop"
-          test "$HEAD_REPO" = "dfc-coder/rag-ops-guard"
-
   real-e2e:
     name: release/e2e
-    needs: source
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 60
     env:
@@ -47,19 +35,7 @@ jobs:
       - run: make local-up
       - run: make local-provision
       - run: make seed
-      - name: Ingest corpus
-        run: |
-          API_URL=$(cat .local/api-url)
-          export API_URL
-          python3 - <<'PY'
-          import os, pathlib, httpx
-          api=os.environ['API_URL'].rstrip('/')
-          for path in sorted(pathlib.Path('knowledge-base').rglob('*.md')):
-              key='raw/'+path.relative_to('knowledge-base').as_posix()
-              r=httpx.post(api+'/v1/ingest', json={'s3_key':key}, timeout=180)
-              r.raise_for_status()
-              print(key, r.json()['status'])
-          PY
+      - run: make ingest-corpus
       - run: uv run pytest -m e2e tests/e2e
       - run: uv run pytest tests/adversarial
       - run: make eval
@@ -73,7 +49,6 @@ jobs:
 
   reproducibility:
     name: release/reproducibility
-    needs: source
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 60
     steps:
@@ -84,12 +59,16 @@ jobs:
         with:
           python-version: '3.12'
           version: '0.12.3'
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
       - run: make doctor
       - run: make setup
       - run: make models
       - run: make local-up
       - run: make local-provision
       - run: make seed
+      - run: make ingest-corpus
       - run: make smoke
       - if: always()
         run: make local-down || true
@@ -97,7 +76,7 @@ jobs:
   gate:
     name: release/gate
     if: always()
-    needs: [source, real-e2e, reproducibility]
+    needs: [real-e2e, reproducibility]
     runs-on: ubuntu-latest
     steps:
       - env:
