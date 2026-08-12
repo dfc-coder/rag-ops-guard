@@ -1,0 +1,34 @@
+name: format-once-v2
+
+on:
+  push:
+    branches: [chore/beta1-foundation]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: "${{ !contains(github.event.head_commit.message, 'style: apply ruff formatting') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - run: uv sync --frozen --all-extras --group dev
+      - name: Apply safe Ruff fixes
+        run: uv run ruff check --fix . || true
+      - name: Apply formatter
+        run: uv run ruff format .
+      - name: Capture remaining lint
+        run: uv run ruff check . || true
+      - run: rm -f .github/workflows/format-once.yml .github/workflows/format-once-v2.yml
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: apply ruff formatting"
+          git push
