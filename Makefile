@@ -1,18 +1,19 @@
 SHELL := /bin/bash
-COMPOSE := docker compose -f docker/docker-compose.yml
-PYTHON := python3.12
+COMPOSE := podman compose -f docker/docker-compose.yml
+PODMAN_SOCKET ?= /run/user/$(shell id -u)/podman/podman.sock
+export PODMAN_SOCKET
 
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
-	@$(PYTHON) scripts/doctor.py
+	@uv run --no-project --python 3.12 python scripts/doctor.py
 
 setup:
 	uv sync --frozen --all-extras --group dev
 	cd infra/cdk && npm ci
 
 models:
-	$(PYTHON) scripts/download_models.py
+	uv run python scripts/download_models.py
 
 package-lambda:
 	./scripts/package_lambda.sh
