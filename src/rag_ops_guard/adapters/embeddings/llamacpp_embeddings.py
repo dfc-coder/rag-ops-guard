@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
 
 
 class LlamaCppEmbeddingAdapter:
@@ -10,7 +11,7 @@ class LlamaCppEmbeddingAdapter:
         self._dimension = dimension
         self._client = OpenAIEmbeddings(
             base_url=base_url,
-            api_key="local",
+            api_key=SecretStr("local"),
             model=model,
         )
 

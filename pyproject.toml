@@ -25,6 +25,7 @@ eval = [
 
 [dependency-groups]
 dev = [
+  "boto3-stubs[s3,s3vectors]>=1.43.31,<2",
   "hypothesis>=6.130,<7",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",

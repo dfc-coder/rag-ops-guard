@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
 
@@ -15,10 +16,10 @@ class LlamaCppChatAdapter:
     ) -> None:
         base = ChatOpenAI(
             base_url=base_url,
-            api_key="local",
+            api_key=SecretStr("local"),
             model=model,
             temperature=temperature,
-            max_tokens=max_tokens,
+            model_kwargs={"max_completion_tokens": max_tokens},
         )
         self._analysis = base.with_structured_output(QueryAnalysis, method="json_schema")
         self._answer = base.with_structured_output(GroundedAnswer, method="json_schema")

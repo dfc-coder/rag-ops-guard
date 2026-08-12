@@ -28,7 +28,8 @@ class S3ObjectStore:
 
     def get_text(self, key: str) -> str:
         response = self._client.get_object(Bucket=self._bucket, Key=key)
-        return response["Body"].read().decode("utf-8")
+        payload: bytes = response["Body"].read()
+        return payload.decode("utf-8")
 
     def put_text(self, key: str, content: str, content_type: str = "text/plain") -> None:
         self._client.put_object(
