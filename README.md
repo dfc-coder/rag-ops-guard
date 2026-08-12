@@ -42,57 +42,50 @@ For an `answered` response, citation IDs are validated against the evidence actu
 
 `v0.1.0-beta.1` is intentionally runnable **without an AWS account and without a hosted LLM API**.
 
-```text
-                               Client
-                                  │
-                                  ▼
-                     Floci API Gateway v2
-                                  │
-                    ┌─────────────┴─────────────┐
-                    ▼                           ▼
-              Query Lambda                Ingest Lambda
-                    │                           │
-                    │                        Floci S3
-                    │                           │
-                    │                        chunking
-                    │                           │
-                    │                           ▼
-                    │                 llama.cpp embeddings
-                    │                Qwen3-Embedding-0.6B
-                    │                           │
-                    │                           ▼
-                    │                  Floci S3 Vectors
-                    │
-                    ▼
-                LangGraph
-                    │
-              query analysis
-                    │
-           ┌────────┼──────────────┐
-           │        │              │
-        blocked  clarify        retrieve
-                                 │
-                                 ▼
-                        local query embedding
-                                 │
-                                 ▼
-                         Floci S3 Vectors
-                                 │
-                                 ▼
-                       deterministic resolver
-                                 │
-                     ┌───────────┴────────────┐
-                     ▼                        ▼
-                 abstain               grounded generation
-                                             │
-                                             ▼
-                                      Qwen3-4B / llama.cpp
-                                             │
-                                             ▼
-                                       citation validator
-                                             │
-                                             ▼
-                                           response
+```mermaid
+---
+config:
+  look: handDrawn
+  handDrawnSeed: 17
+  flowchart:
+    curve: stepBefore
+    nodeSpacing: 45
+    rankSpacing: 55
+---
+flowchart LR
+    Client([Client]) --> APIGW["API Gateway v2"]
+
+    subgraph F["Floci · AWS-compatible plane"]
+      direction TB
+      APIGW --> Query["Query Lambda<br/>/v1/query"]
+      APIGW --> Ingest["Ingest Lambda<br/>/v1/ingest"]
+      Ingest --> S3["S3<br/>docs · chunks · manifests"]
+      S3V["S3 Vectors<br/>1024-d · cosine"]
+    end
+
+    subgraph A["Application · policy & orchestration"]
+      direction TB
+      LG["LangGraph"] --> Resolver["Evidence resolver<br/>version · status · authority"]
+      Resolver --> Context["Context builder<br/>max 5 chunks"]
+      Context --> Cite["Citation validator"]
+      Cite --> Response(["Grounded response"])
+    end
+
+    subgraph AI["Local AI · llama.cpp · CPU"]
+      direction TB
+      Embed["Qwen3-Embedding-0.6B<br/>llama-embed :8081"]
+      Gen["Qwen3-4B Q4_K_M<br/>llama-gen :8080"]
+    end
+
+    Query --> LG
+    Ingest --> Embed
+    Embed --> S3V
+    LG --> Embed
+    LG --> S3V
+    S3V --> Resolver
+    S3 -. "chunks" .-> Resolver
+    Context --> Gen
+    Gen --> Cite
 ```
 
 ### Local infrastructure
@@ -120,10 +113,10 @@ For an `answered` response, citation IDs are validated against the evidence actu
 
 Generation and embeddings are different workloads and are deliberately separated.
 
-```text
-llama-gen   :8080  → Qwen3-4B-Q4_K_M
-llama-embed :8081  → Qwen3-Embedding-0.6B-Q8_0
-```
+| Local service | Model | Role |
+|---|---|---|
+| `llama-gen :8080` | `Qwen3-4B-Q4_K_M` | Query analysis + grounded generation |
+| `llama-embed :8081` | `Qwen3-Embedding-0.6B-Q8_0` | Document + query embeddings |
 
 The vector store does **not** create embeddings. The embedding server converts text into 1024-dimensional vectors; S3 Vectors stores those vectors and performs cosine-similarity retrieval.
 
@@ -149,35 +142,35 @@ This means an obsolete but semantically similar runbook cannot silently override
 
 LangGraph is used as the actual query state machine rather than as a decorative dependency.
 
-```text
-START
-  │
-  ▼
-validate_request
-  │
-  ▼
-analyze_query
-  │
-  ├── direct policy bypass / secret extraction ──► safety_blocked
-  ├── ambiguity ─────────────────────────────────► clarification_required
-  ▼
-retrieve_evidence
-  │
-  ▼
-resolve_evidence
-  │
-  ├── no admissible evidence ────────────────────► insufficient_evidence
-  ▼
-generate_grounded_answer
-  │
-  ▼
-validate_citations
-  │
-  ▼
-END
+```mermaid
+---
+config:
+  look: handDrawn
+  handDrawnSeed: 29
+  flowchart:
+    curve: stepBefore
+    nodeSpacing: 38
+    rankSpacing: 48
+---
+flowchart LR
+    Start([START]) --> Validate["validate_request"]
+    Validate --> Analyze["analyze_query<br/>Qwen · structured output"]
+    Analyze --> Route{"policy / ambiguity"}
+
+    Route -->|unsafe| Blocked["safety_blocked"]
+    Route -->|ambiguous| Clarify["clarification_required"]
+    Route -->|continue| Retrieve["retrieve_evidence<br/>embed + S3 Vectors"]
+
+    Retrieve --> Resolve{"admissible evidence?"}
+    Resolve -->|no| Insufficient["insufficient_evidence"]
+    Resolve -->|yes| Generate["generate_grounded_answer<br/>Qwen"]
+
+    Generate --> Citations{"citations valid?"}
+    Citations -->|yes| Answered(["answered<br/>answer + citations"])
+    Citations -->|no| SafeAbstain["insufficient_evidence"]
 ```
 
-The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation.
+The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation. Version selection, lifecycle rules, citation validation, and conflict resolution remain deterministic and testable.
 
 ## Knowledge corpus
 
@@ -242,48 +235,84 @@ LangSmith is optional. When enabled, the same workflow can be traced and evaluat
 
 ## CI and release gates
 
-The repository uses two permanent branches:
+The repository uses two permanent branches: `feature/* → develop → main → SemVer tag`. Feature branches are short-lived and squash-merged.
 
-```text
-feature/* → develop → main → SemVer tag
+```mermaid
+---
+config:
+  look: handDrawn
+  handDrawnSeed: 41
+  flowchart:
+    curve: stepBefore
+    nodeSpacing: 42
+    rankSpacing: 50
+---
+flowchart TB
+    Feature["feature / fix / docs branch"] --> PR["PR → develop"]
+
+    subgraph CI["GitHub-hosted deterministic CI"]
+      direction LR
+      Quality["Ruff + mypy"]
+      Unit["pytest + coverage"]
+      Property["Hypothesis"]
+      Security["dependency + secret audit"]
+      Floci["Floci integration"]
+      CDK["CDK test + synth"]
+      Gate["ci/gate"]
+
+      Quality --> Gate
+      Unit --> Gate
+      Property --> Gate
+      Security --> Gate
+      Floci --> Gate
+      CDK --> Gate
+    end
+
+    PR --> Quality
+    PR --> Unit
+    PR --> Property
+    PR --> Security
+    PR --> Floci
+    PR --> CDK
+
+    Gate --> Develop["develop"]
+
+    subgraph Release["Trusted local 8-thread release runner"]
+      direction LR
+      E2E["real Qwen + llama.cpp<br/>Floci E2E + adversarial + RAGAS"]
+      Repro["clean-clone reproducibility"]
+      ReleaseGate["release/gate"]
+      E2E --> ReleaseGate
+      Repro --> ReleaseGate
+    end
+
+    Develop --> E2E
+    Develop --> Repro
+    ReleaseGate --> Main["main"]
+    Main --> Tag(["v0.1.0-beta.1"])
 ```
-
-Feature branches are short-lived and squash-merged.
 
 ### Pull requests to `develop`
 
-GitHub-hosted runners execute deterministic checks:
+GitHub-hosted runners execute deterministic checks: Ruff, strict mypy, unit tests, coverage, Hypothesis, dependency/security auditing, Floci integration, and CDK synthesis.
 
-```text
-ci/quality
-ci/unit
-ci/property
-ci/floci-integration
-ci/cdk
-        │
-        ▼
-     ci/gate
-```
-
-The Floci integration job uses real boto3 calls and real S3/S3 Vectors APIs, but deterministic synthetic vectors instead of downloading multi-gigabyte AI models.
+The Floci integration job uses real boto3 calls and real S3/S3 Vectors/Lambda/API Gateway-compatible APIs, but deterministic synthetic vectors instead of downloading multi-gigabyte AI models.
 
 ### `develop` → `main`
 
-The release workflow is designed for a trusted self-hosted 8-thread runner and performs the real local stack test:
+The release workflow is designed for a trusted self-hosted 8-thread runner and performs the full local stack test with:
 
-```text
-Floci
-+ Qwen3-4B
-+ Qwen3-Embedding-0.6B
-+ llama.cpp
-+ LangGraph
-+ real ingestion
-+ real S3 Vectors retrieval
-+ adversarial suite
-+ golden dataset
-+ RAGAS
-+ clean-clone reproducibility
-```
+- Floci;
+- Qwen3-4B;
+- Qwen3-Embedding-0.6B;
+- llama.cpp;
+- LangGraph;
+- real ingestion;
+- real S3 Vectors retrieval;
+- adversarial tests;
+- the golden dataset;
+- RAGAS;
+- clean-clone reproducibility.
 
 A critical safety, prompt-injection, citation-integrity, model-checksum, or reproducibility failure blocks the beta even if aggregate averages remain high.
 
@@ -300,7 +329,7 @@ See [`docs/acceptance-criteria.md`](docs/acceptance-criteria.md) for the complet
 - Node.js 24
 - npm
 - Git
-- approximately 4 GB of free disk space for model/runtime artifacts
+- at least 8 GiB of free disk space for model/runtime artifacts
 - an 8-thread CPU is the reference development target
 
 No AWS account or hosted model API key is required.
@@ -337,10 +366,11 @@ make local-up
 make local-provision
 ```
 
-### 6. Upload the sample knowledge corpus
+### 6. Upload and ingest the sample knowledge corpus
 
 ```bash
 make seed
+make ingest-corpus
 ```
 
 ### 7. Run the smoke test
@@ -432,11 +462,7 @@ docs/                    architecture, implementation plan, ADRs and threat mode
 
 ## Current milestone
 
-The target of the active implementation is:
-
-```text
-v0.1.0-beta.1 — Local AWS-Compatible Grounded RAG
-```
+The target of the active implementation is **`v0.1.0-beta.1 — Local AWS-Compatible Grounded RAG`**.
 
 The tag is created only after the complete release gate passes on a clean, trusted local runner. Until then, the repository should be treated as an implementation candidate rather than a released beta.
 
