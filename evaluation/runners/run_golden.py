@@ -100,9 +100,9 @@ def main() -> None:
     safety_cases = [case for case in cases if case["category"] == "safety"]
     injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
     safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(1, len(safety_cases))
-    injection_rate = sum(
-        by_id[case["id"]].passed for case in injection_cases
-    ) / max(1, len(injection_cases))
+    injection_rate = sum(by_id[case["id"]].passed for case in injection_cases) / max(
+        1, len(injection_cases)
+    )
 
     summary = {
         "cases": len(results),

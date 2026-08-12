@@ -1,7 +1,8 @@
 from datetime import date
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from rag_ops_guard.domain.errors import CitationValidationError, DocumentValidationError
 from rag_ops_guard.domain.models import QueryContext

@@ -45,8 +45,6 @@ class EvidenceResolver:
     @staticmethod
     def _without_superseded(group: list[Evidence]) -> list[Evidence]:
         superseded = {
-            superseded_id
-            for item in group
-            for superseded_id in item.chunk.metadata.supersedes
+            superseded_id for item in group for superseded_id in item.chunk.metadata.supersedes
         }
         return [item for item in group if item.chunk.metadata.id not in superseded]

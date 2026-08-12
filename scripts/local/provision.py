@@ -174,7 +174,7 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
         except ClientError:
             pass
     api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
-    endpoint = str(created.get("ApiEndpoint") or f"http://localhost:4566")
+    endpoint = str(created.get("ApiEndpoint") or "http://localhost:4566")
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint)
     return endpoint

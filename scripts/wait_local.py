@@ -4,7 +4,6 @@ import time
 
 import httpx
 
-
 SERVICES = {
     "floci": "http://127.0.0.1:4566/",
     "llama-gen": "http://127.0.0.1:8080/health",

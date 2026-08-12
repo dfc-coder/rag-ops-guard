@@ -128,7 +128,7 @@ def main() -> None:
         "response_relevancy": float(frame["answer_relevancy"].mean()),
         "evaluator": "Qwen3-4B-Q4_K_M via llama.cpp",
         "embedding_evaluator": "Qwen3-Embedding-0.6B-Q8_0 via llama.cpp",
-        "samples": int(len(frame)),
+        "samples": len(frame),
     }
     output = Path("artifacts/evaluation")
     output.mkdir(parents=True, exist_ok=True)

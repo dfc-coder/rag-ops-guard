@@ -3,7 +3,6 @@ import pytest
 from rag_ops_guard.domain.errors import DocumentValidationError
 from rag_ops_guard.ingestion.metadata import parse_document
 
-
 VALID = """---
 id: payment-retry-policy-v2
 logical_id: payment-retry-policy
