@@ -1,0 +1,41 @@
+name: langsmith-eval
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    name: langsmith/beta1-experiment
+    if: ${{ github.repository == 'dfc-coder/rag-ops-guard' }}
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 90
+    env:
+      LANGSMITH_TRACING: 'true'
+      LANGSMITH_PROJECT: rag-ops-guard-local
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: test -n "$LANGSMITH_API_KEY"
+      - run: uv sync --frozen --all-extras --group dev
+      - run: make models
+      - run: make reset || true
+      - run: make local-up
+      - run: make local-provision
+      - run: make seed
+      - run: make ingest-corpus
+      - run: make eval-langsmith
+      - if: always()
+        run: make local-down || true

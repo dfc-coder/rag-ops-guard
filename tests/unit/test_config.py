@@ -1,0 +1,12 @@
+from rag_ops_guard.config import Settings
+
+
+def test_settings_defaults_define_local_reproducible_profile() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.app_env == "local"
+    assert settings.aws_endpoint_url == "http://localhost:4566"
+    assert settings.vector_dimension == 1024
+    assert settings.retrieval_top_k == 8
+    assert settings.retrieval_context_k == 5
+    assert settings.llm_model == "qwen3-4b-rag"
+    assert settings.embedding_model == "qwen3-embedding-0.6b"

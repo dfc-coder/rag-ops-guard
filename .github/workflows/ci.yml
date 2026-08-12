@@ -1,0 +1,159 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: ci/quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: test -f uv.lock
+      - run: uv sync --frozen --group dev
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy src/
+
+  unit:
+    name: ci/unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: mkdir -p artifacts
+      - run: uv run pytest tests/unit --cov=src/rag_ops_guard --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:artifacts/coverage.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: artifacts/coverage.xml
+
+  property:
+    name: ci/property
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: uv run pytest tests/property
+
+  floci-integration:
+    name: ci/floci-integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - name: Start Floci
+        run: |
+          docker run -d --name floci \
+            -p 4566:4566 \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e FLOCI_DEFAULT_REGION=us-east-1 \
+            floci/floci:1.5.34
+          for i in $(seq 1 60); do
+            if curl -s http://localhost:4566/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs floci
+          exit 1
+      - run: uv run pytest -m integration tests/integration
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+      - if: always()
+        run: docker logs floci || true
+
+  security:
+    name: ci/security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - name: Audit runtime and development dependencies with no exceptions
+        run: |
+          uv sync --frozen --group dev
+          uv run pip-audit
+      - name: Audit optional evaluation dependencies with documented narrow exceptions
+        run: |
+          uv sync --frozen --extra eval --group dev
+          uv run pip-audit \
+            --ignore-vuln PYSEC-2026-2447 \
+            --ignore-vuln PYSEC-2026-3046
+      - name: Reject common secret files
+        run: |
+          bad=$(git ls-files | grep -E '(^|/)(\.env$|.*\.pem$|id_rsa$|id_ed25519$)' || true)
+          if [ -n "$bad" ]; then echo "$bad"; exit 1; fi
+      - name: Reject obvious real AWS access keys
+        run: |
+          if git grep -nE 'AKIA[0-9A-Z]{16}' -- ':!docs/**' ':!README.md'; then
+            echo "Possible AWS access key committed"
+            exit 1
+          fi
+
+  cdk:
+    name: ci/cdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: infra/cdk/package-lock.json
+      - working-directory: infra/cdk
+        run: npm ci
+      - working-directory: infra/cdk
+        run: npm test
+      - working-directory: infra/cdk
+        run: npm run build
+      - working-directory: infra/cdk
+        run: npx cdk synth
+
+  gate:
+    name: ci/gate
+    if: always()
+    needs: [quality, unit, property, floci-integration, security, cdk]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI job
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {name: value['result'] for name, value in json.loads(os.environ['NEEDS_JSON']).items()}
+          print(results)
+          sys.exit(0 if all(value == 'success' for value in results.values()) else 1)
+          PY

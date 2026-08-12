@@ -1,0 +1,90 @@
+name: release-validation
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-e2e:
+    name: release/e2e
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 60
+    env:
+      RUN_REAL_E2E: '1'
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - run: uv sync --frozen --all-extras --group dev
+      - run: make models
+      - run: make reset || true
+      - run: make local-up
+      - run: make local-provision
+      - run: make seed
+      - run: make ingest-corpus
+      - run: uv run pytest -m e2e tests/e2e
+      - run: uv run pytest tests/adversarial
+      - run: make eval
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beta1-evaluation
+          path: artifacts/
+      - if: always()
+        run: make local-down || true
+
+  reproducibility:
+    name: release/reproducibility
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          clean: true
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - run: make doctor
+      - run: make setup
+      - run: make models
+      - run: make local-up
+      - run: make local-provision
+      - run: make seed
+      - run: make ingest-corpus
+      - run: make smoke
+      - if: always()
+        run: make local-down || true
+
+  gate:
+    name: release/gate
+    if: always()
+    needs: [real-e2e, reproducibility]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results={k:v['result'] for k,v in json.loads(os.environ['NEEDS_JSON']).items()}
+          print(results)
+          sys.exit(0 if all(v == 'success' for v in results.values()) else 1)
+          PY
