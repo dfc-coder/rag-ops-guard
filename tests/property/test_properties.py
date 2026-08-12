@@ -1,8 +1,8 @@
+from contextlib import suppress
 from datetime import date
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
+from hypothesis import given, strategies as st
 
 from rag_ops_guard.domain.errors import CitationValidationError, DocumentValidationError
 from rag_ops_guard.domain.models import QueryContext
@@ -14,10 +14,8 @@ from tests.fixtures.builders import evidence, metadata
 
 @given(st.text(max_size=2000))
 def test_parser_never_leaks_unexpected_exception(text: str) -> None:
-    try:
+    with suppress(DocumentValidationError):
         parse_document(text)
-    except DocumentValidationError:
-        pass
 
 
 @given(st.permutations([0, 1, 2]))
@@ -38,7 +36,10 @@ def test_resolver_is_deterministic_for_input_order(order: list[int]) -> None:
     ]
     resolver = EvidenceResolver()
     expected = [item.chunk.id for item in resolver.resolve(items, QueryContext())]
-    actual = [item.chunk.id for item in resolver.resolve([items[i] for i in order], QueryContext())]
+    actual = [
+        item.chunk.id
+        for item in resolver.resolve([items[i] for i in order], QueryContext())
+    ]
     assert actual == expected
 
 

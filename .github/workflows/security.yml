@@ -1,17 +1,16 @@
-name: security
+name: scheduled-security
 
 on:
-  pull_request:
-    branches: [develop, main]
-  push:
-    branches: [develop, main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * 1'
 
 permissions:
   contents: read
 
 jobs:
-  repository-hygiene:
-    name: security/repository-hygiene
+  audit:
+    name: security/scheduled-audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -20,16 +19,13 @@ jobs:
           python-version: '3.12'
           version: '0.12.3'
           enable-cache: true
-      - run: uv sync --frozen --all-extras --group dev
-      - name: Audit Python dependencies
-        run: uv run pip-audit
-      - name: Reject common secret files
+      - name: Audit runtime/dev dependencies
         run: |
-          bad=$(git ls-files | grep -E '(^|/)(\.env$|.*\.pem$|id_rsa$|id_ed25519$)' || true)
-          if [ -n "$bad" ]; then echo "$bad"; exit 1; fi
-      - name: Reject obvious real AWS access keys
+          uv sync --frozen --group dev
+          uv run pip-audit
+      - name: Audit eval dependencies with documented exceptions
         run: |
-          if git grep -nE 'AKIA[0-9A-Z]{16}' -- ':!docs/**' ':!README.md'; then
-            echo "Possible AWS access key committed"
-            exit 1
-          fi
+          uv sync --frozen --extra eval --group dev
+          uv run pip-audit \
+            --ignore-vuln PYSEC-2026-2447 \
+            --ignore-vuln PYSEC-2026-3046

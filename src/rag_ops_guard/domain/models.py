@@ -102,12 +102,10 @@ class QueryResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_status_contract(self) -> QueryResponse:
-        if self.status == QueryStatus.ANSWERED:
-            if not self.answer or not self.citations:
-                raise ValueError("answered responses require answer and citations")
-        if self.status == QueryStatus.CLARIFICATION_REQUIRED:
-            if not self.clarification_question:
-                raise ValueError("clarification_required requires clarification_question")
+        if self.status == QueryStatus.ANSWERED and (not self.answer or not self.citations):
+            raise ValueError("answered responses require answer and citations")
+        if self.status == QueryStatus.CLARIFICATION_REQUIRED and not self.clarification_question:
+            raise ValueError("clarification_required requires clarification_question")
         return self
 
 

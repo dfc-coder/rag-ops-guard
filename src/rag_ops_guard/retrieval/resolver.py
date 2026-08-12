@@ -32,9 +32,7 @@ class EvidenceResolver:
             return False
         if context.environment and meta.environment not in {context.environment, "all"}:
             return False
-        if context.api_version and meta.version != context.api_version:
-            return False
-        return True
+        return not context.api_version or meta.version == context.api_version
 
     @staticmethod
     def _precedence(item: Evidence) -> tuple[date, int, tuple[int, ...]]:
@@ -45,6 +43,8 @@ class EvidenceResolver:
     @staticmethod
     def _without_superseded(group: list[Evidence]) -> list[Evidence]:
         superseded = {
-            superseded_id for item in group for superseded_id in item.chunk.metadata.supersedes
+            superseded_id
+            for item in group
+            for superseded_id in item.chunk.metadata.supersedes
         }
         return [item for item in group if item.chunk.metadata.id not in superseded]

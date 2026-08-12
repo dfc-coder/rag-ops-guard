@@ -28,8 +28,8 @@ dev = [
   "hypothesis>=6.130,<7",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
-  "pytest>=8.4,<9",
-  "pytest-cov>=6.2,<7",
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
   "types-PyYAML>=6.0,<7",
 ]

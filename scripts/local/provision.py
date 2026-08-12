@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -122,10 +123,8 @@ def lambda_environment() -> dict[str, str]:
 
 def recreate_lambda(name: str, handler: str, role_arn: str) -> str:
     lamb = client("lambda")
-    try:
+    with suppress(ClientError):
         lamb.delete_function(FunctionName=name)
-    except ClientError:
-        pass
     response = lamb.create_function(
         FunctionName=name,
         Runtime="python3.12",
@@ -164,15 +163,13 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
             Target=f"integrations/{integration['IntegrationId']}",
         )
         function_name = function_arn.rsplit(":", 1)[-1]
-        try:
+        with suppress(ClientError):
             lamb.add_permission(
                 FunctionName=function_name,
                 StatementId=statement,
                 Action="lambda:InvokeFunction",
                 Principal="apigateway.amazonaws.com",
             )
-        except ClientError:
-            pass
     api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
     endpoint = str(created.get("ApiEndpoint") or "http://localhost:4566")
     Path(".local").mkdir(exist_ok=True)
