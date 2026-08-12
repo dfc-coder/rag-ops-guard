@@ -1,17 +1,18 @@
 SHELL := /bin/bash
 COMPOSE := docker compose -f docker/docker-compose.yml
+PYTHON := python3.12
 
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
-	@python3 scripts/doctor.py
+	@$(PYTHON) scripts/doctor.py
 
 setup:
 	uv sync --frozen --all-extras --group dev
 	cd infra/cdk && npm ci
 
 models:
-	python3 scripts/download_models.py
+	$(PYTHON) scripts/download_models.py
 
 package-lambda:
 	./scripts/package_lambda.sh
