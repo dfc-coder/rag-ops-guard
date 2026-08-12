@@ -2,7 +2,8 @@ from contextlib import suppress
 from datetime import date
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from rag_ops_guard.domain.errors import CitationValidationError, DocumentValidationError
 from rag_ops_guard.domain.models import QueryContext
@@ -36,10 +37,7 @@ def test_resolver_is_deterministic_for_input_order(order: list[int]) -> None:
     ]
     resolver = EvidenceResolver()
     expected = [item.chunk.id for item in resolver.resolve(items, QueryContext())]
-    actual = [
-        item.chunk.id
-        for item in resolver.resolve([items[i] for i in order], QueryContext())
-    ]
+    actual = [item.chunk.id for item in resolver.resolve([items[i] for i in order], QueryContext())]
     assert actual == expected
 
 

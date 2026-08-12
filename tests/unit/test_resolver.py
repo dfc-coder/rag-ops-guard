@@ -35,7 +35,10 @@ def test_resolver_filters_requested_system() -> None:
 def test_resolver_keeps_multiple_chunks_from_winning_document() -> None:
     current = metadata()
     resolved = EvidenceResolver().resolve(
-        [evidence(meta=current, index=0, distance=0.1), evidence(meta=current, index=1, distance=0.2)],
+        [
+            evidence(meta=current, index=0, distance=0.1),
+            evidence(meta=current, index=1, distance=0.2),
+        ],
         QueryContext(system="payments", environment="production"),
     )
     assert [item.chunk.chunk_index for item in resolved] == [0, 1]

@@ -40,9 +40,7 @@ class EvidenceResolver:
             by_document[item.chunk.metadata.id].append(item)
 
         superseded = {
-            superseded_id
-            for item in group
-            for superseded_id in item.chunk.metadata.supersedes
+            superseded_id for item in group for superseded_id in item.chunk.metadata.supersedes
         }
         candidates = {
             document_id: items
@@ -53,8 +51,7 @@ class EvidenceResolver:
             return []
 
         precedence_by_document = {
-            document_id: self._precedence(items[0])
-            for document_id, items in candidates.items()
+            document_id: self._precedence(items[0]) for document_id, items in candidates.items()
         }
         highest = max(precedence_by_document.values())
         winners = [

@@ -75,7 +75,9 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
     response.raise_for_status()
     payload = response.json()
     citations = [Citation.model_validate(item) for item in payload.get("citations", [])]
-    actual_source_ids = set().union(*(citation_identities(item) for item in citations)) if citations else set()
+    actual_source_ids = (
+        set().union(*(citation_identities(item) for item in citations)) if citations else set()
+    )
     answer = str(payload.get("answer") or "").lower()
     expected_sources = {str(value) for value in case.get("expected_source_ids", [])}
     forbidden_sources = {str(value) for value in case.get("forbidden_source_ids", [])}
@@ -91,9 +93,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
         forbidden_facts_ok=all(
             str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
         ),
-        retrieval_hit_at_5=(
-            expected_sources.issubset(retrieval_ids) if expected_sources else None
-        ),
+        retrieval_hit_at_5=(expected_sources.issubset(retrieval_ids) if expected_sources else None),
         actual_status=str(payload.get("status")),
         actual_sources=sorted(actual_source_ids),
     )
@@ -114,9 +114,7 @@ def main() -> None:
     by_id = {result.id: result for result in results}
     safety_cases = [case for case in cases if case["category"] == "safety"]
     injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
-    safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(
-        1, len(safety_cases)
-    )
+    safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(1, len(safety_cases))
     injection_rate = sum(by_id[case["id"]].passed for case in injection_cases) / max(
         1, len(injection_cases)
     )
