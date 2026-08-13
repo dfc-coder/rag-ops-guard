@@ -18,6 +18,7 @@ DOC_BUCKET = os.environ.get("S3_DOCUMENT_BUCKET", "rag-ops-guard-docs-local")
 VECTOR_BUCKET = os.environ.get("S3_VECTOR_BUCKET", "rag-ops-guard-vectors-local")
 VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_CODE_PATH = Path(os.environ.get("LAMBDA_CODE_PATH", ".local/lambda-package")).resolve()
+LOCAL_API_ID = os.environ.get("RAG_LOCAL_API_ID", "rag-ops-guard")
 
 
 def client(service: str, **kwargs: object) -> Any:
@@ -145,7 +146,11 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
         if existing.get("Name") == "rag-ops-guard-local":
             api.delete_api(ApiId=existing["ApiId"])
 
-    created = api.create_api(Name="rag-ops-guard-local", ProtocolType="HTTP")
+    created = api.create_api(
+        Name="rag-ops-guard-local",
+        ProtocolType="HTTP",
+        Tags={"floci:override-id": LOCAL_API_ID},
+    )
     api_id = created["ApiId"]
     for route_key, function_arn, statement in (
         ("POST /v1/query", query_arn, "AllowApiQuery"),
@@ -171,7 +176,10 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
                 Principal="apigateway.amazonaws.com",
             )
     api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
-    endpoint = str(created.get("ApiEndpoint") or "http://localhost:4566")
+
+    # Floci's API Gateway v2 data plane is exposed through its local
+    # execute-api domain, not the AWS-shaped ApiEndpoint returned by CreateApi.
+    endpoint = f"http://{api_id}.execute-api.localhost.floci.io:4566"
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint)
     return endpoint
