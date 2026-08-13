@@ -73,6 +73,8 @@ class LlamaCppChatAdapter:
 
     def analyze_query(self, prompt: str) -> QueryAnalysis:
         result = self._analysis.invoke(prompt)
+        if isinstance(result, BaseModel):
+            return QueryAnalysis.model_validate(result.model_dump())
         return QueryAnalysis.model_validate(result)
 
     def generate_answer(self, prompt: str) -> GroundedAnswer:
