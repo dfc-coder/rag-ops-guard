@@ -1,8 +1,6 @@
 name: core-evaluation
 
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
