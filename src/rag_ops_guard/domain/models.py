@@ -146,7 +146,7 @@ class QueryAnalysis(BaseModel):
             self.fallback_message
             or self.insufficient_evidence_message
             or self.safety_blocked_message
-            or "The request cannot be answered safely with the available information."
+            or "The available documentation does not provide enough evidence to answer safely."
         )
         self.fallback_message = fallback
         self.safety_blocked_message = self.safety_blocked_message or fallback
@@ -163,13 +163,18 @@ class GroundedAnswer(BaseModel):
 
     @model_validator(mode="after")
     def validate_grounding_contract(self) -> GroundedAnswer:
-        if self.status == "answered" and not self.citation_ids:
-            raise ValueError("answered model output requires at least one citation id")
-        if self.status == "insufficient_evidence" and self.citation_ids:
-            raise ValueError("insufficient_evidence model output cannot contain citation ids")
         normalized = self.answer.strip().lower()
-        if self.status == "answered" and "timed out" in normalized and "shorter message" in normalized:
-            raise ValueError("backend timeout text cannot be accepted as an answered response")
+        looks_like_backend_timeout = (
+            "timed out" in normalized and "shorter message" in normalized
+        )
+
+        if self.status == "answered" and (not self.citation_ids or looks_like_backend_timeout):
+            self.status = "insufficient_evidence"
+            self.citation_ids = []
+
+        if self.status == "insufficient_evidence":
+            self.citation_ids = []
+
         return self
 
 
