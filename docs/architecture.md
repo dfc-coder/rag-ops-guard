@@ -6,31 +6,7 @@ RAG Ops Guard answers operational questions from approved runbooks, API document
 
 ## Local architecture
 
-```text
-Client
-  |
-  v
-Floci API Gateway v2
-  |-------------------------|
-  v                         v
-Query Lambda             Ingest Lambda
-  |                         |
-  |                         +--> S3 raw document
-  |                              -> validate front matter
-  |                              -> chunk
-  |                              -> llama.cpp embeddings :8081
-  |                              -> S3 chunks/manifests
-  |                              -> Floci S3 Vectors
-  |
-  +--> LangGraph
-       -> query analysis (Qwen3-4B :8080)
-       -> query embedding (Qwen3-Embedding :8081)
-       -> S3 QueryVectors
-       -> deterministic metadata/version resolver
-       -> grounded generation (Qwen3-4B :8080)
-       -> citation validator
-       -> response
-```
+![RAG Ops Guard local-first architecture](diagrams/architecture.svg)
 
 ## Execution profiles
 
@@ -54,37 +30,13 @@ Future profile. Real S3/S3 Vectors/Lambda/API Gateway and Bedrock adapters. It i
 
 The domain depends on Ports, not concrete cloud/AI implementations:
 
-```text
-Domain
-  -> ChatModel
-  -> EmbeddingProvider
-  -> VectorStore
-  -> ObjectStore
-
-Local adapters
-  -> llama.cpp Chat
-  -> llama.cpp Embeddings
-  -> S3 Vectors through Floci
-  -> S3 through Floci
-```
+![Ports and adapters boundary](diagrams/ports-adapters.svg)
 
 This boundary is the migration seam for future Bedrock adapters.
 
 ## Query state machine
 
-```text
-START
-  -> validate_request
-  -> analyze_query
-      -> safety_blocked -> END
-      -> clarification_required -> END
-      -> retrieve_evidence
-  -> resolve_evidence
-      -> insufficient_evidence -> END
-      -> generate_grounded_answer
-  -> validate_citations
-  -> END
-```
+![LangGraph query decision flow](diagrams/langgraph-flow.svg)
 
 A normal query uses at most two generation-model calls: one query-analysis call and one grounded-answer call.
 
