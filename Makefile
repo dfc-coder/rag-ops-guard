@@ -1,7 +1,9 @@
 SHELL := /bin/bash
 COMPOSE := podman compose -f docker/docker-compose.yml
 PODMAN_SOCKET ?= /run/user/$(shell id -u)/podman/podman.sock
-export PODMAN_SOCKET
+CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
+MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
+export PODMAN_SOCKET MODEL_DIR
 
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
@@ -19,7 +21,7 @@ package-lambda:
 	./scripts/package_lambda.sh
 
 local-up:
-	mkdir -p .local/floci .models
+	mkdir -p .local/floci "$(MODEL_DIR)"
 	$(COMPOSE) up -d
 	uv run python scripts/wait_local.py
 
