@@ -1,8 +1,6 @@
 name: cache-validation
 
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
