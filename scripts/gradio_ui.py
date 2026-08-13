@@ -51,9 +51,7 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
     elapsed_ms = int(response.timings_ms.get("total", (time.perf_counter() - started) * 1000))
     status = response.status.value
     text = response.answer or response.clarification_question or ""
-    citations = "\n".join(
-        f"- **{item.title}** · v{item.version}" for item in response.citations
-    )
+    citations = "\n".join(f"- **{item.title}** · v{item.version}" for item in response.citations)
     timing_line = _timing_line(response.timings_ms)
 
     result = f"**{STATUS_LABELS.get(status, status)}** · {elapsed_ms} ms"
@@ -137,8 +135,7 @@ with gr.Blocks(title="RAG Ops Guard") as demo:
 
     chatbot = gr.Chatbot(
         placeholder=(
-            "<strong>RAG Ops Guard</strong><br>"
-            "Consultá runbooks, APIs, incidentes y SLAs."
+            "<strong>RAG Ops Guard</strong><br>Consultá runbooks, APIs, incidentes y SLAs."
         ),
         height=520,
     )
