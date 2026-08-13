@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
+
+
+class _QueryAnalysisOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    normalized_question: str = Field(min_length=1)
+    systems: list[str] = Field(default_factory=list)
+    environment: Literal["production", "staging"] | None = None
+    api_version: str | None = None
+    requires_clarification: bool
+    clarification_question: str | None = None
+    safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
+    fallback_message: str = Field(min_length=1, max_length=180)
 
 
 class LlamaCppChatAdapter:
@@ -45,7 +60,10 @@ class LlamaCppChatAdapter:
             temperature=temperature,
             max_completion_tokens=answer_max_tokens,
         )
-        self._analysis = analysis_model.with_structured_output(QueryAnalysis, method="json_schema")
+        self._analysis = analysis_model.with_structured_output(
+            _QueryAnalysisOutput,
+            method="json_schema",
+        )
         self._answer = answer_model.with_structured_output(GroundedAnswer, method="json_schema")
 
     def analyze_query(self, prompt: str) -> QueryAnalysis:
