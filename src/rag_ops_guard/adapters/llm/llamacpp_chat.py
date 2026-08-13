@@ -13,13 +13,25 @@ class LlamaCppChatAdapter:
         model: str,
         temperature: float,
         max_tokens: int,
+        top_p: float,
+        top_k: int,
+        min_p: float,
+        presence_penalty: float,
+        repeat_penalty: float,
     ) -> None:
         base = ChatOpenAI(
             base_url=base_url,
             api_key=SecretStr("local"),
             model=model,
             temperature=temperature,
-            model_kwargs={"max_completion_tokens": max_tokens},
+            top_p=top_p,
+            presence_penalty=presence_penalty,
+            max_completion_tokens=max_tokens,
+            extra_body={
+                "top_k": top_k,
+                "min_p": min_p,
+                "repeat_penalty": repeat_penalty,
+            },
         )
         self._analysis = base.with_structured_output(QueryAnalysis, method="json_schema")
         self._answer = base.with_structured_output(GroundedAnswer, method="json_schema")

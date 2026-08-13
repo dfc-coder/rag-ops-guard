@@ -28,9 +28,14 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=60, ge=0, le=1000)
 
     llm_base_url: str = "http://localhost:8080/v1"
-    llm_model: str = "qwen3-4b-rag"
-    llm_max_tokens: int = Field(default=256, ge=32, le=2048)
-    llm_temperature: float = Field(default=0.0, ge=0, le=2)
+    llm_model: str = "qwen35-0.8b-rag"
+    llm_max_tokens: int = Field(default=512, ge=32, le=2048)
+    llm_temperature: float = Field(default=0.7, ge=0, le=2)
+    llm_top_p: float = Field(default=0.8, ge=0, le=1)
+    llm_top_k: int = Field(default=20, ge=0, le=100)
+    llm_min_p: float = Field(default=0.0, ge=0, le=1)
+    llm_presence_penalty: float = Field(default=1.5, ge=-2, le=2)
+    llm_repeat_penalty: float = Field(default=1.0, ge=0, le=2)
 
     embedding_base_url: str = "http://localhost:8081/v1"
     embedding_model: str = "qwen3-embedding-0.6b"
