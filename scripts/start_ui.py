@@ -24,7 +24,7 @@ def main() -> None:
             "--with",
             "python-multipart>=0.0.20,<1",
             "python",
-            "scripts/web_ui.py",
+            "scripts/web_console.py",
         ],
     )
 
