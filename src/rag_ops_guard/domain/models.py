@@ -99,6 +99,7 @@ class QueryResponse(BaseModel):
     answer: str | None = None
     clarification_question: str | None = None
     citations: list[Citation] = Field(default_factory=list)
+    timings_ms: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_status_contract(self) -> QueryResponse:
@@ -135,16 +136,23 @@ class QueryAnalysis(BaseModel):
     requires_clarification: bool
     clarification_question: str | None = None
     safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
-    safety_blocked_message: str | None = Field(default=None, min_length=1, max_length=300)
-    insufficient_evidence_message: str | None = Field(default=None, min_length=1, max_length=300)
+    fallback_message: str = Field(min_length=1, max_length=180)
 
 
 class GroundedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["answered", "insufficient_evidence"]
-    answer: str
+    answer: str = Field(min_length=1)
     citation_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_grounding_contract(self) -> GroundedAnswer:
+        if self.status == "answered" and not self.citation_ids:
+            raise ValueError("answered model output requires at least one citation id")
+        if self.status == "insufficient_evidence" and self.citation_ids:
+            raise ValueError("insufficient_evidence model output cannot contain citation ids")
+        return self
 
 
 class Manifest(BaseModel):
