@@ -3,9 +3,15 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+CHUNK_SIZE = 8 * 1024 * 1024
+DEFAULT_ATTEMPTS = 5
+DEFAULT_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -35,50 +41,106 @@ MODELS = (
 )
 
 
+class DownloadIntegrityError(RuntimeError):
+    pass
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+        for block in iter(lambda: handle.read(CHUNK_SIZE), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def default_model_dir() -> Path:
+    cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return cache_home / "rag-ops-guard" / "models"
+
+
+def _download_once(model: Model, temporary: Path, timeout_seconds: int) -> None:
+    offset = temporary.stat().st_size if temporary.exists() else 0
+    headers = {"User-Agent": "rag-ops-guard/0.1"}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+
+    request = urllib.request.Request(model.url, headers=headers)
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        status = getattr(response, "status", response.getcode())
+        resume = offset > 0 and status == 206
+        if not resume:
+            offset = 0
+
+        content_length = int(response.headers.get("Content-Length", "0"))
+        total = offset + content_length if content_length else 0
+        received = offset
+        mode = "ab" if resume else "wb"
+
+        with temporary.open(mode) as handle:
+            while True:
+                chunk = response.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                received += len(chunk)
+                if total:
+                    print(f"  {received / total:.1%}", end="\r", flush=True)
+    print()
 
 
 def download(model: Model, directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / model.filename
-    if target.exists() and sha256(target) == model.sha256:
-        print(f"verified {model.filename}")
-        return
-    if target.exists():
-        target.unlink()
-
     temporary = target.with_suffix(target.suffix + ".part")
-    request = urllib.request.Request(model.url, headers={"User-Agent": "rag-ops-guard/0.1"})
-    print(f"downloading {model.filename}")
-    with urllib.request.urlopen(request) as response, temporary.open("wb") as handle:
-        total = int(response.headers.get("Content-Length", "0"))
-        received = 0
-        while True:
-            chunk = response.read(8 * 1024 * 1024)
-            if not chunk:
-                break
-            handle.write(chunk)
-            received += len(chunk)
-            if total:
-                print(f"  {received / total:.1%}", end="\r")
-    print()
-    temporary.replace(target)
-    actual = sha256(target)
-    if actual != model.sha256:
-        target.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"SHA256 mismatch for {model.filename}: expected {model.sha256}, got {actual}"
-        )
-    print(f"verified {model.filename}")
+
+    if target.exists() and sha256(target) == model.sha256:
+        print(f"verified cached {model.filename}")
+        return
+    target.unlink(missing_ok=True)
+
+    if temporary.exists() and sha256(temporary) == model.sha256:
+        temporary.replace(target)
+        print(f"verified resumed {model.filename}")
+        return
+
+    attempts = int(os.environ.get("MODEL_DOWNLOAD_ATTEMPTS", str(DEFAULT_ATTEMPTS)))
+    timeout_seconds = int(os.environ.get("MODEL_DOWNLOAD_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
+
+    for attempt in range(1, attempts + 1):
+        partial_size = temporary.stat().st_size if temporary.exists() else 0
+        action = "resuming" if partial_size else "downloading"
+        print(f"{action} {model.filename} (attempt {attempt}/{attempts})")
+        try:
+            _download_once(model, temporary, timeout_seconds)
+            actual = sha256(temporary)
+            if actual != model.sha256:
+                temporary.unlink(missing_ok=True)
+                raise DownloadIntegrityError(
+                    f"SHA256 mismatch for {model.filename}: expected {model.sha256}, got {actual}"
+                )
+            temporary.replace(target)
+            print(f"verified {model.filename}")
+            return
+        except urllib.error.HTTPError as error:
+            if error.code == 416:
+                temporary.unlink(missing_ok=True)
+            failure: Exception = error
+        except (urllib.error.URLError, OSError, DownloadIntegrityError) as error:
+            failure = error
+
+        if attempt == attempts:
+            raise RuntimeError(
+                f"failed to download {model.filename} after {attempts} attempts"
+            ) from failure
+
+        delay = min(2 ** (attempt - 1), 16)
+        print(f"download interrupted: {failure}; retrying in {delay}s")
+        time.sleep(delay)
 
 
 def main() -> int:
-    directory = Path(os.environ.get("MODEL_DIR", ".models"))
+    directory = Path(os.environ.get("MODEL_DIR", default_model_dir())).expanduser().resolve()
+    print(f"model cache: {directory}")
     for model in MODELS:
         download(model, directory)
     return 0

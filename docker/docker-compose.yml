@@ -45,7 +45,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ../.models:/models:ro
+      - "${MODEL_DIR:-../.models}:/models:ro"
     networks:
       - rag-ops-net
 
@@ -76,7 +76,7 @@ services:
     ports:
       - "127.0.0.1:8081:8081"
     volumes:
-      - ../.models:/models:ro
+      - "${MODEL_DIR:-../.models}:/models:ro"
     networks:
       - rag-ops-net
 
