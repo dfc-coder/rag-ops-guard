@@ -1,27 +1,27 @@
-name: prune-short-lived-branches
+name: delete-merged-short-lived-branch
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [develop]
 
 permissions:
   contents: write
 
 jobs:
-  prune:
+  cleanup:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'main' &&
+      github.event.pull_request.head.ref != 'develop'
     runs-on: ubuntu-latest
     steps:
-      - name: Keep only main and develop
+      - name: Delete merged head branch
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" --jq '.[].name' |
-          while IFS= read -r branch; do
-            case "$branch" in
-              main|develop) continue ;;
-            esac
-            encoded=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")
-            echo "Deleting short-lived branch: $branch"
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${encoded}"
-          done
+          encoded=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["HEAD_BRANCH"], safe=""))')
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${encoded}"
