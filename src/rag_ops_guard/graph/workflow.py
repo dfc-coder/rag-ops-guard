@@ -92,8 +92,16 @@ class RagWorkflow:
             "normalized_question": analysis.normalized_question,
             "clarification_question": analysis.clarification_question,
             "safety_category": analysis.safety_category,
-            "safety_blocked_message": analysis.safety_blocked_message,
-            "insufficient_evidence_message": analysis.insufficient_evidence_message,
+            "safety_blocked_message": analysis.safety_blocked_message
+            or (
+                "The request cannot be fulfilled because it attempts to bypass "
+                "operational policy or access secrets."
+            ),
+            "insufficient_evidence_message": analysis.insufficient_evidence_message
+            or (
+                "The available documentation does not provide enough evidence "
+                "to answer this question safely."
+            ),
             "graph_path": self._append_path(state, "analyze_query"),
         }
         if analysis.safety_category != "normal":
