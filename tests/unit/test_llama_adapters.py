@@ -30,7 +30,7 @@ class FakeStructured:
 
     def invoke(self, prompt: str) -> object:
         del prompt
-        if self.schema is QueryAnalysis:
+        if issubclass(self.schema, QueryAnalysis):
             return {
                 "normalized_question": "normalized",
                 "systems": ["payments"],
@@ -39,6 +39,8 @@ class FakeStructured:
                 "requires_clarification": False,
                 "clarification_question": None,
                 "safety_category": "normal",
+                "safety_blocked_message": "This request cannot be fulfilled safely.",
+                "insufficient_evidence_message": "There is not enough evidence to answer safely.",
             }
         return {
             "status": "answered",
@@ -79,6 +81,7 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     analysis = adapter.analyze_query("analyze")
     answer = adapter.generate_answer("answer")
     assert analysis.normalized_question == "normalized"
+    assert analysis.insufficient_evidence_message == "There is not enough evidence to answer safely."
     assert answer == GroundedAnswer(
         status="answered",
         answer="grounded",
