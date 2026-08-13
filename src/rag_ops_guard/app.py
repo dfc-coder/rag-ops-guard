@@ -56,6 +56,11 @@ def chat_model() -> LlamaCppChatAdapter:
         model=settings.llm_model,
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_max_tokens,
+        top_p=settings.llm_top_p,
+        top_k=settings.llm_top_k,
+        min_p=settings.llm_min_p,
+        presence_penalty=settings.llm_presence_penalty,
+        repeat_penalty=settings.llm_repeat_penalty,
     )
 
 
