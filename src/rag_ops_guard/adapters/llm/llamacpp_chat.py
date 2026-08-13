@@ -36,29 +36,34 @@ class LlamaCppChatAdapter:
         presence_penalty: float = 1.5,
         repeat_penalty: float = 1.0,
     ) -> None:
-        common = {
-            "base_url": base_url,
-            "api_key": SecretStr("local"),
-            "model": model,
-            "top_p": top_p,
-            "presence_penalty": presence_penalty,
-            "timeout": timeout_seconds,
-            "max_retries": 0,
-            "extra_body": {
-                "top_k": top_k,
-                "min_p": min_p,
-                "repeat_penalty": repeat_penalty,
-            },
+        extra_body = {
+            "top_k": top_k,
+            "min_p": min_p,
+            "repeat_penalty": repeat_penalty,
         }
         analysis_model = ChatOpenAI(
-            **common,
+            base_url=base_url,
+            api_key=SecretStr("local"),
+            model=model,
             temperature=0.0,
+            top_p=top_p,
+            presence_penalty=presence_penalty,
             max_completion_tokens=analysis_max_tokens,
+            timeout=timeout_seconds,
+            max_retries=0,
+            extra_body=extra_body,
         )
         answer_model = ChatOpenAI(
-            **common,
+            base_url=base_url,
+            api_key=SecretStr("local"),
+            model=model,
             temperature=temperature,
+            top_p=top_p,
+            presence_penalty=presence_penalty,
             max_completion_tokens=answer_max_tokens,
+            timeout=timeout_seconds,
+            max_retries=0,
+            extra_body=extra_body,
         )
         self._analysis = analysis_model.with_structured_output(
             _QueryAnalysisOutput,
