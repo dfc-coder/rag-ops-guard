@@ -138,6 +138,14 @@ class QueryAnalysis(BaseModel):
     safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
     fallback_message: str = Field(min_length=1, max_length=180)
 
+    @property
+    def safety_blocked_message(self) -> str:
+        return self.fallback_message
+
+    @property
+    def insufficient_evidence_message(self) -> str:
+        return self.fallback_message
+
 
 class GroundedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -152,6 +160,9 @@ class GroundedAnswer(BaseModel):
             raise ValueError("answered model output requires at least one citation id")
         if self.status == "insufficient_evidence" and self.citation_ids:
             raise ValueError("insufficient_evidence model output cannot contain citation ids")
+        normalized = self.answer.strip().lower()
+        if self.status == "answered" and "timed out" in normalized and "shorter message" in normalized:
+            raise ValueError("backend timeout text cannot be accepted as an answered response")
         return self
 
 
