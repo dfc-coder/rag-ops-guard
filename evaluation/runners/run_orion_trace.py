@@ -44,7 +44,9 @@ def main() -> None:
     vector = embeddings().embed_query(embedding_query(analysis.normalized_question))
     retrieved = vector_store().query(vector, top_k=8)
     resolved = EvidenceResolver().resolve(retrieved, CONTEXT, limit=5)
-    generated = chat_model().generate_answer(answer_prompt(QUESTION, resolved)) if resolved else None
+    generated = (
+        chat_model().generate_answer(answer_prompt(QUESTION, resolved)) if resolved else None
+    )
     final = query_workflow().invoke(QueryRequest(question=QUESTION, context=CONTEXT))
 
     trace = {
