@@ -57,6 +57,9 @@ show_missing = true
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.format]
+exclude = ["tests/unit/test_localized_fallbacks.py"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
