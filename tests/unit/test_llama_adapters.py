@@ -99,6 +99,7 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         answer="grounded",
         citation_ids=["doc:1.0:000:deadbeef"],
     )
+    assert len(FakeChat.instances) == 2
     assert FakeChat.instances[0].kwargs["temperature"] == 0.0
     assert FakeChat.instances[0].kwargs["max_completion_tokens"] == 128
     assert FakeChat.instances[1].kwargs["max_completion_tokens"] == 256
