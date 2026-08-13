@@ -1,0 +1,36 @@
+name: cache-validation
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cache:
+    name: cache/kv-reuse
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 20
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: make doctor
+      - run: make setup
+      - run: make models
+      - run: make local-up
+      - name: Prove KV prompt-cache reuse
+        run: uv run python scripts/validate_prompt_cache.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prompt-cache-validation
+          path: artifacts/cache-validation.json
+          if-no-files-found: error
+      - if: always()
+        run: make local-down || true
