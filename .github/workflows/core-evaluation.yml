@@ -1,0 +1,39 @@
+name: core-evaluation
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: eval/core
+    runs-on: [self-hosted, linux, x64, rag-e2e]
+    timeout-minutes: 30
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: make doctor
+      - run: make setup
+      - run: make models
+      - run: make local-up
+      - run: make demo-prepare
+      - name: Measure representative core cases
+        run: uv run python evaluation/runners/run_core_accuracy.py
+      - name: Measure Orion ingestion case
+        run: uv run python evaluation/runners/run_orion_trace.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-evaluation
+          path: artifacts/accuracy/
+          if-no-files-found: error
+      - if: always()
+        run: make local-down || true
