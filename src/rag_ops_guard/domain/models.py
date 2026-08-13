@@ -136,15 +136,22 @@ class QueryAnalysis(BaseModel):
     requires_clarification: bool
     clarification_question: str | None = None
     safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
-    fallback_message: str = Field(min_length=1, max_length=180)
+    fallback_message: str | None = Field(default=None, min_length=1, max_length=180)
+    safety_blocked_message: str | None = Field(default=None, min_length=1, max_length=180)
+    insufficient_evidence_message: str | None = Field(default=None, min_length=1, max_length=180)
 
-    @property
-    def safety_blocked_message(self) -> str:
-        return self.fallback_message
-
-    @property
-    def insufficient_evidence_message(self) -> str:
-        return self.fallback_message
+    @model_validator(mode="after")
+    def normalize_fallback_messages(self) -> QueryAnalysis:
+        fallback = (
+            self.fallback_message
+            or self.insufficient_evidence_message
+            or self.safety_blocked_message
+            or "The request cannot be answered safely with the available information."
+        )
+        self.fallback_message = fallback
+        self.safety_blocked_message = self.safety_blocked_message or fallback
+        self.insufficient_evidence_message = self.insufficient_evidence_message or fallback
+        return self
 
 
 class GroundedAnswer(BaseModel):
