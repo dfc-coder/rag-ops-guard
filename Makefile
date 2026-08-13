@@ -5,7 +5,7 @@ CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
 export PODMAN_SOCKET MODEL_DIR
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-query test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -40,7 +40,10 @@ ingest-corpus:
 smoke:
 	uv run python scripts/smoke.py
 
-demo: models local-up local-provision seed ingest-corpus
+demo-prepare: local-provision seed
+	uv run python scripts/demo_prepare.py
+
+demo: models local-up demo-prepare
 	uv run python scripts/demo.py "The old payment retry runbook says five retries and the current one says three. Which policy applies?" --system payments --environment production
 
 # Usage: make demo-query QUESTION='Can I retry a Calypso payment?' SYSTEM=payments ENVIRONMENT=production
