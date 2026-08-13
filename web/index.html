@@ -1,0 +1,58 @@
+<link rel="stylesheet" href="/static/styles.css">
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div><p class="eyebrow">LOCAL RAG CONSOLE</p><h1>RAG Ops Guard</h1></div>
+      <span class="badge {{HEALTH_CLASS}}">{{HEALTH}}</span>
+    </div>
+
+    <details class="upload-panel">
+      <summary class="primary">+ Add document</summary>
+      <form action="/documents" method="post" enctype="multipart/form-data" class="upload-form compact">
+        <label>Markdown file<input name="file" type="file" accept=".md,.markdown,text/markdown" required></label>
+        <label>Title<input name="title" placeholder="Optional if frontmatter exists"></label>
+        <label>System<input name="system" value="general" required></label>
+        <div class="form-grid">
+          <label>Environment<select name="environment"><option value="all" selected>All</option><option value="production">Production</option><option value="staging">Staging</option></select></label>
+          <label>Type<select name="document_type"><option value="runbook">Runbook</option><option value="api">API</option><option value="sla">SLA</option><option value="incident">Incident</option><option value="postmortem">Postmortem</option><option value="architecture" selected>Architecture</option></select></label>
+          <label>Version<input name="version" value="1.0" required></label>
+          <label>Authority<input name="authority" type="number" min="0" max="100" value="50" required></label>
+        </div>
+        <p class="helper">Existing valid YAML frontmatter is preserved.</p>
+        <button class="primary" type="submit">Add to knowledge base</button>
+      </form>
+    </details>
+
+    <form action="/demo/load" method="post"><button class="secondary full" type="submit">Reload demo knowledge</button></form>
+    {{NOTICE}}
+
+    <div class="section-title"><span>Knowledge base</span><span>{{DOCUMENT_COUNT}}</span></div>
+    <div class="documents">{{DOCUMENTS}}</div>
+  </aside>
+
+  <main class="workspace">
+    <header class="toolbar">
+      <div><p class="eyebrow">GROUNDED OPERATIONS ASSISTANT</p><p class="subtitle">Answers only from admitted operational evidence.</p></div>
+    </header>
+
+    <section class="conversation" aria-live="polite">
+      <article class="message assistant-message">
+        <div class="message-meta">RAG Ops Guard</div>
+        <div class="message-body">Ask an operational question. Answers include the evidence admitted by the RAG pipeline.</div>
+      </article>
+      {{RESULT}}
+    </section>
+
+    <form action="/query" method="post" class="composer server-form">
+      <div class="question-fields">
+        <label for="questionInput" class="sr-only">Question</label>
+        <textarea id="questionInput" name="question" rows="3" maxlength="2000" placeholder="Ask about retries, incidents, SLAs, APIs..." required>{{QUESTION}}</textarea>
+        <div class="filters">
+          <label>System<input name="system" placeholder="payments" value="{{SYSTEM}}"></label>
+          <label>Environment<select name="environment"><option value="" {{ENV_ANY}}>Any</option><option value="production" {{ENV_PRODUCTION}}>Production</option><option value="staging" {{ENV_STAGING}}>Staging</option></select></label>
+        </div>
+      </div>
+      <button class="primary" type="submit">Ask</button>
+    </form>
+  </main>
+</div>
