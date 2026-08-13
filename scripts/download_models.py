@@ -104,9 +104,7 @@ def download(model: Model, directory: Path) -> None:
         return
 
     attempts = int(os.environ.get("MODEL_DOWNLOAD_ATTEMPTS", str(DEFAULT_ATTEMPTS)))
-    timeout_seconds = int(
-        os.environ.get("MODEL_DOWNLOAD_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
-    )
+    timeout_seconds = int(os.environ.get("MODEL_DOWNLOAD_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
 
     for attempt in range(1, attempts + 1):
         partial_size = temporary.stat().st_size if temporary.exists() else 0
@@ -118,8 +116,7 @@ def download(model: Model, directory: Path) -> None:
             if actual != model.sha256:
                 temporary.unlink(missing_ok=True)
                 raise DownloadIntegrityError(
-                    f"SHA256 mismatch for {model.filename}: "
-                    f"expected {model.sha256}, got {actual}"
+                    f"SHA256 mismatch for {model.filename}: expected {model.sha256}, got {actual}"
                 )
             temporary.replace(target)
             print(f"verified {model.filename}")
