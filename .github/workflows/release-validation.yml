@@ -1,8 +1,6 @@
 name: release-validation
 
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
