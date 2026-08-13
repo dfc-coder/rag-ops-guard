@@ -80,7 +80,9 @@ def _page(result: dict[str, object] | None = None, notice: str = "") -> str:
             f"<li>{html.escape(str(c['title']))} · v{html.escape(str(c['version']))}</li>"
             for c in result.get("citations", [])
         )
-        answer = f"<section class='answer'><b>{status}</b><p>{text}</p><ul>{citations}</ul></section>"
+        answer = (
+            f"<section class='answer'><b>{status}</b><p>{text}</p><ul>{citations}</ul></section>"
+        )
     message = f"<p class='notice'>{html.escape(notice)}</p>" if notice else ""
     return f"""
 <!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
@@ -103,7 +105,9 @@ def query(
 ) -> str:
     env = environment if environment in {"production", "staging"} else None
     response = query_workflow().invoke(
-        QueryRequest(question=question, context=QueryContext(system=system or None, environment=env))
+        QueryRequest(
+            question=question, context=QueryContext(system=system or None, environment=env)
+        )
     )
     return _page(response.model_dump(mode="json"))
 
