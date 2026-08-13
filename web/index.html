@@ -1,4 +1,12 @@
-<link rel="stylesheet" href="/static/styles.css">
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Ops Guard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
@@ -7,23 +15,23 @@
     </div>
 
     <details class="upload-panel">
-      <summary class="primary">+ Add document</summary>
+      <summary class="primary">+ Agregar documento</summary>
       <form action="/documents" method="post" enctype="multipart/form-data" class="upload-form compact">
-        <label>Markdown file<input name="file" type="file" accept=".md,.markdown,text/markdown" required></label>
-        <label>Title<input name="title" placeholder="Optional if frontmatter exists"></label>
-        <label>System<input name="system" value="general" required></label>
+        <label>Archivo Markdown<input name="file" type="file" accept=".md,.markdown,text/markdown" required></label>
+        <label>Título<input name="title" placeholder="Opcional si existe frontmatter"></label>
+        <label>Sistema<input name="system" value="general" required></label>
         <div class="form-grid">
-          <label>Environment<select name="environment"><option value="all" selected>All</option><option value="production">Production</option><option value="staging">Staging</option></select></label>
-          <label>Type<select name="document_type"><option value="runbook">Runbook</option><option value="api">API</option><option value="sla">SLA</option><option value="incident">Incident</option><option value="postmortem">Postmortem</option><option value="architecture" selected>Architecture</option></select></label>
-          <label>Version<input name="version" value="1.0" required></label>
-          <label>Authority<input name="authority" type="number" min="0" max="100" value="50" required></label>
+          <label>Ambiente<select name="environment"><option value="all" selected>Todos</option><option value="production">Producción</option><option value="staging">Staging</option></select></label>
+          <label>Tipo<select name="document_type"><option value="runbook">Runbook</option><option value="api">API</option><option value="sla">SLA</option><option value="incident">Incidente</option><option value="postmortem">Postmortem</option><option value="architecture" selected>Arquitectura</option></select></label>
+          <label>Versión<input name="version" value="1.0" required></label>
+          <label>Autoridad<input name="authority" type="number" min="0" max="100" value="50" required></label>
         </div>
-        <p class="helper">Existing valid YAML frontmatter is preserved.</p>
-        <button class="primary" type="submit">Add to knowledge base</button>
+        <p class="helper">El frontmatter YAML válido existente se conserva.</p>
+        <button class="primary" type="submit">Ingerir y vectorizar</button>
       </form>
     </details>
 
-    <form action="/demo/load" method="post"><button class="secondary full" type="submit">Reload demo knowledge</button></form>
+    <form action="/demo/load" method="post"><button class="secondary full" type="submit">Recargar corpus demo</button></form>
     {{NOTICE}}
 
     <div class="section-title"><span>Knowledge base</span><span>{{DOCUMENT_COUNT}}</span></div>
@@ -32,27 +40,30 @@
 
   <main class="workspace">
     <header class="toolbar">
-      <div><p class="eyebrow">GROUNDED OPERATIONS ASSISTANT</p><p class="subtitle">Answers only from admitted operational evidence.</p></div>
+      <div><p class="eyebrow">GROUNDED OPERATIONS ASSISTANT</p><p class="subtitle">Responde únicamente desde evidencia operacional admitida.</p></div>
+      <div class="status-legend"><span class="badge answered">Respondido</span><span class="badge insufficient_evidence">Sin evidencia</span><span class="badge safety_blocked">Bloqueado</span></div>
     </header>
 
     <section class="conversation" aria-live="polite">
       <article class="message assistant-message">
         <div class="message-meta">RAG Ops Guard</div>
-        <div class="message-body">Ask an operational question. Answers include the evidence admitted by the RAG pipeline.</div>
+        <div class="message-body">Hacé una consulta operacional. La respuesta mostrará estado, tiempo de ejecución y fuentes admitidas por el pipeline.</div>
       </article>
       {{RESULT}}
     </section>
 
     <form action="/query" method="post" class="composer server-form">
       <div class="question-fields">
-        <label for="questionInput" class="sr-only">Question</label>
-        <textarea id="questionInput" name="question" rows="3" maxlength="2000" placeholder="Ask about retries, incidents, SLAs, APIs..." required>{{QUESTION}}</textarea>
+        <label for="questionInput" class="sr-only">Pregunta</label>
+        <textarea id="questionInput" name="question" rows="3" maxlength="2000" placeholder="Preguntá sobre retries, incidentes, SLAs, APIs..." required>{{QUESTION}}</textarea>
         <div class="filters">
-          <label>System<input name="system" placeholder="payments" value="{{SYSTEM}}"></label>
-          <label>Environment<select name="environment"><option value="" {{ENV_ANY}}>Any</option><option value="production" {{ENV_PRODUCTION}}>Production</option><option value="staging" {{ENV_STAGING}}>Staging</option></select></label>
+          <label>Sistema<input name="system" placeholder="payments" value="{{SYSTEM}}"></label>
+          <label>Ambiente<select name="environment"><option value="" {{ENV_ANY}}>Cualquiera</option><option value="production" {{ENV_PRODUCTION}}>Producción</option><option value="staging" {{ENV_STAGING}}>Staging</option></select></label>
         </div>
       </div>
-      <button class="primary" type="submit">Ask</button>
+      <button class="primary" type="submit">Consultar RAG</button>
     </form>
   </main>
 </div>
+</body>
+</html>
