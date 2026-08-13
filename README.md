@@ -42,51 +42,7 @@ For an `answered` response, citation IDs are validated against the evidence actu
 
 `v0.1.0-beta.1` is intentionally runnable **without an AWS account and without a hosted LLM API**.
 
-```mermaid
----
-config:
-  look: handDrawn
-  handDrawnSeed: 17
-  flowchart:
-    curve: stepBefore
-    nodeSpacing: 45
-    rankSpacing: 55
----
-flowchart LR
-    Client([Client]) --> APIGW["API Gateway v2"]
-
-    subgraph F["Floci · AWS-compatible plane"]
-      direction TB
-      APIGW --> Query["Query Lambda<br/>/v1/query"]
-      APIGW --> Ingest["Ingest Lambda<br/>/v1/ingest"]
-      Ingest --> S3["S3<br/>docs · chunks · manifests"]
-      S3V["S3 Vectors<br/>1024-d · cosine"]
-    end
-
-    subgraph A["Application · policy & orchestration"]
-      direction TB
-      LG["LangGraph"] --> Resolver["Evidence resolver<br/>version · status · authority"]
-      Resolver --> Context["Context builder<br/>max 5 chunks"]
-      Context --> Cite["Citation validator"]
-      Cite --> Response(["Grounded response"])
-    end
-
-    subgraph AI["Local AI · llama.cpp · CPU"]
-      direction TB
-      Embed["Qwen3-Embedding-0.6B<br/>llama-embed :8081"]
-      Gen["Qwen3-4B Q4_K_M<br/>llama-gen :8080"]
-    end
-
-    Query --> LG
-    Ingest --> Embed
-    Embed --> S3V
-    LG --> Embed
-    LG --> S3V
-    S3V --> Resolver
-    S3 -. "chunks" .-> Resolver
-    Context --> Gen
-    Gen --> Cite
-```
+![RAG Ops Guard local-first architecture](docs/diagrams/architecture.svg)
 
 ### Local infrastructure
 
@@ -142,33 +98,7 @@ This means an obsolete but semantically similar runbook cannot silently override
 
 LangGraph is used as the actual query state machine rather than as a decorative dependency.
 
-```mermaid
----
-config:
-  look: handDrawn
-  handDrawnSeed: 29
-  flowchart:
-    curve: stepBefore
-    nodeSpacing: 38
-    rankSpacing: 48
----
-flowchart LR
-    Start([START]) --> Validate["validate_request"]
-    Validate --> Analyze["analyze_query<br/>Qwen · structured output"]
-    Analyze --> Route{"policy / ambiguity"}
-
-    Route -->|unsafe| Blocked["safety_blocked"]
-    Route -->|ambiguous| Clarify["clarification_required"]
-    Route -->|continue| Retrieve["retrieve_evidence<br/>embed + S3 Vectors"]
-
-    Retrieve --> Resolve{"admissible evidence?"}
-    Resolve -->|no| Insufficient["insufficient_evidence"]
-    Resolve -->|yes| Generate["generate_grounded_answer<br/>Qwen"]
-
-    Generate --> Citations{"citations valid?"}
-    Citations -->|yes| Answered(["answered<br/>answer + citations"])
-    Citations -->|no| SafeAbstain["insufficient_evidence"]
-```
+![LangGraph query decision flow](docs/diagrams/langgraph-flow.svg)
 
 The normal successful path makes at most two generation-model calls: query analysis and grounded answer generation. Version selection, lifecycle rules, citation validation, and conflict resolution remain deterministic and testable.
 
@@ -237,60 +167,7 @@ LangSmith is optional. When enabled, the same workflow can be traced and evaluat
 
 The repository uses two permanent branches: `feature/* → develop → main → SemVer tag`. Feature branches are short-lived and squash-merged.
 
-```mermaid
----
-config:
-  look: handDrawn
-  handDrawnSeed: 41
-  flowchart:
-    curve: stepBefore
-    nodeSpacing: 42
-    rankSpacing: 50
----
-flowchart TB
-    Feature["feature / fix / docs branch"] --> PR["PR → develop"]
-
-    subgraph CI["GitHub-hosted deterministic CI"]
-      direction LR
-      Quality["Ruff + mypy"]
-      Unit["pytest + coverage"]
-      Property["Hypothesis"]
-      Security["dependency + secret audit"]
-      Floci["Floci integration"]
-      CDK["CDK test + synth"]
-      Gate["ci/gate"]
-
-      Quality --> Gate
-      Unit --> Gate
-      Property --> Gate
-      Security --> Gate
-      Floci --> Gate
-      CDK --> Gate
-    end
-
-    PR --> Quality
-    PR --> Unit
-    PR --> Property
-    PR --> Security
-    PR --> Floci
-    PR --> CDK
-
-    Gate --> Develop["develop"]
-
-    subgraph Release["Trusted local 8-thread release runner"]
-      direction LR
-      E2E["real Qwen + llama.cpp<br/>Floci E2E + adversarial + RAGAS"]
-      Repro["clean-clone reproducibility"]
-      ReleaseGate["release/gate"]
-      E2E --> ReleaseGate
-      Repro --> ReleaseGate
-    end
-
-    Develop --> E2E
-    Develop --> Repro
-    ReleaseGate --> Main["main"]
-    Main --> Tag(["v0.1.0-beta.1"])
-```
+![CI and release gates](docs/diagrams/ci-release.svg)
 
 ### Pull requests to `develop`
 
@@ -322,8 +199,8 @@ See [`docs/acceptance-criteria.md`](docs/acceptance-criteria.md) for the complet
 
 ### Requirements
 
-- Linux or another Docker-capable environment
-- Docker + Docker Compose
+- Linux with rootless Podman
+- Podman + a Compose provider
 - Python 3.12
 - `uv`
 - Node.js 24
