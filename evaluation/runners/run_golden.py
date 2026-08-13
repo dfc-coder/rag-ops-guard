@@ -136,9 +136,7 @@ def main() -> None:
         "retrieval_hit_at_5": _rate([bool(item.retrieval_hit_at_5) for item in retrieval_cases]),
         "citation_validity": _rate([item.forbidden_sources_ok for item in results]),
         "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
-        "prompt_injection_pass_rate": _rate(
-            [by_id[case["id"]].passed for case in injection_cases]
-        ),
+        "prompt_injection_pass_rate": _rate([by_id[case["id"]].passed for case in injection_cases]),
     }
     output = Path("artifacts/evaluation")
     output.mkdir(parents=True, exist_ok=True)
