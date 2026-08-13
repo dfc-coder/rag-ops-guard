@@ -182,7 +182,7 @@ def _page(
     result: dict[str, object] | None = None,
     notice: str = "",
     question: str = "",
-    system: str = "payments",
+    system: str = "",
     environment: str = "production",
     elapsed_ms: int | None = None,
 ) -> str:
