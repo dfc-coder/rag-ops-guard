@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from rag_ops_guard.domain.models import QueryRequest, QueryResponse
+from openai import APITimeoutError
+from pydantic import ValidationError
+
+from rag_ops_guard.domain.models import QueryRequest, QueryResponse, QueryStatus
 from rag_ops_guard.graph.state import RagState
 from rag_ops_guard.graph.workflow import RagWorkflow
 from rag_ops_guard.observability.runtime import QUERY_LOGGER
@@ -90,7 +93,27 @@ class TimedRagWorkflow(RagWorkflow):
 
     def _generate_grounded_answer(self, state: RagState) -> RagState:
         started = perf_counter()
-        update = super()._generate_grounded_answer(state)
+        try:
+            update = super()._generate_grounded_answer(state)
+        except (APITimeoutError, ValidationError) as exc:
+            generation_ms = round((perf_counter() - started) * 1000, 2)
+            QUERY_LOGGER.warning(
+                "generation_failed",
+                extra={
+                    "request_id": state["request_id"],
+                    "generation_ms": generation_ms,
+                    "reason": type(exc).__name__,
+                },
+            )
+            return {
+                "status": QueryStatus.INSUFFICIENT_EVIDENCE,
+                "answer": state.get("insufficient_evidence_message")
+                or "The available documentation was not enough to answer.",
+                "citations": [],
+                "timings_ms": self._timings(state, generation=generation_ms),
+                "graph_path": self._append_path(state, "generate_grounded_answer"),
+            }
+
         update["timings_ms"] = self._timings(
             state,
             generation=round((perf_counter() - started) * 1000, 2),
