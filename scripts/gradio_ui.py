@@ -17,6 +17,22 @@ STATUS_LABELS = {
     "safety_blocked": "Bloqueado por seguridad",
 }
 
+TIMING_LABELS = {
+    "analysis": "análisis",
+    "embedding": "embedding",
+    "retrieval": "retrieval",
+    "resolver": "resolver",
+    "generation": "generación",
+}
+
+
+def _timing_line(timings: dict[str, float]) -> str:
+    return " · ".join(
+        f"{TIMING_LABELS[key]} {timings[key] / 1000:.1f}s"
+        for key in TIMING_LABELS
+        if key in timings
+    )
+
 
 def chat(message: str, _history: list, system: str, environment: str) -> str:
     env = environment if environment in {"production", "staging"} else None
@@ -32,15 +48,18 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
         )
     )
 
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    elapsed_ms = int(response.timings_ms.get("total", (time.perf_counter() - started) * 1000))
     status = response.status.value
     text = response.answer or response.clarification_question or ""
-
     citations = "\n".join(
         f"- **{item.title}** · v{item.version}" for item in response.citations
     )
+    timing_line = _timing_line(response.timings_ms)
 
-    result = f"**{STATUS_LABELS.get(status, status)}** · {elapsed_ms} ms\n\n{text}"
+    result = f"**{STATUS_LABELS.get(status, status)}** · {elapsed_ms} ms"
+    if timing_line:
+        result += f"\n\n`{timing_line}`"
+    result += f"\n\n{text}"
 
     if citations:
         result += f"\n\n**Fuentes**\n{citations}"
