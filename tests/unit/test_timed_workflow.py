@@ -1,4 +1,10 @@
-from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis, QueryContext, QueryRequest
+from rag_ops_guard.domain.models import (
+    GroundedAnswer,
+    QueryAnalysis,
+    QueryContext,
+    QueryRequest,
+    QueryStatus,
+)
 from rag_ops_guard.graph.timed_workflow import TimedRagWorkflow
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 from tests.fixtures.builders import evidence
@@ -39,5 +45,6 @@ def test_timed_workflow_reports_stage_latencies() -> None:
     )
 
     expected = {"analysis", "embedding", "retrieval", "resolver", "generation", "total"}
+    assert response.status == QueryStatus.ANSWERED
     assert expected.issubset(response.timings_ms)
     assert all(response.timings_ms[key] >= 0 for key in expected)
