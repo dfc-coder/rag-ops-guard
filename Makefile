@@ -5,7 +5,7 @@ CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
 export PODMAN_SOCKET MODEL_DIR
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -50,6 +50,9 @@ demo: models local-up demo-prepare
 demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
+
+ui:
+	uv run python scripts/start_ui.py
 
 lint:
 	uv run ruff format --check .
