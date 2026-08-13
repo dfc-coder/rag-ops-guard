@@ -9,7 +9,7 @@ from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbedd
 from rag_ops_guard.adapters.llm import llamacpp_chat, tokenizer
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
-from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
+from rag_ops_guard.domain.models import GroundedAnswer
 
 
 class FakeEmbeddings:
@@ -30,7 +30,8 @@ class FakeStructured:
 
     def invoke(self, prompt: str) -> object:
         del prompt
-        if issubclass(self.schema, QueryAnalysis):
+        fields = getattr(self.schema, "model_fields", {})
+        if "normalized_question" in fields:
             return {
                 "normalized_question": "normalized",
                 "systems": ["payments"],
@@ -39,8 +40,7 @@ class FakeStructured:
                 "requires_clarification": False,
                 "clarification_question": None,
                 "safety_category": "normal",
-                "safety_blocked_message": "This request cannot be fulfilled safely.",
-                "insufficient_evidence_message": "There is not enough evidence to answer safely.",
+                "fallback_message": "This request cannot be answered safely.",
             }
         return {
             "status": "answered",
@@ -50,8 +50,11 @@ class FakeStructured:
 
 
 class FakeChat:
+    instances: list[FakeChat] = []
+
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        self.instances.append(self)
 
     def with_structured_output(self, schema: type[object], method: str) -> FakeStructured:
         assert method == "json_schema"
@@ -76,17 +79,31 @@ def test_embedding_adapter_normalizes_and_validates_dimension(
 
 
 def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeChat.instances.clear()
     monkeypatch.setattr(llamacpp_chat, "ChatOpenAI", FakeChat)
-    adapter = LlamaCppChatAdapter("http://localhost:8080/v1", "qwen", 0.0, 128)
+    adapter = LlamaCppChatAdapter(
+        "http://localhost:8080/v1",
+        "qwen",
+        0.7,
+        analysis_max_tokens=128,
+        answer_max_tokens=256,
+        timeout_seconds=60.0,
+    )
     analysis = adapter.analyze_query("analyze")
     answer = adapter.generate_answer("answer")
+
     assert analysis.normalized_question == "normalized"
-    assert analysis.insufficient_evidence_message == "There is not enough evidence to answer safely."
+    assert analysis.insufficient_evidence_message == "This request cannot be answered safely."
     assert answer == GroundedAnswer(
         status="answered",
         answer="grounded",
         citation_ids=["doc:1.0:000:deadbeef"],
     )
+    assert FakeChat.instances[0].kwargs["temperature"] == 0.0
+    assert FakeChat.instances[0].kwargs["max_completion_tokens"] == 128
+    assert FakeChat.instances[1].kwargs["max_completion_tokens"] == 256
+    assert all(item.kwargs["timeout"] == 60.0 for item in FakeChat.instances)
+    assert all(item.kwargs["max_retries"] == 0 for item in FakeChat.instances)
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
