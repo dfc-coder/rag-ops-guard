@@ -1,1 +1,73 @@
-<main><h1>RAG Ops Guard</h1><div id="app"></div><script src="/static/app.js"></script></main>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div>
+        <p class="eyebrow">LOCAL RAG CONSOLE</p>
+        <h1>RAG Ops Guard</h1>
+      </div>
+      <span id="healthBadge" class="badge muted">checking</span>
+    </div>
+
+    <div class="side-actions">
+      <button id="uploadButton" class="primary" type="button">+ Add document</button>
+      <button id="loadDemoButton" class="secondary" type="button">Reload demo knowledge</button>
+    </div>
+
+    <div class="section-title">
+      <span>Knowledge base</span>
+      <span id="documentCount">0</span>
+    </div>
+    <div id="documents" class="documents">
+      <p class="muted-text">Loading documents...</p>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <header class="toolbar">
+      <div>
+        <p class="eyebrow">GROUNDED OPERATIONS ASSISTANT</p>
+        <p class="subtitle">Answers only from admitted operational evidence.</p>
+      </div>
+      <div class="filters">
+        <label>System<input id="systemInput" placeholder="payments" value="payments"></label>
+        <label>Environment<select id="environmentInput"><option value="">Any</option><option value="production" selected>Production</option><option value="staging">Staging</option></select></label>
+      </div>
+    </header>
+
+    <section id="conversation" class="conversation" aria-live="polite">
+      <article class="message assistant-message">
+        <div class="message-meta">RAG Ops Guard</div>
+        <div class="message-body">Ask an operational question. Answers include the evidence admitted by the RAG pipeline.</div>
+      </article>
+    </section>
+
+    <form id="queryForm" class="composer">
+      <label for="questionInput" class="sr-only">Question</label>
+      <textarea id="questionInput" rows="3" maxlength="2000" placeholder="Ask about retries, incidents, SLAs, APIs..." required></textarea>
+      <button id="askButton" class="primary" type="submit">Ask</button>
+    </form>
+  </main>
+</div>
+
+<dialog id="uploadDialog">
+  <form id="uploadForm" class="upload-form">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">INGEST KNOWLEDGE</p><h2>Add Markdown document</h2></div>
+      <button id="closeDialog" class="icon-button" type="button" aria-label="Close">x</button>
+    </div>
+    <label>Markdown file<input name="file" type="file" accept=".md,.markdown,text/markdown" required></label>
+    <div class="form-grid">
+      <label>Title<input name="title" placeholder="Optional if frontmatter exists"></label>
+      <label>System<input name="system" value="general" required></label>
+      <label>Environment<select name="environment"><option value="all" selected>All</option><option value="production">Production</option><option value="staging">Staging</option></select></label>
+      <label>Type<select name="document_type"><option value="runbook">Runbook</option><option value="api">API</option><option value="sla">SLA</option><option value="incident">Incident</option><option value="postmortem">Postmortem</option><option value="architecture" selected>Architecture</option></select></label>
+      <label>Version<input name="version" value="1.0" required></label>
+      <label>Authority<input name="authority" type="number" min="0" max="100" value="50" required></label>
+    </div>
+    <p class="helper">Valid YAML frontmatter in the file is preserved.</p>
+    <div id="uploadStatus" class="inline-status" aria-live="polite"></div>
+    <button id="ingestButton" class="primary" type="submit">Add to knowledge base</button>
+  </form>
+</dialog>
+
+<script src="/static/app.js" defer></script>
