@@ -54,9 +54,7 @@ def main() -> None:
 
     for case in cases:
         context = QueryContext.model_validate(case.get("context", {}))
-        response = query_workflow().invoke(
-            QueryRequest(question=case["question"], context=context)
-        )
+        response = query_workflow().invoke(QueryRequest(question=case["question"], context=context))
         source_ids: set[str] = set()
         for citation in response.citations:
             source_ids.update(_citation_identities(citation))
@@ -70,12 +68,8 @@ def main() -> None:
             "expected_status": case["expected_status"],
             "actual_status": response.status.value,
             "status_ok": response.status.value == case["expected_status"],
-            "facts_ok": all(
-                str(fact).lower() in answer for fact in case.get("required_facts", [])
-            )
-            and all(
-                str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
-            ),
+            "facts_ok": all(str(fact).lower() in answer for fact in case.get("required_facts", []))
+            and all(str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])),
             "sources_ok": expected_sources.issubset(source_ids)
             and forbidden_sources.isdisjoint(source_ids),
             "retrieval_hit_at_5": (
@@ -103,9 +97,7 @@ def main() -> None:
     (output / "core-results.json").write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    (output / "core-summary.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
+    (output / "core-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 
 
