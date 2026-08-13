@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8080/v1"
     llm_model: str = "qwen3-4b-rag"
     llm_max_tokens: int = Field(default=256, ge=32, le=2048)
-    llm_temperature: float = Field(default=0.7, ge=0, le=2)
+    llm_temperature: float = Field(default=0.0, ge=0, le=2)
 
     embedding_base_url: str = "http://localhost:8081/v1"
     embedding_model: str = "qwen3-embedding-0.6b"
