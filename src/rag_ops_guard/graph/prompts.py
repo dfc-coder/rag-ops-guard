@@ -37,7 +37,8 @@ GROUNDING_RULES = (
     "state that fact concisely, and cite the exact EVIDENCE id that supports it.\n"
     "Do not return insufficient_evidence merely because you are cautious or because other admitted "
     "evidence is less relevant.\n"
-    "Return insufficient_evidence only when no admitted evidence directly supports the requested fact.\n"
+    "Use insufficient_evidence only when no admitted evidence directly contains "
+    "the requested fact.\n"
     "If answered, cite only EVIDENCE IDs that directly support the response.\n"
     "Do not use general knowledge, common defaults, or invented values.\n"
 )
