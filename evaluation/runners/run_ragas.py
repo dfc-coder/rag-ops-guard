@@ -97,7 +97,7 @@ def main() -> None:
         api_key="local",
     )
     evaluator_llm = llm_factory(
-        os.environ.get("LLM_MODEL", "qwen3-4b-rag"),
+        os.environ.get("LLM_MODEL", "qwen35-0.8b-rag"),
         client=llm_client,
         temperature=0.0,
         system_prompt=(
@@ -126,7 +126,7 @@ def main() -> None:
         "context_precision": float(frame["llm_context_precision_with_reference"].mean()),
         "context_recall": float(frame["context_recall"].mean()),
         "response_relevancy": float(frame["answer_relevancy"].mean()),
-        "evaluator": "Qwen3-4B-Q4_K_M via llama.cpp",
+        "evaluator": "Qwen3.5-0.8B-Q4_K_M via llama.cpp",
         "embedding_evaluator": "Qwen3-Embedding-0.6B-Q8_0 via llama.cpp",
         "samples": len(frame),
     }
