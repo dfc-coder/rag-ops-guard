@@ -51,8 +51,8 @@ demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
 
-ui:
-	uv run python scripts/start_ui.py
+ui: models local-up demo-prepare
+	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
 
 lint:
 	uv run ruff format --check .

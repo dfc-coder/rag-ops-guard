@@ -135,6 +135,8 @@ class QueryAnalysis(BaseModel):
     requires_clarification: bool
     clarification_question: str | None = None
     safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
+    safety_blocked_message: str | None = Field(default=None, min_length=1, max_length=300)
+    insufficient_evidence_message: str | None = Field(default=None, min_length=1, max_length=300)
 
 
 class GroundedAnswer(BaseModel):
