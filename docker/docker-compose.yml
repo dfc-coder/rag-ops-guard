@@ -41,6 +41,8 @@ services:
       - --parallel
       - "1"
       - --cache-prompt
+      - --reasoning
+      - "off"
       - --jinja
       - --metrics
     ports:
