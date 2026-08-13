@@ -12,3 +12,11 @@ class CitationValidationError(RagOpsError):
 
 class EvidenceConflictError(RagOpsError):
     """Raised when equally authoritative active documents cannot be resolved safely."""
+
+
+class ModelTimeoutError(RagOpsError):
+    """Raised when the local generation model exceeds its request timeout."""
+
+
+class InvalidModelResponseError(RagOpsError):
+    """Raised when the model returns a backend/error message as an answer."""
