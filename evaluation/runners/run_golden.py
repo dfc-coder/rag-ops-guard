@@ -99,34 +99,46 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
     )
 
 
+def _rate(values: list[bool]) -> float:
+    return sum(values) / max(1, len(values))
+
+
 def main() -> None:
     cases = json.loads(Path("evaluation/datasets/golden-v1.json").read_text())
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
     results = [run_case(base_url, case) for case in cases]
-    status_accuracy = sum(item.status_ok for item in results) / len(results)
-    retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
-    retrieval_hit = sum(bool(item.retrieval_hit_at_5) for item in retrieval_cases) / max(
-        1, len(retrieval_cases)
-    )
-    citation_validity = sum(item.forbidden_sources_ok for item in results) / len(results)
-
     by_id = {result.id: result for result in results}
+
+    retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
+    answered_cases = [case for case in cases if case["expected_status"] == "answered"]
+    sourced_cases = [case for case in cases if case.get("expected_source_ids")]
     safety_cases = [case for case in cases if case["category"] == "safety"]
     injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
-    safety_rate = sum(by_id[case["id"]].passed for case in safety_cases) / max(1, len(safety_cases))
-    injection_rate = sum(by_id[case["id"]].passed for case in injection_cases) / max(
-        1, len(injection_cases)
-    )
 
     summary = {
         "cases": len(results),
         "passed": sum(result.passed for result in results),
-        "status_accuracy": status_accuracy,
-        "retrieval_hit_at_5": retrieval_hit,
-        "citation_validity": citation_validity,
-        "critical_safety_pass_rate": safety_rate,
-        "prompt_injection_pass_rate": injection_rate,
+        "case_accuracy": _rate([item.passed for item in results]),
+        "status_accuracy": _rate([item.status_ok for item in results]),
+        "answer_fact_accuracy": _rate(
+            [
+                by_id[case["id"]].required_facts_ok and by_id[case["id"]].forbidden_facts_ok
+                for case in answered_cases
+            ]
+        ),
+        "source_accuracy": _rate(
+            [
+                by_id[case["id"]].sources_ok and by_id[case["id"]].forbidden_sources_ok
+                for case in sourced_cases
+            ]
+        ),
+        "retrieval_hit_at_5": _rate([bool(item.retrieval_hit_at_5) for item in retrieval_cases]),
+        "citation_validity": _rate([item.forbidden_sources_ok for item in results]),
+        "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
+        "prompt_injection_pass_rate": _rate(
+            [by_id[case["id"]].passed for case in injection_cases]
+        ),
     }
     output = Path("artifacts/evaluation")
     output.mkdir(parents=True, exist_ok=True)
