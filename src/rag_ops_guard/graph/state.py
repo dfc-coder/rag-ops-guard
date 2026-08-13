@@ -12,11 +12,11 @@ class RagState(TypedDict, total=False):
     context: QueryContext
     status: QueryStatus
     clarification_question: str | None
-    safety_blocked_message: str | None
-    insufficient_evidence_message: str | None
+    fallback_message: str
     retrieved_evidence: list[Evidence]
     resolved_evidence: list[Evidence]
     answer: str | None
     citations: list[Citation]
     graph_path: list[str]
     safety_category: str
+    timings_ms: dict[str, float]
