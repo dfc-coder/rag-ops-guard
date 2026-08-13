@@ -13,11 +13,11 @@ class LlamaCppChatAdapter:
         model: str,
         temperature: float,
         max_tokens: int,
-        top_p: float,
-        top_k: int,
-        min_p: float,
-        presence_penalty: float,
-        repeat_penalty: float,
+        top_p: float = 0.8,
+        top_k: int = 20,
+        min_p: float = 0.0,
+        presence_penalty: float = 1.5,
+        repeat_penalty: float = 1.0,
     ) -> None:
         base = ChatOpenAI(
             base_url=base_url,

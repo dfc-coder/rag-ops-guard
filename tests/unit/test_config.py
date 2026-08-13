@@ -8,5 +8,12 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.vector_dimension == 1024
     assert settings.retrieval_top_k == 8
     assert settings.retrieval_context_k == 5
-    assert settings.llm_model == "qwen3-4b-rag"
+    assert settings.llm_model == "qwen35-0.8b-rag"
+    assert settings.llm_max_tokens == 512
+    assert settings.llm_temperature == 0.7
+    assert settings.llm_top_p == 0.8
+    assert settings.llm_top_k == 20
+    assert settings.llm_min_p == 0.0
+    assert settings.llm_presence_penalty == 1.5
+    assert settings.llm_repeat_penalty == 1.0
     assert settings.embedding_model == "qwen3-embedding-0.6b"
