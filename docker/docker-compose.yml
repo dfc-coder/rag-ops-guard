@@ -27,7 +27,7 @@ services:
       - -m
       - /models/Qwen3.5-0.8B-Q4_K_M.gguf
       - --alias
-      - qwen3.5-0.8b-rag
+      - qwen3-4b-rag
       - --host
       - 0.0.0.0
       - --port
