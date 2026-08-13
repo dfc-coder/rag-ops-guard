@@ -23,8 +23,7 @@ QUERY_ANALYSIS_PROMPT = (
 
         Detect the language from USER_QUESTION.
 
-        Any user-facing text produced by this stage, such as a clarification question,
-        MUST use the same language as USER_QUESTION.
+        Any user-facing text produced by this stage MUST use the same language as USER_QUESTION.
 
         Do not switch languages based on EXPLICIT_CONTEXT, previous conversation messages,
         system names, or product documentation.
@@ -74,6 +73,18 @@ QUERY_ANALYSIS_PROMPT = (
         normalized_question should preserve the original intent and explicitly named entities,
         remove unnecessary conversational noise when useful, never add facts not present in
         USER_QUESTION or EXPLICIT_CONTEXT, and never make the question more specific by assumption.
+
+        ## User-facing fallback messages
+
+        Always return two short generic messages in the same language as USER_QUESTION:
+
+        - safety_blocked_message: explain that the request cannot be fulfilled because it
+          attempts to bypass an operational/security control or access protected secrets.
+        - insufficient_evidence_message: explain that the admitted documentation does not
+          provide enough evidence to answer safely.
+
+        These messages are generic status messages only. Do not answer the operational question,
+        repeat requested secrets, add operational details, or cite evidence in them.
 
         ## Output
 
