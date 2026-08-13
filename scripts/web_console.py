@@ -153,7 +153,10 @@ def _render_result(result: dict[str, object] | None, elapsed_ms: int | None) -> 
     label = STATUS_LABELS.get(status, status)
     answer = str(result.get("answer") or result.get("clarification_question") or "")
     if not answer and status == "insufficient_evidence":
-        answer = "La documentación disponible no aporta evidencia suficiente para responder con seguridad."
+        answer = (
+            "La documentación disponible no aporta evidencia suficiente "
+            "para responder con seguridad."
+        )
     if not answer and status == "safety_blocked":
         answer = "La consulta fue bloqueada por las reglas de seguridad del sistema."
     citations = "".join(
@@ -167,7 +170,8 @@ def _render_result(result: dict[str, object] | None, elapsed_ms: int | None) -> 
         "<article class='message assistant-message'>"
         "<div class='message-meta'>RAG Ops Guard</div>"
         "<div class='message-body'>"
-        f"<div class='response-top'><span class='badge {status}'>{html.escape(label)}</span>{timing}</div>"
+        f"<div class='response-top'><span class='badge {status}'>"
+        f"{html.escape(label)}</span>{timing}</div>"
         f"{html.escape(answer)}"
         f"<div class='citations'>{citations}</div>"
         "</div></article>"
