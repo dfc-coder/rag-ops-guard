@@ -6,7 +6,7 @@ from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbedd
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.config import get_settings
-from rag_ops_guard.graph.workflow import RagWorkflow
+from rag_ops_guard.graph.timed_workflow import TimedRagWorkflow
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
@@ -82,9 +82,9 @@ def ingestion_service() -> IngestionService:
 
 
 @lru_cache(maxsize=1)
-def query_workflow() -> RagWorkflow:
+def query_workflow() -> TimedRagWorkflow:
     settings = get_settings()
-    return RagWorkflow(
+    return TimedRagWorkflow(
         chat=chat_model(),
         embeddings=embeddings(),
         vectors=vector_store(),
