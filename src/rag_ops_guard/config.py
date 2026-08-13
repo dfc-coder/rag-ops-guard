@@ -29,7 +29,9 @@ class Settings(BaseSettings):
 
     llm_base_url: str = "http://localhost:8080/v1"
     llm_model: str = "qwen35-0.8b-rag"
-    llm_max_tokens: int = Field(default=512, ge=32, le=2048)
+    llm_analysis_max_tokens: int = Field(default=128, ge=32, le=512)
+    llm_answer_max_tokens: int = Field(default=256, ge=64, le=1024)
+    llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
     llm_temperature: float = Field(default=0.7, ge=0, le=2)
     llm_top_p: float = Field(default=0.8, ge=0, le=1)
     llm_top_k: int = Field(default=20, ge=0, le=100)
