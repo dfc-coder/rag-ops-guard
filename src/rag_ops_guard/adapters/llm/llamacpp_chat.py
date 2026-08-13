@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
+
+
+class _QueryAnalysisOutput(QueryAnalysis):
+    safety_blocked_message: str = Field(min_length=1, max_length=300)
+    insufficient_evidence_message: str = Field(min_length=1, max_length=300)
 
 
 class LlamaCppChatAdapter:
@@ -33,7 +38,7 @@ class LlamaCppChatAdapter:
                 "repeat_penalty": repeat_penalty,
             },
         )
-        self._analysis = base.with_structured_output(QueryAnalysis, method="json_schema")
+        self._analysis = base.with_structured_output(_QueryAnalysisOutput, method="json_schema")
         self._answer = base.with_structured_output(GroundedAnswer, method="json_schema")
 
     def analyze_query(self, prompt: str) -> QueryAnalysis:
