@@ -5,7 +5,8 @@ from typing import Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from openai import APITimeoutError, LengthFinishReasonError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
 
@@ -51,6 +52,18 @@ Preserve named systems, APIs, identifiers and the language of CURRENT_QUESTION.
 If CURRENT_QUESTION is already self-contained, return it unchanged.
 Return only the structured schema requested by the caller.
 """.strip()
+
+
+def _trusted_followup_fallback(
+    current_question: str,
+    previous_query: str,
+    source_titles: list[str],
+) -> str:
+    titles = list(dict.fromkeys(title.strip() for title in source_titles if title.strip()))
+    parts = [previous_query.strip(), current_question.strip()]
+    if titles:
+        parts.append(f"Relevant sources: {' | '.join(titles)}")
+    return "\n".join(part for part in parts if part)
 
 
 class LlamaCppChatAdapter:
@@ -140,17 +153,24 @@ class LlamaCppChatAdapter:
             "PREVIOUS_GROUNDED_QUERY": previous_query.strip(),
             "SOURCE_TITLES": source_titles,
         }
-        result = self._rewrite.invoke(
-            [
-                SystemMessage(content=_REWRITE_SYSTEM_PROMPT),
-                HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
-            ]
-        )
-        if isinstance(result, BaseModel):
-            parsed = _QueryRewriteOutput.model_validate(result.model_dump())
-        else:
-            parsed = _QueryRewriteOutput.model_validate(result)
-        return parsed.standalone_query.strip()
+        try:
+            result = self._rewrite.invoke(
+                [
+                    SystemMessage(content=_REWRITE_SYSTEM_PROMPT),
+                    HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
+                ]
+            )
+            if isinstance(result, BaseModel):
+                parsed = _QueryRewriteOutput.model_validate(result.model_dump())
+            else:
+                parsed = _QueryRewriteOutput.model_validate(result)
+            return parsed.standalone_query.strip()
+        except (APITimeoutError, LengthFinishReasonError, ValidationError):
+            return _trusted_followup_fallback(
+                current_question=current_question,
+                previous_query=previous_query,
+                source_titles=source_titles,
+            )
 
     def generate_chat(self, messages: list[BaseMessage]) -> str:
         request = list(messages)
