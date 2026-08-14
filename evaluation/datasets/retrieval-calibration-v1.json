@@ -54,6 +54,36 @@
     "expected_titles": ["Calypso Integration SLA"]
   },
   {
+    "id": "sap_timeout_es",
+    "label": "negative",
+    "query": "Cual es el timeout exacto de SAP en produccion?",
+    "expected_titles": []
+  },
+  {
+    "id": "oracle_retries_en",
+    "label": "negative",
+    "query": "How many retries are allowed for Oracle Fusion payments?",
+    "expected_titles": []
+  },
+  {
+    "id": "servicenow_sla_es",
+    "label": "negative",
+    "query": "Cual es el SLA de ServiceNow en produccion?",
+    "expected_titles": []
+  },
+  {
+    "id": "kafka_dlq_es",
+    "label": "negative",
+    "query": "Como hago replay del DLQ de Kafka?",
+    "expected_titles": []
+  },
+  {
+    "id": "azure_outage_en",
+    "label": "negative",
+    "query": "What happened in the Azure payment outage?",
+    "expected_titles": []
+  },
+  {
     "id": "france_capital_es",
     "label": "negative",
     "query": "Cual es la capital de Francia?",
