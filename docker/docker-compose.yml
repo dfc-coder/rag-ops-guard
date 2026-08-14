@@ -17,7 +17,7 @@ services:
       FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED: "true"
       FLOCI_DNS_CONTAINER_FALLBACK_ENABLED: "false"
     volumes:
-      - ../.local/floci:/app/data
+      - ../.local/floci:/app/data:z
       - "${PODMAN_SOCKET}:/var/run/docker.sock:z"
     networks:
       - rag-ops-net
