@@ -84,7 +84,6 @@ class ConversationalAgent:
         builder.add_node("capabilities", self._capabilities)
         builder.add_node("catalog", self._catalog_response)
         builder.add_node("out_of_scope", self._out_of_scope)
-        builder.add_node("uncertain", self._uncertain)
         builder.add_node("search_knowledge", self._search_knowledge)
         builder.add_node("grounded_answer", self._generate_grounded_answer)
 
@@ -98,11 +97,21 @@ class ConversationalAgent:
                 "catalog": "catalog",
                 "knowledge": "search_knowledge",
                 "out_of_scope": "out_of_scope",
-                "uncertain": "uncertain",
+                "uncertain": "search_knowledge",
             },
         )
-        builder.add_edge("search_knowledge", "grounded_answer")
-        for node in ("chat", "capabilities", "catalog", "out_of_scope", "uncertain"):
+        builder.add_conditional_edges(
+            "search_knowledge",
+            lambda state: state["route"],
+            {
+                "chat": "chat",
+                "capabilities": "capabilities",
+                "catalog": "catalog",
+                "knowledge": "grounded_answer",
+                "out_of_scope": "out_of_scope",
+            },
+        )
+        for node in ("chat", "capabilities", "catalog", "out_of_scope"):
             builder.add_edge(node, END)
         builder.add_edge("grounded_answer", END)
         return builder.compile(checkpointer=checkpointer)
@@ -162,16 +171,13 @@ class ConversationalAgent:
         started = perf_counter()
         question = _latest_user_message(state["messages"])
         decision: RouteDecision = self._router.route(question)
-        route = decision.route
-        if route == "uncertain" and state.get("focus"):
-            route = "knowledge"
         route_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
             "agent_routed",
             extra={
                 "request_id": state["request_id"],
                 "question": question,
-                "route": route,
+                "route": decision.route,
                 "route_score": decision.score,
                 "route_margin": decision.margin,
                 "route_scores": decision.scores,
@@ -179,7 +185,7 @@ class ConversationalAgent:
             },
         )
         return {
-            "route": route,
+            "route": decision.route,
             "route_confidence": decision.score,
             "route_margin": decision.margin,
             "route_scores": decision.scores,
@@ -188,6 +194,7 @@ class ConversationalAgent:
 
     def _search_knowledge(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
+        original_route = state["route"]
         question = _latest_user_message(state["messages"])
         result = self._safe_search(question, state)
         retrieval_query = question
@@ -218,12 +225,21 @@ class ConversationalAgent:
                     result = rewritten_result
                     retrieval_query = rewritten_query
 
+        resolved_route = original_route
+        if original_route == "uncertain":
+            if result.relevance >= self._relevance_threshold and result.admitted:
+                resolved_route = "knowledge"
+            else:
+                resolved_route = _best_control_route(state.get("route_scores", {}))
+
         search_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
             "knowledge_search_completed",
             extra={
                 "request_id": state["request_id"],
                 "original_question": question,
+                "original_route": original_route,
+                "resolved_route": resolved_route,
                 "retrieval_query": retrieval_query,
                 "rewritten_query": rewritten_query or "",
                 "relevance": result.relevance,
@@ -238,6 +254,7 @@ class ConversationalAgent:
         if rewrite_ms:
             updates["rewrite"] = rewrite_ms
         return {
+            "route": resolved_route,
             "evidence": result.admitted,
             "retrieval_query": retrieval_query,
             "rewritten_query": rewritten_query,
@@ -273,10 +290,6 @@ class ConversationalAgent:
         return self._answered_update(state, answer, catalog_ms=catalog_ms)
 
     def _out_of_scope(self, state: AgentState) -> dict[str, Any]:
-        answer = out_of_scope_response(_latest_user_message(state["messages"]))
-        return self._answered_update(state, answer)
-
-    def _uncertain(self, state: AgentState) -> dict[str, Any]:
         answer = out_of_scope_response(_latest_user_message(state["messages"]))
         return self._answered_update(state, answer)
 
@@ -391,6 +404,15 @@ def _latest_user_message(messages: Sequence[BaseMessage]) -> str:
         if isinstance(message, HumanMessage):
             return str(message.content)
     raise ValueError("conversation has no user message")
+
+
+def _best_control_route(scores: dict[str, float]) -> Route:
+    candidates: tuple[Route, ...] = ("capabilities", "catalog", "chat", "out_of_scope")
+    ranked = [(route, scores.get(route, float("-inf"))) for route in candidates]
+    best_route, best_score = max(ranked, key=lambda item: item[1])
+    if best_score == float("-inf"):
+        return "out_of_scope"
+    return best_route
 
 
 def _expand_citation_refs(citation_ids: list[str], evidence: list[Evidence]) -> list[str]:
