@@ -105,9 +105,12 @@ def start() -> None:
         "-d",
         "--name",
         OVMS_CONTAINER_NAME,
-        # Match the host UID/GID inside rootless Podman so the runtime sees the same
-        # ownership model as the preparation step and can read the cached repository.
+        # keep-id creates the UID/GID mapping and --user selects that mapped identity
+        # for the OVMS process. This is the rootless Podman equivalent of the upstream
+        # Docker examples that run OVMS with `-u $(id -u):$(id -g)`.
         "--userns=keep-id",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
         "--device",
         "/dev/dri",
         "-p",
