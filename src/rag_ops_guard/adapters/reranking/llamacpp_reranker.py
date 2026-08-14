@@ -62,7 +62,7 @@ def _normalized_score(value: object) -> float:
     score = float(value)
     if 0.0 <= score <= 1.0:
         return score
-    return _sigmoid(score)
+    return _sigmoid_score(score)
 
 
 def _sigmoid_score(value: object) -> float:
