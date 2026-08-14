@@ -66,8 +66,7 @@ def main() -> None:
     _grounded(objective)
     _require(
         any(
-            title in {"Calypso Integration API", "Payments API v2"}
-            for title in _titles(objective)
+            title in {"Calypso Integration API", "Payments API v2"} for title in _titles(objective)
         ),
         "Calypso objective query did not cite the relevant API documentation",
     )
