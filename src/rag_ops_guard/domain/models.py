@@ -97,14 +97,17 @@ class QueryResponse(BaseModel):
 
     request_id: str
     status: QueryStatus
-    route: Literal[
-        "chat",
-        "capabilities",
-        "catalog",
-        "knowledge",
-        "out_of_scope",
-        "uncertain",
-    ] | None = None
+    route: (
+        Literal[
+            "chat",
+            "capabilities",
+            "catalog",
+            "knowledge",
+            "out_of_scope",
+            "uncertain",
+        ]
+        | None
+    ) = None
     answer: str | None = None
     clarification_question: str | None = None
     citations: list[Citation] = Field(default_factory=list)
