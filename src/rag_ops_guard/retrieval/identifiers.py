@@ -11,6 +11,8 @@ _NON_IDENTIFIER_WORDS = {
     "cuál",
     "cuando",
     "cuándo",
+    "cuantos",
+    "cuántos",
     "dime",
     "decime",
     "donde",
