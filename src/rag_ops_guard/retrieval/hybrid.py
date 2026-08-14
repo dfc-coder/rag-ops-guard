@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
@@ -10,6 +11,36 @@ from rag_ops_guard.retrieval.reranker import rerank_evidence
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 _RRF_K = 60
+_TOKEN_RE = re.compile(r"\w{2,}", re.UNICODE)
+_STOPWORDS = {
+    "the",
+    "and",
+    "what",
+    "which",
+    "about",
+    "this",
+    "that",
+    "does",
+    "with",
+    "from",
+    "para",
+    "por",
+    "que",
+    "qué",
+    "cual",
+    "cuál",
+    "como",
+    "cómo",
+    "este",
+    "esta",
+    "esto",
+    "del",
+    "las",
+    "los",
+    "una",
+    "uno",
+    "entonces",
+}
 
 
 @dataclass(frozen=True)
@@ -18,6 +49,7 @@ class KnowledgeSearchResult:
     lexical: list[Evidence]
     fused: list[Evidence]
     admitted: list[Evidence]
+    relevance: float = 0.0
 
 
 class KnowledgeSearch:
@@ -58,6 +90,7 @@ class KnowledgeSearch:
             lexical=lexical,
             fused=fused,
             admitted=admitted,
+            relevance=retrieval_relevance(query, dense, admitted),
         )
 
     def refresh(self) -> None:
@@ -97,3 +130,27 @@ def reciprocal_rank_fusion(
 
     ordered_ids = sorted(scores, key=lambda chunk_id: (-scores[chunk_id], chunk_id))
     return [items[chunk_id] for chunk_id in ordered_ids]
+
+
+def retrieval_relevance(query: str, dense: list[Evidence], admitted: list[Evidence]) -> float:
+    semantic = 0.0
+    distances = [item.distance for item in dense if item.distance is not None]
+    if distances:
+        semantic = max(0.0, min(1.0, 1.0 - min(distances)))
+
+    query_tokens = _informative_tokens(query)
+    lexical = 0.0
+    if query_tokens:
+        for item in admitted:
+            document_tokens = _informative_tokens(f"{item.chunk.title}\n{item.chunk.text}")
+            lexical = max(lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens))
+
+    return round(max(semantic, lexical), 6)
+
+
+def _informative_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in (match.group(0).casefold() for match in _TOKEN_RE.finditer(text))
+        if token not in _STOPWORDS
+    }
