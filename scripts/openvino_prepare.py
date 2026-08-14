@@ -40,10 +40,12 @@ def run_ovms(args: list[str], *, gpu: bool) -> None:
         "podman",
         "run",
         "--rm",
-        # Rootless Podman normally maps the host user to container root. keep-id makes
-        # the bind-mounted cache owned by the same numeric UID inside the container,
-        # so OVMS can create /models/OpenVINO without chowning host files.
+        # keep-id creates the mapping, while --user actually runs OVMS as that mapped
+        # host UID/GID. Without --user, the image starts as container root, which maps
+        # to a subordinate host UID and cannot write Dakota's rootless bind-mounted cache.
         "--userns=keep-id",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
         "-v",
         f"{directory}:/models:rw,Z",
     ]
