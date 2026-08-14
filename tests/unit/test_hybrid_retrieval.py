@@ -247,7 +247,7 @@ def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
     result = search.search("Cual es la capital de Francia?", QueryContext(), query_mode="probe")
 
     assert result.supported is False
-    assert result.relevance == 0.1
+    assert result.relevance == 0.0
     assert result.admitted == []
 
 
