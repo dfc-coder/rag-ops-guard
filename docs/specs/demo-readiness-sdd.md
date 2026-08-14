@@ -37,7 +37,18 @@ This specification hardens the bounded conversational agent and local demo path.
 12. Rejected dense candidates must not increase the final relevance or lexical-support signal.
 13. A clear knowledge retrieval uses the operational retrieval instruction only after the agent has resolved the turn to the knowledge path; raw disambiguation probes remain instruction-free.
 
-### C. Trusted conversational memory
+### C. Grounding ownership
+
+1. Evidence sufficiency is a deterministic application decision made before grounded generation from admitted evidence and the configured relevance gate.
+2. Once a turn enters grounded generation, the generation model MUST NOT choose `answered` versus `insufficient_evidence`.
+3. The grounded generation schema contains answer text only; it does not contain status or citation identifiers.
+4. The generation model may synthesize only from `ADMITTED_EVIDENCE_JSON` and may not use external knowledge.
+5. Grounded citations are attached by the application from the admitted evidence bundle, not invented or selected as internal IDs by the generation model.
+6. Citation attachment preserves admitted ranking and emits at most one chunk citation per logical document/version.
+7. Low relevance or no admitted evidence produces `insufficient_evidence` before any grounded generation call.
+8. A generation transport/schema failure is not evidence insufficiency; the demo gate must still fail closed rather than silently treating a model veto as a valid abstention.
+
+### D. Trusted conversational memory
 
 1. Retrieval never concatenates raw chat history.
 2. Grounded generation never receives free-form assistant history.
@@ -46,7 +57,7 @@ This specification hardens the bounded conversational agent and local demo path.
 5. A failed grounded knowledge turn clears trusted focus so a later follow-up cannot fall back to an unrelated older topic.
 6. Explicit out-of-scope, catalog, and capabilities turns clear trusted operational focus. Lightweight greetings/thanks may preserve it.
 
-### D. Knowledge-base integrity
+### E. Knowledge-base integrity
 
 1. Local startup must verify every repository knowledge document against its stored manifest digest.
 2. Local startup must verify every vector key referenced by those manifests exists in S3 Vectors.
@@ -54,14 +65,14 @@ This specification hardens the bounded conversational agent and local demo path.
 4. A changed or incomplete corpus triggers deterministic reseeding/reingestion.
 5. Reingesting a changed document deletes stale chunk objects left by the previous version of the same logical document/version.
 
-### E. Safety
+### F. Safety
 
 1. Direct secret-extraction and explicit policy-bypass intent is blocked deterministically before retrieval/generation.
 2. Retrieved evidence is never treated as instructions.
 3. The current `ConversationalAgent`, not a legacy workflow, is the subject of adversarial tests.
 4. The real-model demo gate includes an indirect prompt-injection scenario from the repository corpus.
 
-### F. Demo gate truthfulness
+### G. Demo gate truthfulness
 
 1. A turn is never labeled `PASS` before its scenario-specific assertions have succeeded.
 2. Runtime observations may be printed as `CHECK`/diagnostic output before assertions.
@@ -99,6 +110,9 @@ This specification hardens the bounded conversational agent and local demo path.
 - Raw-query uncertain probe.
 - Dense-only probe cannot override a leading control intent.
 - Admitted lexical anchor may confirm knowledge when the router is uncertain.
+- Admitted evidence above the gate cannot be vetoed by a model-owned `insufficient_evidence` status.
+- Grounded drafting uses an answer-only structured schema.
+- Grounded source IDs are deterministic and valid for the admitted evidence bundle.
 - Focus context compatibility and focus invalidation.
 - Thread deletion.
 - Safety guard on current agent.
