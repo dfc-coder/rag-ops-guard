@@ -226,6 +226,38 @@ def test_cross_encoder_admits_cross_language_retry_policy() -> None:
     assert "reintentos" in reranker.calls[0][0].casefold()
 
 
+def test_contextual_retrieval_reranks_against_current_question() -> None:
+    calypso = _named_evidence(
+        "Calypso Timeout Runbook",
+        "Production Calypso timeout handling and escalation guidance.",
+        logical_id="calypso-timeout-runbook",
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [calypso])
+    reranker = FakeReranker(default_score=0.2)
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[calypso]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=reranker,
+        candidate_k=5,
+        context_k=4,
+        min_reranker_score=0.5,
+    )
+
+    result = search.search(
+        "previous Calypso context plus SAP timeout",
+        QueryContext(),
+        query_mode="knowledge",
+        ranking_query="Cual es el timeout exacto de SAP en produccion?",
+    )
+
+    assert reranker.calls[0][0] == "Cual es el timeout exacto de SAP en produccion?"
+    assert result.supported is False
+    assert result.relevance == 0.2
+
+
 def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
     payments = _named_evidence(
         "Payment Retry Policy",
@@ -247,7 +279,7 @@ def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
     result = search.search("Cual es la capital de Francia?", QueryContext(), query_mode="probe")
 
     assert result.supported is False
-    assert result.relevance == 0.0
+    assert result.relevance == 0.1
     assert result.admitted == []
 
 
