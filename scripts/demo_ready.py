@@ -19,7 +19,7 @@ def _ask(question: str, *, thread_id: str | None = None) -> QueryResponse:
         QueryRequest(question=question, thread_id=thread_id or _thread())
     )
     print(
-        f"PASS turn: {question!r} -> status={response.status.value} "
+        f"CHECK turn: {question!r} -> status={response.status.value} "
         f"route={response.route} sources={_titles(response)}"
     )
     return response
