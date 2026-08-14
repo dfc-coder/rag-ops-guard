@@ -27,7 +27,6 @@ class FakeEmbeddings:
 def _examples() -> dict[Route, list[str]]:
     return {
         "chat": ["hola"],
-        "capabilities": ["help capabilities"],
         "catalog": ["documentation"],
         "knowledge": ["api"],
         "out_of_scope": ["weather"],
