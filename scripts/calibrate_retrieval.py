@@ -19,30 +19,10 @@ def _dataset_fingerprint() -> str:
     return hashlib.sha256(DATASET_PATH.read_bytes()).hexdigest()
 
 
-def _cached(settings_model: str, corpus_hash: str, dataset_hash: str) -> bool:
-    if not ARTIFACT_PATH.exists():
-        return False
-    try:
-        payload = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return (
-        payload.get("reranker_model") == settings_model
-        and payload.get("corpus_fingerprint") == corpus_hash
-        and payload.get("dataset_fingerprint") == dataset_hash
-        and isinstance(payload.get("threshold"), int | float)
-    )
-
-
 def main() -> None:
     settings = get_settings()
     corpus_hash = corpus_fingerprint()
     dataset_hash = _dataset_fingerprint()
-    if _cached(settings.reranker_model, corpus_hash, dataset_hash):
-        payload = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
-        print(f"reranker calibration: cached threshold={float(payload['threshold']):.6f}")
-        return
-
     samples = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
     search = KnowledgeSearch(
         embeddings=embeddings(),
