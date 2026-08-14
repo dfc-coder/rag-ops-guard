@@ -102,9 +102,7 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
     parts.append(text)
 
     if response.citations:
-        sources = "\n".join(
-            f"- **{item.title}** · v{item.version}" for item in response.citations
-        )
+        sources = "\n".join(f"- **{item.title}** · v{item.version}" for item in response.citations)
         parts.append(
             f"<details><summary>Fuentes ({len(response.citations)})</summary>\n\n{sources}\n\n</details>"
         )
@@ -146,7 +144,9 @@ def _observability_label() -> str:
 with gr.Blocks(title="RAG Ops Guard", css=CSS) as demo:
     with gr.Row(elem_id="rag-header"):
         with gr.Column(scale=4):
-            gr.Markdown("# RAG Ops Guard\nConsultá la knowledge base operativa con respuestas fundamentadas.")
+            gr.Markdown(
+                "# RAG Ops Guard\nConsultá la knowledge base operativa con respuestas fundamentadas."
+            )
         with gr.Column(scale=1):
             gr.HTML(_observability_label())
 
