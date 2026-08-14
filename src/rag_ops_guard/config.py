@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     vector_distance_metric: Literal["cosine", "euclidean"] = "cosine"
     retrieval_top_k: int = Field(default=20, ge=1, le=100)
     retrieval_context_k: int = Field(default=4, ge=1, le=20)
-    retrieval_relevance_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
     router_min_score: float = Field(default=0.35, ge=-1.0, le=1.0)
     router_min_margin: float = Field(default=0.015, ge=0.0, le=2.0)
 
@@ -49,7 +48,7 @@ class Settings(BaseSettings):
     reranker_base_url: str = "http://localhost:8082"
     reranker_model: str = "bge-reranker-v2-m3"
     reranker_timeout_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
-    reranker_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    reranker_calibration_path: str = ".local/reranker-calibration.json"
 
     langsmith_tracing: bool = False
     langsmith_project: str = "rag-ops-guard-local"
