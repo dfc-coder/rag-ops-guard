@@ -15,6 +15,7 @@ from rag_ops_guard.domain.models import (
 @dataclass
 class FakeObjectStore:
     values: dict[str, str] = field(default_factory=dict)
+    deleted: list[str] = field(default_factory=list)
 
     def get_text(self, key: str) -> str:
         return self.values[key]
@@ -22,6 +23,10 @@ class FakeObjectStore:
     def put_text(self, key: str, content: str, content_type: str = "text/plain") -> None:
         del content_type
         self.values[key] = content
+
+    def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.values.pop(key, None)
 
     def exists(self, key: str) -> bool:
         return key in self.values
