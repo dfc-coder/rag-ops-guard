@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-OVMS_IMAGE = os.environ.get("OVMS_IMAGE", "docker.io/openvino/model_server:2026.2-gpu")
+OVMS_IMAGE = os.environ.get("OVMS_IMAGE", "docker.io/openvino/model_server:latest-gpu")
 OVMS_CONTAINER_NAME = os.environ.get("OVMS_CONTAINER_NAME", "rag-ops-ovms-rag")
 OVMS_HOST_PORT = int(os.environ.get("OVMS_HOST_PORT", "8083"))
 EMBEDDING_MODEL = os.environ.get(
