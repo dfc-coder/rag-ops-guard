@@ -95,7 +95,8 @@ class LlamaCppChatAdapter:
         )
         self._answer_system_prompt = answer_system_prompt
         self._chat_system_prompt = chat_system_prompt
-        self._chat = answer_model
+        # Light chat is intentionally deterministic; grounded answers retain the configured sampler.
+        self._chat = analysis_model
         self._analysis = analysis_model.with_structured_output(
             _QueryAnalysisOutput,
             method="json_schema",
