@@ -9,6 +9,7 @@ SERVICES = {
     "floci": ("http://127.0.0.1:4566/", "rag-ops-floci"),
     "llama-gen": ("http://127.0.0.1:8080/health", "rag-ops-llama-gen"),
     "llama-embed": ("http://127.0.0.1:8081/health", "rag-ops-llama-embed"),
+    "llama-rerank": ("http://127.0.0.1:8082/health", "rag-ops-llama-rerank"),
 }
 
 
