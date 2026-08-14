@@ -5,6 +5,7 @@ from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
+from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
 from rag_ops_guard.agent.router import SemanticRouter
 from rag_ops_guard.config import get_settings
@@ -36,6 +37,16 @@ def embeddings() -> LlamaCppEmbeddingAdapter:
         settings.embedding_base_url,
         settings.embedding_model,
         settings.embedding_dimension,
+    )
+
+
+@lru_cache(maxsize=1)
+def reranker() -> LlamaCppRerankerAdapter:
+    settings = get_settings()
+    return LlamaCppRerankerAdapter(
+        settings.reranker_base_url,
+        settings.reranker_model,
+        settings.reranker_timeout_seconds,
     )
 
 
@@ -97,8 +108,10 @@ def knowledge_search() -> KnowledgeSearch:
         vectors=vector_store(),
         objects=object_store(),
         resolver=EvidenceResolver(),
+        reranker=reranker(),
         candidate_k=settings.retrieval_top_k,
         context_k=settings.retrieval_context_k,
+        min_reranker_score=settings.reranker_min_score,
     )
 
 
@@ -120,5 +133,4 @@ def query_workflow() -> ConversationalAgent:
         ),
         knowledge=knowledge_search(),
         catalog=knowledge_catalog(),
-        relevance_threshold=settings.retrieval_relevance_threshold,
     )
