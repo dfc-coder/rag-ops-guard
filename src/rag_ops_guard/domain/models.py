@@ -119,7 +119,12 @@ class QueryResponse(BaseModel):
     def validate_status_contract(self) -> QueryResponse:
         if self.status == QueryStatus.ANSWERED and not self.answer:
             raise ValueError("answered responses require an answer")
-        if self.status == QueryStatus.ANSWERED and self.route == "knowledge" and not self.citations:
+        ungrounded_routes = {"chat", "capabilities", "catalog", "out_of_scope", "uncertain"}
+        if (
+            self.status == QueryStatus.ANSWERED
+            and self.route not in ungrounded_routes
+            and not self.citations
+        ):
             raise ValueError("grounded answered responses require citations")
         if self.status == QueryStatus.CLARIFICATION_REQUIRED and not self.clarification_question:
             raise ValueError("clarification_required requires clarification_question")
