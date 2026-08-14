@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from rag_ops_guard.adapters.reranking import llamacpp_reranker
@@ -9,65 +7,95 @@ from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerA
 
 
 class FakeResponse:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: object) -> None:
         self._payload = payload
 
     def raise_for_status(self) -> None:
         return None
 
-    def json(self) -> dict[str, object]:
+    def json(self) -> object:
         return self._payload
 
 
-def test_reranker_restores_original_document_order(monkeypatch: pytest.MonkeyPatch) -> None:
+def _completion(yes: float | None, no: float | None) -> dict[str, object]:
+    top: list[dict[str, object]] = []
+    if yes is not None:
+        top.append({"token": "yes", "logprob": yes})
+    if no is not None:
+        top.append({"token": "no", "logprob": no})
+    return {"probs": [{"top_logprobs": top}]}
+
+
+def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         captured["url"] = url
         captured.update(kwargs)
         return FakeResponse(
-            {
-                "results": [
-                    {"index": 1, "relevance_score": 0.93},
-                    {"index": 0, "relevance_score": 0.12},
-                ]
-            }
+            [
+                _completion(yes=-0.05, no=-4.0),
+                _completion(yes=-5.0, no=-0.02),
+            ]
         )
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
-    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "bge-reranker-v2-m3")
+    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
 
-    scores = adapter.score("Calypso retries", ["first", "second"])
+    grades = adapter.grade("Calypso retries", ["Calypso policy", "Kafka policy"])
 
-    assert scores == [0.12, 0.93]
-    assert captured["url"] == "http://localhost:8082/v1/rerank"
-    assert captured["json"] == {
-        "model": "bge-reranker-v2-m3",
-        "query": "Calypso retries",
-        "documents": ["first", "second"],
-        "top_n": 2,
-    }
+    assert [grade.relevant for grade in grades] == [True, False]
+    assert grades[0].score > 0.9
+    assert grades[1].score < 0.1
+    assert captured["url"] == "http://localhost:8082/completion"
+    body = captured["json"]
+    assert isinstance(body, dict)
+    assert body["n_predict"] == 1
+    assert body["temperature"] == -1.0
+    prompts = body["prompt"]
+    assert isinstance(prompts, list)
+    assert "<Query>: Calypso retries" in prompts[0]
+    assert "<Document>: Calypso policy" in prompts[0]
+    assert "different target is not relevant" in prompts[0]
 
 
-def test_reranker_normalizes_raw_logit_score(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qwen_reranker_uses_reference_missing_class_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs
-        return FakeResponse({"results": [{"index": 0, "score": 0.0}]})
+        return FakeResponse(_completion(yes=-0.01, no=None))
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
-    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "reranker")
+    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
 
-    assert adapter.score("query", ["doc"])[0] == pytest.approx(0.5)
-    assert math.isfinite(adapter.score("query", ["doc"])[0])
+    grade = adapter.grade("query", ["document"])[0]
+
+    assert grade.relevant is True
+    assert grade.score > 0.99
 
 
-def test_reranker_rejects_incomplete_response(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qwen_reranker_rejects_response_without_yes_no_logits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs
-        return FakeResponse({"results": [{"index": 0, "relevance_score": 0.8}]})
+        return FakeResponse({"probs": [{"top_logprobs": [{"token": "maybe", "logprob": 0.0}]}]})
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
-    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "reranker")
+    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
 
-    with pytest.raises(ValueError, match="did not score every document"):
-        adapter.score("query", ["doc-a", "doc-b"])
+    with pytest.raises(ValueError, match="yes/no logit"):
+        adapter.grade("query", ["document"])
+
+
+def test_qwen_reranker_rejects_incomplete_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, **kwargs: object) -> FakeResponse:
+        del url, kwargs
+        return FakeResponse(_completion(yes=-0.1, no=-3.0))
+
+    monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
+    adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
+
+    with pytest.raises(ValueError, match="did not grade every document"):
+        adapter.grade("query", ["doc-a", "doc-b"])
