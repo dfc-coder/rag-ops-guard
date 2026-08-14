@@ -143,7 +143,9 @@ def retrieval_relevance(query: str, dense: list[Evidence], admitted: list[Eviden
     if query_tokens:
         for item in admitted:
             document_tokens = _informative_tokens(f"{item.chunk.title}\n{item.chunk.text}")
-            lexical = max(lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens))
+            lexical = max(
+                lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens)
+            )
 
     return round(max(semantic, lexical), 6)
 
