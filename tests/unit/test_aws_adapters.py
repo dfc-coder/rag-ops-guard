@@ -41,6 +41,11 @@ class FakeS3Client:
                 "HeadObject",
             )
 
+    def list_objects_v2(self, **kwargs: Any) -> dict[str, object]:
+        prefix = str(kwargs.get("Prefix", ""))
+        contents = [{"Key": key} for key in sorted(self.values) if key.startswith(prefix)]
+        return {"Contents": contents, "IsTruncated": False}
+
 
 class FakeVectorsClient:
     def __init__(self) -> None:
@@ -59,15 +64,17 @@ class FakeVectorsClient:
         self.deleted.extend(kwargs["keys"])
 
 
-def test_s3_object_store_roundtrip_and_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_s3_object_store_roundtrip_exists_and_lists(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeS3Client()
     monkeypatch.setattr(s3_store.boto3, "client", lambda *args, **kwargs: fake)
     store = S3ObjectStore("docs", "http://floci", "us-east-1", "test", "test")
 
     assert store.exists("missing") is False
     store.put_text("raw/doc.md", "hello", "text/markdown")
+    store.put_text("chunks/doc/1.0/chunk-000.json", "{}", "application/json")
     assert store.exists("raw/doc.md") is True
     assert store.get_text("raw/doc.md") == "hello"
+    assert store.list_keys("chunks/") == ["chunks/doc/1.0/chunk-000.json"]
 
 
 def test_s3_vectors_put_query_delete(monkeypatch: pytest.MonkeyPatch) -> None:
