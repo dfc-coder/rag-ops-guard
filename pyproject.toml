@@ -64,7 +64,9 @@ exclude = ["tests/unit/test_localized_fallbacks.py"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
+"scripts/gradio_ui.py" = ["I001"]
 "scripts/validate_prompt_cache.py" = ["I001"]
+"src/rag_ops_guard/graph/prompts.py" = ["I001"]
 
 [tool.mypy]
 python_version = "3.12"
