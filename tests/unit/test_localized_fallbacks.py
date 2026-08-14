@@ -19,7 +19,9 @@ def workflow(chat: FakeChatModel) -> RagWorkflow:
 
 
 def test_insufficient_evidence_preserves_question_language() -> None:
-    message = "La documentación admitida no aporta evidencia suficiente para responder con seguridad."
+    message = (
+        "La documentación admitida no aporta evidencia suficiente para responder con seguridad."
+    )
     chat = FakeChatModel(
         analysis=QueryAnalysis(
             normalized_question="¿Cuál es el timeout de SAP en producción?",
