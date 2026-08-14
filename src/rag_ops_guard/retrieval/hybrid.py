@@ -7,7 +7,6 @@ from typing import Literal
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
 from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, VectorStore
 from rag_ops_guard.retrieval.bm25 import BM25Index
-from rag_ops_guard.retrieval.identifiers import explicit_identifiers, identifiers_match_text
 from rag_ops_guard.retrieval.query_instruction import embedding_query
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
@@ -70,7 +69,7 @@ class KnowledgeSearchResult:
 
 
 class KnowledgeSearch:
-    """Dense + BM25 + RRF + deterministic resolver + cross-encoder reranking."""
+    """Dense + BM25 + RRF + resolver + learned cross-encoder reranking."""
 
     def __init__(
         self,
@@ -91,8 +90,8 @@ class KnowledgeSearch:
         self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
-        # Production supplies this value from the labeled calibration artifact.
-        # Zero is intentionally reserved for tests/calibration runs that need raw ranking.
+        # Production supplies this value from a labeled calibration artifact.
+        # Zero is reserved for tests/calibration runs that need raw ranking.
         self._min_reranker_score = min_reranker_score
         self._bm25: BM25Index | None = None
 
@@ -102,7 +101,13 @@ class KnowledgeSearch:
         context: QueryContext,
         *,
         query_mode: QueryMode = "knowledge",
+        ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
+        """Retrieve with ``query`` and judge relevance against ``ranking_query`` when provided.
+
+        ``ranking_query`` lets contextual query expansion improve recall without allowing
+        conversational history to change the semantic question used by the relevance model.
+        """
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
         dense = self._vectors.query(dense_vector, self._candidate_k)
@@ -112,15 +117,13 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
+        candidates = resolved[: self._candidate_k]
 
-        query_identifiers = explicit_identifiers(query)
-        candidates = [
-            item
-            for item in resolved
-            if identifiers_match_text(query_identifiers, _reranker_document(item))
-        ][: self._candidate_k]
-
-        scores = self._reranker.score(query, [_reranker_document(item) for item in candidates])
+        relevance_query = (ranking_query or query).strip()
+        scores = self._reranker.score(
+            relevance_query,
+            [_reranker_document(item) for item in candidates],
+        )
         if len(scores) != len(candidates):
             raise ValueError("reranker returned a score count that does not match candidates")
 
@@ -141,7 +144,7 @@ class KnowledgeSearch:
             fused=fused,
             admitted=admitted,
             relevance=round(top_score, 6),
-            lexical_relevance=retrieval_lexical_relevance(query, admitted=admitted),
+            lexical_relevance=retrieval_lexical_relevance(relevance_query, admitted=admitted),
             supported=bool(admitted),
             reranker_scores=reranker_scores,
         )
