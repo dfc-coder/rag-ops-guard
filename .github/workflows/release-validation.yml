@@ -1,10 +1,16 @@
 name: release-validation
 
 on:
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: rag-e2e-runner
+  cancel-in-progress: false
 
 jobs:
   real-e2e:
@@ -12,11 +18,25 @@ jobs:
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 60
     env:
+      APP_ENV: ci
       RUN_REAL_E2E: '1'
-      AWS_ENDPOINT_URL: http://localhost:4566
+      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      RAG_OPS_NETWORK: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-net
+      FLOCI_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-floci
+      LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-gen
+      LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-embed
+      LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-rerank
+      FLOCI_HOST_PORT: '24566'
+      LLAMA_GEN_HOST_PORT: '28080'
+      LLAMA_EMBED_HOST_PORT: '28081'
+      LLAMA_RERANK_HOST_PORT: '28082'
+      AWS_ENDPOINT_URL: http://localhost:24566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      LLM_BASE_URL: http://localhost:28080/v1
+      EMBEDDING_BASE_URL: http://localhost:28081/v1
+      RERANKER_BASE_URL: http://localhost:28082
     steps:
       - uses: actions/checkout@v7.0.1
       - run: make doctor
@@ -24,8 +44,9 @@ jobs:
       - run: make models
       - run: make reset || true
       - run: make local-up
+      - run: make local-data
+      - run: make retrieval-validate
       - run: make local-provision
-      - run: make seed
       - run: make ingest-corpus
       - run: uv run pytest -m e2e tests/e2e
       - run: uv run pytest tests/adversarial
@@ -42,6 +63,25 @@ jobs:
     name: release/reproducibility
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 60
+    env:
+      APP_ENV: ci
+      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      RAG_OPS_NETWORK: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-net
+      FLOCI_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-floci
+      LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-gen
+      LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-embed
+      LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-rerank
+      FLOCI_HOST_PORT: '34566'
+      LLAMA_GEN_HOST_PORT: '38080'
+      LLAMA_EMBED_HOST_PORT: '38081'
+      LLAMA_RERANK_HOST_PORT: '38082'
+      AWS_ENDPOINT_URL: http://localhost:34566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      LLM_BASE_URL: http://localhost:38080/v1
+      EMBEDDING_BASE_URL: http://localhost:38081/v1
+      RERANKER_BASE_URL: http://localhost:38082
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -49,9 +89,11 @@ jobs:
       - run: make doctor
       - run: make setup
       - run: make models
+      - run: make reset || true
       - run: make local-up
+      - run: make local-data
+      - run: make retrieval-validate
       - run: make local-provision
-      - run: make seed
       - run: make ingest-corpus
       - run: make smoke
       - if: always()
