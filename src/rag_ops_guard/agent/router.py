@@ -56,7 +56,9 @@ class SemanticRouter:
         dimensions = len(vectors[0])
         if any(len(vector) != dimensions for vector in vectors):
             raise ValueError("semantic router embeddings must share the same dimension")
-        return [sum(vector[index] for vector in vectors) / len(vectors) for index in range(dimensions)]
+        return [
+            sum(vector[index] for vector in vectors) / len(vectors) for index in range(dimensions)
+        ]
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
