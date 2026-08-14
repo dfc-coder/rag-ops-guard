@@ -126,8 +126,25 @@ def corpus_ready() -> bool:
     return True
 
 
+def clear_local_manifests() -> None:
+    """Force ingestion to regenerate vectors when the selected vector index is stale.
+
+    Manifests are stored in the document bucket and do not encode which vector index or
+    embedding backend produced their vector keys. Reusing a manifest after switching to a
+    fresh index therefore makes ingestion incorrectly return ``no_op``. Removing only the
+    repository manifests keeps the raw documents/chunks intact while forcing a real re-embed.
+    """
+    s3 = client("s3", config=Config(s3={"addressing_style": "path"}))
+    for document in local_documents():
+        try:
+            s3.delete_object(Bucket=DOC_BUCKET, Key=document.manifest_key)
+        except ClientError:
+            pass
+
+
 def rebuild_demo_data() -> None:
     print("local knowledge base incomplete or stale; rebuilding demo corpus")
+    clear_local_manifests()
     subprocess.run([sys.executable, "scripts/seed.py"], check=True)
     subprocess.run([sys.executable, "scripts/demo_prepare.py"], check=True)
     if not corpus_ready():
