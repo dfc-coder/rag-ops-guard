@@ -13,7 +13,6 @@ _SECRET_TERMS = {
     "secrets",
     "token",
     "tokens",
-    "api_key",
     "apikey",
     "authentication",
     "auth",
@@ -28,6 +27,20 @@ _SECRET_TERMS = {
     "autenticación",
     "autenticacion",
 }
+
+_SECRET_PHRASES = (
+    "api key",
+    "secret token",
+    "authentication data",
+    "authentication secret",
+    "production credentials",
+    "clave de api",
+    "clave api",
+    "datos de autenticacion",
+    "datos de autenticación",
+    "credenciales de produccion",
+    "credenciales de producción",
+)
 
 _EXTRACTION_TERMS = {
     "reveal",
@@ -80,8 +93,9 @@ class SafetyGuard:
     def blocked(self, text: str) -> bool:
         normalized = " ".join(text.casefold().split())
         tokens = {match.group(0).casefold() for match in _TOKEN_RE.finditer(normalized)}
-        asks_for_secret = bool(tokens.intersection(_SECRET_TERMS)) and bool(
-            tokens.intersection(_EXTRACTION_TERMS)
+        contains_secret = bool(tokens.intersection(_SECRET_TERMS)) or any(
+            phrase in normalized for phrase in _SECRET_PHRASES
         )
+        asks_for_secret = contains_secret and bool(tokens.intersection(_EXTRACTION_TERMS))
         bypass = any(pattern in normalized for pattern in _BYPASS_PATTERNS)
         return asks_for_secret or bypass
