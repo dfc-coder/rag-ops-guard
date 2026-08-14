@@ -5,6 +5,7 @@ from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
+from rag_ops_guard.agent.catalog import KnowledgeCatalog
 from rag_ops_guard.agent.router import SemanticRouter
 from rag_ops_guard.config import get_settings
 from rag_ops_guard.graph.conversational_agent import ConversationalAgent
@@ -102,11 +103,22 @@ def knowledge_search() -> KnowledgeSearch:
 
 
 @lru_cache(maxsize=1)
+def knowledge_catalog() -> KnowledgeCatalog:
+    return KnowledgeCatalog(object_store())
+
+
+@lru_cache(maxsize=1)
 def query_workflow() -> ConversationalAgent:
     settings = get_settings()
     configure_langsmith(settings)
     return ConversationalAgent(
         chat=chat_model(),
-        router=SemanticRouter(embeddings()),
+        router=SemanticRouter(
+            embeddings(),
+            min_score=settings.router_min_score,
+            min_margin=settings.router_min_margin,
+        ),
         knowledge=knowledge_search(),
+        catalog=knowledge_catalog(),
+        relevance_threshold=settings.retrieval_relevance_threshold,
     )
