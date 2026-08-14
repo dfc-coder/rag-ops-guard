@@ -8,7 +8,7 @@ A green deterministic CI gate is necessary but not sufficient for a client demo.
 
 ## Scope
 
-This specification hardens the bounded conversational agent and local demo path. The generation model, Floci, vector database, and long-term persistence architecture remain unchanged. Retrieval is upgraded from a hand-built relevance cutoff to the standard two-stage pattern: candidate retrieval followed by a dedicated cross-encoder reranker.
+This specification hardens the bounded conversational agent and local demo path. The generation model, Floci, vector database, and long-term persistence architecture remain unchanged. Retrieval uses the standard two-stage pattern: broad candidate retrieval followed by a dedicated multilingual cross-encoder reranker. Reranker admission is calibrated from labeled positive and negative examples; no fixed hand-written score cutoff is allowed in production.
 
 ## Architectural invariants
 
@@ -31,24 +31,24 @@ This specification hardens the bounded conversational agent and local demo path.
 6. `uncertain` is not a user-facing terminal route.
 7. Candidate retrieval is `dense + BM25 -> RRF -> EvidenceResolver`.
 8. `EvidenceResolver` remains authoritative for active status, context, version, authority, and supersedes before relevance classification.
-9. Resolved candidates are scored by a dedicated multilingual cross-encoder reranker using the original user query and contextualized candidate text.
-10. The cross-encoder admission result is the single production evidence-support decision used by both routing and grounded generation.
+9. Resolved candidates are scored and ordered by a dedicated multilingual cross-encoder reranker using the original user query and contextualized candidate text.
+10. Reranker scores are ranking signals, not calibrated probabilities. A literal cutoff such as `0.4` or `0.5` MUST NOT be introduced as a production support rule without labeled calibration evidence.
 11. The legacy blended score derived from vector distance and lexical overlap is diagnostic only and MUST NOT decide `knowledge` versus fallback or `answered` versus `insufficient_evidence`.
-12. A Spanish question against an English document MUST be judged by the multilingual cross-encoder rather than by token-language overlap. `Cuantos reintentos permite Calypso?` must be able to admit the English `Payment Retry Policy` when the reranker identifies it as relevant.
-13. A free-form turn resolves to `knowledge` when the reranker admits at least one resolved candidate; otherwise it falls back to the best narrow control intent.
+12. A Spanish question against an English document MUST be judged by the multilingual cross-encoder rather than by token-language overlap. `Cuantos reintentos permite Calypso?` must be able to admit the English `Payment Retry Policy` when the reranker ranks it as relevant.
+13. A free-form turn resolves to `knowledge` only when at least one resolved candidate passes the currently valid calibrated admission threshold; otherwise it falls back to the best narrow control intent.
 14. Dense-only nearest-neighbor similarity is never sufficient evidence by itself.
 15. A clear knowledge retrieval may use the operational embedding instruction; raw disambiguation probes remain instruction-free.
 16. The reranker service is a required runtime dependency and local startup must execute a functional `/v1/rerank` probe, not only a health check.
 
 ### C. Grounding ownership
 
-1. Evidence sufficiency is an application decision made before grounded generation from cross-encoder-admitted evidence.
+1. Evidence sufficiency is an application decision made before grounded generation from calibrated cross-encoder-admitted evidence.
 2. Once a turn enters grounded generation, the generation model MUST NOT choose `answered` versus `insufficient_evidence`.
 3. The grounded generation schema contains answer text only; it does not contain status or citation identifiers.
 4. The generation model may synthesize only from `ADMITTED_EVIDENCE_JSON` and may not use external knowledge.
 5. Grounded citations are attached by the application from the admitted evidence bundle, not invented or selected as internal IDs by the generation model.
 6. Citation attachment preserves admitted ranking and emits at most one chunk citation per logical document/version.
-7. No cross-encoder-admitted evidence produces `insufficient_evidence` before any grounded generation call.
+7. No calibrated-admitted evidence produces `insufficient_evidence` before any grounded generation call.
 8. A generation transport/schema failure is not evidence insufficiency; the demo gate must fail closed rather than silently treating a model veto as a valid abstention.
 
 ### D. Trusted conversational memory
@@ -82,6 +82,21 @@ This specification hardens the bounded conversational agent and local demo path.
 2. Runtime observations may be printed as `CHECK`/diagnostic output before assertions.
 3. The only global success signal is `DEMO READY: all real-runtime client scenarios passed` after every required assertion succeeds.
 
+### H. Data-driven reranker calibration
+
+1. Production MUST NOT contain a manually selected reranker support threshold.
+2. `evaluation/datasets/retrieval-calibration-v1.json` contains labeled multilingual positive and negative queries representative of the client demo domain and out-of-domain traffic.
+3. Calibration runs the same `dense + BM25 -> RRF -> EvidenceResolver -> cross-encoder` candidate path as production, with admission temporarily disabled only to observe raw reranker rankings and scores.
+4. Every positive calibration query MUST retrieve at least one explicitly labeled expected document within the configured context window. Failure is a retrieval/ranking defect and MUST stop calibration.
+5. For positive samples, calibration records the reranker score of an expected document. For negative samples, it records the highest candidate score, representing the strongest false-positive pressure.
+6. A production threshold is derived only when `max(negative scores) < min(positive scores)`. The threshold is the midpoint of that observed separation interval.
+7. If positive and negative distributions overlap, calibration MUST fail. The implementation MUST NOT choose a compromise threshold, lower a cutoff, or add entity-specific exceptions.
+8. The calibration artifact is bound to the reranker model, the complete knowledge-base fingerprint, and the labeled dataset fingerprint.
+9. Runtime MUST fail closed when the calibration artifact is missing, stale, malformed, created for another reranker model, another corpus, or another calibration dataset.
+10. `make ui`, `make demo-ready`, `make demo-client`, and runtime benchmarks MUST execute or validate calibration before constructing the production knowledge search.
+11. A reranker/model/corpus/dataset change invalidates the previous threshold and requires recalibration.
+12. Score distributions and the resulting separation gap are diagnostic evidence and must be visible in calibration output; they are not hidden constants.
+
 ## Client-demo behavioral contract
 
 `make demo-client` MUST stop before launching Gradio if any of these fail:
@@ -113,9 +128,11 @@ This specification hardens the bounded conversational agent and local demo path.
 - Raw-query uncertain probe.
 - Dense + BM25 fusion and resolver behavior.
 - Cross-encoder response parsing preserves original candidate indexes.
-- Cross-encoder score normalization and malformed-response rejection.
-- Spanish `Cuantos reintentos permite Calypso?` can admit English `Payment Retry Policy` based on reranker output even when the former handcrafted relevance diagnostic is below `0.4`.
-- Unsupported cross-encoder candidates produce abstention regardless of a high vector/legacy diagnostic score.
+- Cross-encoder malformed-response rejection.
+- Data-driven threshold derivation from separated labeled distributions.
+- Calibration refuses overlapping positive/negative distributions.
+- Runtime calibration loader rejects wrong model, stale corpus, and stale dataset fingerprints.
+- Spanish `Cuantos reintentos permite Calypso?` can rank English `Payment Retry Policy` correctly even when the former handcrafted relevance diagnostic is below `0.4`.
 - Cross-encoder support cannot be vetoed by a model-owned `insufficient_evidence` status.
 - Grounded drafting uses an answer-only structured schema.
 - Grounded source IDs are deterministic and valid for the admitted evidence bundle.
@@ -132,19 +149,25 @@ This specification hardens the bounded conversational agent and local demo path.
 - Existing S3/S3 Vectors integration remains green.
 - llama.cpp reranker service must accept a real `/v1/rerank` request with the configured BGE reranker and score every supplied document.
 
-### Real local behavioral gate
+### Real local calibration and behavioral gate
 
-`scripts/demo_ready.py` uses `query_workflow()` directly after `models + local-up + local-data`. It uses real Floci, Qwen embeddings, the multilingual cross-encoder reranker, and Qwen generation. It uses fresh unique thread IDs and asserts the client-demo behavioral contract. Any assertion or runtime error exits non-zero.
+`make retrieval-calibrate` runs the labeled multilingual calibration dataset against the real local retrieval/reranker stack. It writes `.local/reranker-calibration.json` only when the labeled populations are separable. Cached calibration is reused only when model, corpus, and dataset fingerprints still match.
+
+`scripts/demo_ready.py` then uses `query_workflow()` directly after `models + local-up + local-data + retrieval-calibrate`. It uses real Floci, Qwen embeddings, the multilingual cross-encoder reranker, and Qwen generation. It uses fresh unique thread IDs and asserts the client-demo behavioral contract. Any assertion or runtime error exits non-zero.
 
 The gate prints turn observations as `CHECK`, never as `PASS` before validation. Only the final `DEMO READY` line represents complete success.
 
-`make demo-client` is the only recommended entry point for a client-facing demo. It runs the real behavioral gate first and launches Gradio only on success.
+The self-hosted `demo-validation` workflow executes this exact `make demo-ready` path rather than legacy demo/workflow assertions.
+
+`make demo-client` is the only recommended entry point for a client-facing demo. It runs calibration and the real behavioral gate first and launches Gradio only on success.
 
 ## Validation rule
 
 The hardening change is not declared client-ready from deterministic CI alone. The final acceptance signal is a successful `make demo-ready` execution on the same local runtime that will be used for the client session.
 
 The deterministic CI suite must also be green for the exact commit used by that local runtime, including formatter, lint, strict typing, unit, property, Floci integration, security, and CDK gates.
+
+No retrieval cutoff may be changed in response to a single failed query. A cutoff change requires a changed labeled calibration dataset or retrieval/reranker behavior, followed by a complete recalibration and demo gate run.
 
 ## Non-goals for this hardening pass
 
@@ -154,3 +177,4 @@ The deterministic CI suite must also be green for the exact commit used by that 
 - New vector database.
 - Entity-specific routing rules.
 - Using the legacy handmade semantic/lexical relevance blend as a production admission gate.
+- Manually tuning a universal reranker cutoff from an individual client query.
