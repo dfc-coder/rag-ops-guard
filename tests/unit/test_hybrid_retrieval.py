@@ -216,7 +216,9 @@ def test_cross_encoder_admits_cross_language_retry_policy() -> None:
         min_reranker_score=0.5,
     )
 
-    result = search.search("Cuantos reintentos permite Calypso?", QueryContext(), query_mode="probe")
+    result = search.search(
+        "Cuantos reintentos permite Calypso?", QueryContext(), query_mode="probe"
+    )
 
     assert result.supported is True
     assert result.relevance == 0.94
