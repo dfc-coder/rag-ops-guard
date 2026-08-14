@@ -29,7 +29,7 @@ LLM_PRESENCE_PENALTY ?= 1.5
 LLM_REPEAT_PENALTY ?= 1.0
 export PODMAN_SOCKET MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K ROUTER_MIN_SCORE ROUTER_MIN_MARGIN LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
 
-.PHONY: doctor setup models package-lambda local-up local-down local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -51,6 +51,9 @@ local-up:
 
 local-down:
 	$(COMPOSE) down
+
+local-clean:
+	$(COMPOSE) down -v
 
 # Fail-closed local corpus check. Rebuilds when any repository document manifest
 # is stale/missing or any manifest-referenced vector is absent from Floci.
