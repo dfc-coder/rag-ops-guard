@@ -259,11 +259,10 @@ class ConversationalAgent:
 
         resolved_route = original_route
         if original_route == "uncertain":
-            resolved_route = (
-                "knowledge"
-                if result.supported
-                else _best_control_route(state.get("route_scores", {}))
-            )
+            if result.supported or focus:
+                resolved_route = "knowledge"
+            else:
+                resolved_route = "out_of_scope"
 
         search_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
@@ -458,15 +457,6 @@ def _context_snapshot(context: QueryContext) -> dict[str, str | None]:
 
 def _focus_compatible(focus: ConversationFocus, context: QueryContext) -> bool:
     return focus["context"] == _context_snapshot(context)
-
-
-def _best_control_route(scores: dict[str, float]) -> Route:
-    candidates: tuple[Route, ...] = ("capabilities", "catalog", "chat", "out_of_scope")
-    ranked = [(route, scores.get(route, float("-inf"))) for route in candidates]
-    best_route, best_score = max(ranked, key=lambda item: item[1])
-    if best_score == float("-inf"):
-        return "out_of_scope"
-    return best_route
 
 
 def _admitted_source_ids(evidence: list[Evidence]) -> list[str]:
