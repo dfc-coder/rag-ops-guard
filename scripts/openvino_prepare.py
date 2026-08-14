@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-OVMS_IMAGE = os.environ.get("OVMS_IMAGE", "docker.io/openvino/model_server:2026.2-gpu")
+OVMS_IMAGE = os.environ.get("OVMS_IMAGE", "docker.io/openvino/model_server:latest-gpu")
 EMBEDDING_MODEL = os.environ.get(
     "OVMS_EMBEDDING_MODEL",
     "OpenVINO/Qwen3-Embedding-0.6B-int8-ov",
