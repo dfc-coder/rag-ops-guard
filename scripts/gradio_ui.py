@@ -25,42 +25,122 @@ TIMING_LABELS = {
 }
 
 CSS = """
+:root {
+    --rag-border: #3a3a3f;
+    --rag-panel: #17171a;
+    --rag-panel-2: #1f1f23;
+    --rag-muted: #a1a1aa;
+}
+
+html, body, .gradio-container {
+    min-height: 100vh !important;
+}
+
 .gradio-container {
-    max-width: 1240px !important;
-    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
-footer { display: none !important; }
+
+footer {
+    display: none !important;
+}
+
+#app-shell {
+    width: 100% !important;
+    min-height: 100vh;
+    padding: 20px 24px 18px 24px;
+    box-sizing: border-box;
+}
+
 #rag-header {
-    padding: 18px 4px 10px 4px;
+    width: 100%;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 0 2px;
 }
+
 #rag-header h1 {
-    margin-bottom: 2px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
-}
-#rag-header p {
     margin: 0;
-    opacity: 0.66;
+    font-size: 26px;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
 }
+
+#rag-header p {
+    margin: 6px 0 0 0;
+    color: var(--rag-muted);
+    font-size: 13px;
+}
+
+#workspace {
+    width: 100%;
+    gap: 16px;
+    align-items: stretch;
+}
+
 #context-panel {
-    min-width: 245px;
-    max-width: 280px;
+    min-width: 280px !important;
+    max-width: 320px !important;
 }
-#context-panel > div {
-    border-radius: 14px;
+
+#context-panel .block,
+#context-panel .form,
+#context-panel .gr-group {
+    border-color: var(--rag-border) !important;
 }
+
 #chat-panel {
-    min-width: 0;
+    min-width: 0 !important;
+    width: 100% !important;
 }
+
 #rag-chatbot {
-    border-radius: 16px !important;
+    min-height: calc(100vh - 190px) !important;
+    height: calc(100vh - 190px) !important;
+    border: 1px solid var(--rag-border) !important;
+    border-radius: 8px !important;
     overflow: hidden;
 }
+
+#rag-chatbot .message {
+    max-width: min(860px, 82%) !important;
+}
+
 .rag-observability {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
     font-size: 12px;
-    opacity: 0.72;
-    text-align: right;
-    padding-top: 8px;
+    color: var(--rag-muted);
+    white-space: nowrap;
+}
+
+.rag-observability strong {
+    color: inherit;
+    font-weight: 600;
+}
+
+@media (max-width: 820px) {
+    #app-shell {
+        padding: 14px;
+    }
+
+    #workspace {
+        flex-direction: column !important;
+    }
+
+    #context-panel {
+        min-width: 100% !important;
+        max-width: none !important;
+    }
+
+    #rag-chatbot {
+        min-height: 58vh !important;
+        height: 58vh !important;
+    }
 }
 """
 
@@ -107,7 +187,7 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
             f"<details><summary>Fuentes ({len(response.citations)})</summary>\n\n{sources}\n\n</details>"
         )
 
-    parts.append(f"<small>{timing_line}</small>")
+    parts.append(f"<details><summary>Detalles</summary>\n\n<small>{timing_line}</small>\n\n</details>")
     return "\n\n".join(part for part in parts if part)
 
 
@@ -138,68 +218,73 @@ def _observability_label() -> str:
     settings = get_settings()
     connected = settings.langsmith_tracing and bool(settings.langsmith_api_key)
     state = "conectado" if connected else "desconectado"
-    return f"<div class='rag-observability'>LangSmith · {state}</div>"
+    return f"<div class='rag-observability'>LangSmith · <strong>{state}</strong></div>"
 
 
-with gr.Blocks(title="RAG Ops Guard", css=CSS) as demo:
-    with gr.Row(elem_id="rag-header"):
-        with gr.Column(scale=4):
-            gr.Markdown(
-                "# RAG Ops Guard\nConsultá la knowledge base operativa con respuestas fundamentadas."
-            )
-        with gr.Column(scale=1):
-            gr.HTML(_observability_label())
-
-    with gr.Row(equal_height=False):
-        with gr.Column(scale=1, min_width=245, elem_id="context-panel"):
-            with gr.Group():
-                gr.Markdown("### Contexto")
-                system = gr.Textbox(
-                    label="Sistema",
-                    placeholder="Opcional, ej. payments",
-                    value="",
+with gr.Blocks(
+    title="RAG Ops Guard",
+    fill_width=True,
+    fill_height=True,
+) as demo:
+    with gr.Column(elem_id="app-shell"):
+        with gr.Row(elem_id="rag-header"):
+            with gr.Column(scale=5, min_width=320):
+                gr.Markdown(
+                    "# RAG Ops Guard\nConsultá la knowledge base operativa con respuestas fundamentadas."
                 )
-                environment = gr.Dropdown(
-                    choices=[
-                        ("Cualquiera", ""),
-                        ("Producción", "production"),
-                        ("Staging", "staging"),
-                    ],
-                    value="",
-                    label="Ambiente",
+            with gr.Column(scale=1, min_width=180):
+                gr.HTML(_observability_label())
+
+        with gr.Row(equal_height=True, elem_id="workspace"):
+            with gr.Column(scale=1, min_width=280, elem_id="context-panel"):
+                with gr.Group():
+                    gr.Markdown("### Contexto")
+                    system = gr.Textbox(
+                        label="Sistema",
+                        placeholder="Opcional, ej. payments",
+                        value="",
+                    )
+                    environment = gr.Dropdown(
+                        choices=[
+                            ("Cualquiera", ""),
+                            ("Producción", "production"),
+                            ("Staging", "staging"),
+                        ],
+                        value="",
+                        label="Ambiente",
+                    )
+
+                with gr.Accordion("Knowledge base", open=False):
+                    document = gr.File(
+                        label="Agregar Markdown",
+                        file_types=[".md", ".markdown"],
+                        type="filepath",
+                    )
+                    ingest_button = gr.Button("Ingerir documento", variant="primary")
+                    ingest_status = gr.Markdown()
+                    ingest_button.click(
+                        ingest_file,
+                        inputs=document,
+                        outputs=ingest_status,
+                        show_progress="full",
+                    )
+
+            with gr.Column(scale=5, min_width=500, elem_id="chat-panel"):
+                chatbot = gr.Chatbot(
+                    placeholder=(
+                        "<strong>Preguntá sobre runbooks, APIs, incidentes o SLAs.</strong><br>"
+                        "Las respuestas se limitan a la evidencia disponible."
+                    ),
+                    height="calc(100vh - 190px)",
+                    show_label=False,
+                    elem_id="rag-chatbot",
                 )
 
-            with gr.Accordion("Knowledge base", open=False):
-                document = gr.File(
-                    label="Agregar Markdown",
-                    file_types=[".md", ".markdown"],
-                    type="filepath",
+                gr.ChatInterface(
+                    fn=chat,
+                    chatbot=chatbot,
+                    additional_inputs=[system, environment],
                 )
-                ingest_button = gr.Button("Ingerir documento", variant="primary")
-                ingest_status = gr.Markdown()
-                ingest_button.click(
-                    ingest_file,
-                    inputs=document,
-                    outputs=ingest_status,
-                    show_progress="full",
-                )
-
-        with gr.Column(scale=4, elem_id="chat-panel"):
-            chatbot = gr.Chatbot(
-                placeholder=(
-                    "<strong>Preguntá sobre runbooks, APIs, incidentes o SLAs.</strong><br>"
-                    "Las respuestas se limitan a la evidencia disponible."
-                ),
-                height=570,
-                show_label=False,
-                elem_id="rag-chatbot",
-            )
-
-            gr.ChatInterface(
-                fn=chat,
-                chatbot=chatbot,
-                additional_inputs=[system, environment],
-            )
 
 
 if __name__ == "__main__":
@@ -207,4 +292,5 @@ if __name__ == "__main__":
         server_name="127.0.0.1",
         server_port=8000,
         show_error=True,
+        css=CSS,
     )
