@@ -62,11 +62,7 @@ class FakeReranker:
         self.calls.append((query, documents))
         return [
             next(
-                (
-                    score
-                    for marker, score in self.scores_by_document.items()
-                    if marker in document
-                ),
+                (score for marker, score in self.scores_by_document.items() if marker in document),
                 self.default_score,
             )
             for document in documents
