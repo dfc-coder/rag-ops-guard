@@ -10,6 +10,13 @@ from rag_ops_guard.domain.models import Chunk, Evidence, GroundedAnswer, QueryAn
 class ChatModel(Protocol):
     def analyze_query(self, prompt: str) -> QueryAnalysis: ...
 
+    def rewrite_query(
+        self,
+        current_question: str,
+        previous_query: str,
+        source_titles: list[str],
+    ) -> str: ...
+
     def generate_answer(
         self,
         prompt: str,
