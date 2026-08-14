@@ -247,18 +247,49 @@ def test_contextual_retrieval_grades_against_current_question() -> None:
     )
 
     result = search.search(
-        "previous Calypso context plus SAP timeout",
+        "previous Calypso context plus timeout",
         QueryContext(),
         query_mode="knowledge",
-        ranking_query="Cual es el timeout exacto de SAP en produccion?",
+        ranking_query="Cual es el timeout exacto de Calypso en produccion?",
     )
 
-    assert reranker.calls[0][0] == "Cual es el timeout exacto de SAP en produccion?"
+    assert reranker.calls[0][0] == "Cual es el timeout exacto de Calypso en produccion?"
     assert result.supported is False
     assert result.relevance == 0.2
 
 
-def test_learned_grader_can_reject_semantically_similar_candidate() -> None:
+def test_named_target_guard_rejects_unknown_target_before_reranking() -> None:
+    payments = _named_evidence(
+        "Payment Retry Policy",
+        "Payment timeouts allow three automated retries.",
+        logical_id="payment-retry-policy",
+        distance=0.1,
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [payments])
+    reranker = FakeReranker(default_score=0.99, default_relevant=True)
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[payments]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=reranker,
+    )
+
+    result = search.search(
+        "How many retries are allowed for Oracle Fusion payments?",
+        QueryContext(),
+        query_mode="probe",
+    )
+
+    assert result.supported is False
+    assert result.relevance == 0.0
+    assert result.admitted == []
+    assert result.reranker_scores == {}
+    assert reranker.calls == []
+
+
+def test_named_target_guard_rejects_semantically_similar_candidate() -> None:
     payments = _named_evidence(
         "Payment DLQ Replay Runbook",
         "Replay failed payment messages from the payment DLQ.",
@@ -267,19 +298,45 @@ def test_learned_grader_can_reject_semantically_similar_candidate() -> None:
     )
     objects = FakeObjectStore()
     _store_documents(objects, [payments])
+    reranker = FakeReranker(default_score=0.91, default_relevant=True)
     search = KnowledgeSearch(
         embeddings=FakeEmbeddingProvider(),
         vectors=FakeVectorStore(evidence=[payments]),
         objects=objects,
         resolver=EvidenceResolver(),
-        reranker=FakeReranker(default_score=0.91, default_relevant=False),
+        reranker=reranker,
     )
 
     result = search.search("How do I replay a Kafka DLQ?", QueryContext(), query_mode="probe")
 
     assert result.supported is False
-    assert result.relevance == 0.91
+    assert result.relevance == 0.0
     assert result.admitted == []
+    assert reranker.calls == []
+
+
+def test_generic_operation_acronym_does_not_block_known_target() -> None:
+    payments = _named_evidence(
+        "Payment DLQ Replay Runbook",
+        "Replay failed payment messages from the payment DLQ.",
+        logical_id="payment-dlq-replay",
+        distance=0.1,
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [payments])
+    reranker = FakeReranker(default_score=0.91, default_relevant=True)
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[payments]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=reranker,
+    )
+
+    result = search.search("How do I replay the payment DLQ?", QueryContext(), query_mode="probe")
+
+    assert result.supported is True
+    assert reranker.calls
 
 
 def test_relevance_accepts_strong_admitted_support() -> None:
