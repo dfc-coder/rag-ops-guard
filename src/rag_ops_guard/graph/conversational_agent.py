@@ -252,6 +252,7 @@ class ConversationalAgent:
                     rewritten_query,
                     state,
                     query_mode="knowledge",
+                    ranking_query=question,
                 )
                 if rewritten_result.supported or rewritten_result.relevance > result.relevance:
                     result = rewritten_result
@@ -302,9 +303,15 @@ class ConversationalAgent:
         state: AgentState,
         *,
         query_mode: QueryMode,
+        ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
         try:
-            return self._knowledge.search(query, state["context"], query_mode=query_mode)
+            return self._knowledge.search(
+                query,
+                state["context"],
+                query_mode=query_mode,
+                ranking_query=ranking_query,
+            )
         except EvidenceConflictError as exc:
             QUERY_LOGGER.warning(
                 "evidence_conflict",
