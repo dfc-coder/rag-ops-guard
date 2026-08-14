@@ -40,13 +40,15 @@ def run_ovms(args: list[str], *, gpu: bool) -> None:
         "podman",
         "run",
         "--rm",
-        "--user",
-        f"{os.getuid()}:{os.getgid()}",
+        # Rootless Podman normally maps the host user to container root. keep-id makes
+        # the bind-mounted cache owned by the same numeric UID inside the container,
+        # so OVMS can create /models/OpenVINO without chowning host files.
+        "--userns=keep-id",
         "-v",
         f"{directory}:/models:rw,Z",
     ]
     if gpu:
-        command.extend(["--device", "/dev/dri", "--group-add", render_group_id()])
+        command.extend(["--device", "/dev/dri"])
     command.extend([OVMS_IMAGE, *args])
     subprocess.run(command, check=True)
 
