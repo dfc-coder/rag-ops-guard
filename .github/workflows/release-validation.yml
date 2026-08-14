@@ -37,12 +37,12 @@ jobs:
       LLM_BASE_URL: http://localhost:28080/v1
       EMBEDDING_BASE_URL: http://localhost:28081/v1
       RERANKER_BASE_URL: http://localhost:28082
+      RERANKER_TIMEOUT_SECONDS: '90'
     steps:
       - uses: actions/checkout@v7.0.1
       - run: make doctor
       - run: make setup
       - run: make models
-      - run: make reset || true
       - run: make local-up
       - run: make local-data
       - run: make retrieval-validate
@@ -82,6 +82,7 @@ jobs:
       LLM_BASE_URL: http://localhost:38080/v1
       EMBEDDING_BASE_URL: http://localhost:38081/v1
       RERANKER_BASE_URL: http://localhost:38082
+      RERANKER_TIMEOUT_SECONDS: '90'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -89,7 +90,6 @@ jobs:
       - run: make doctor
       - run: make setup
       - run: make models
-      - run: make reset || true
       - run: make local-up
       - run: make local-data
       - run: make retrieval-validate
