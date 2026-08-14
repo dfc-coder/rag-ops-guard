@@ -26,13 +26,15 @@ This specification hardens the bounded conversational agent and local demo path.
 1. A clear `knowledge` route uses the operational retrieval instruction.
 2. An `uncertain` route probes the corpus with the raw user query, not with an instruction that presupposes an integration-operations intent.
 3. `uncertain` is not a user-facing terminal route.
-4. Route scoring must not be dominated by one accidental nearest prototype; semantic route classes use multiple prototypes.
-5. Direct product-role questions such as `¿Qué haces?` belong to the `capabilities` intent and must not enter RAG.
-6. If `knowledge` is already the strongest semantic hypothesis, admitted evidence above the normal relevance threshold may confirm it.
-7. If a non-knowledge control intent leads semantically, a raw retrieval probe may override it only when admitted evidence also has an informative lexical anchor to the question.
-8. Dense-only nearest-neighbor similarity is not sufficient to convert a control/meta question into `knowledge`.
-9. Relevance and lexical support are computed only from evidence that survived deterministic admission/version/context rules.
-10. Rejected dense candidates must not increase the final relevance or lexical-support signal.
+4. Registered narrow control utterances (`chat`, `capabilities`, `catalog`, `out_of_scope`) are normalized for case, accents, punctuation and whitespace and resolved exactly before semantic routing.
+5. The exact control fast-path is data-driven from the route-example set; it must not contain entity-specific conditions such as product or system names.
+6. Non-exact utterances use closest-example semantic scoring with confidence/margin abstention. Semantic ambiguity must enter `uncertain` rather than force a control or knowledge route.
+7. Direct product-role questions such as `¿Qué haces?`, including normalized variants such as `QUE HACES!!!`, belong to `capabilities` and must not enter RAG.
+8. If `knowledge` is already the strongest semantic hypothesis, admitted evidence above the normal relevance threshold may confirm it.
+9. If a non-knowledge control intent leads semantically, a raw retrieval probe may override it only when admitted evidence also has an informative lexical anchor to the question.
+10. Dense-only nearest-neighbor similarity is not sufficient to convert a control/meta question into `knowledge`.
+11. Relevance and lexical support are computed only from evidence that survived deterministic admission/version/context rules.
+12. Rejected dense candidates must not increase the final relevance or lexical-support signal.
 
 ### C. Trusted conversational memory
 
@@ -82,7 +84,8 @@ This specification hardens the bounded conversational agent and local demo path.
 ### Unit / deterministic
 
 - QueryRequest normalization and short inputs.
-- Multi-prototype semantic routing and collision resistance.
+- Normalized exact-match control routing without embedding the query.
+- Closest-example semantic fallback with abstention on collisions.
 - Direct capabilities intent coverage.
 - Relevance uses only admitted evidence.
 - Raw-query uncertain probe.
