@@ -48,3 +48,17 @@ class S3ObjectStore:
             if code in {"404", "NoSuchKey", "NotFound"}:
                 return False
             raise
+
+    def list_keys(self, prefix: str) -> list[str]:
+        keys: list[str] = []
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": self._bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            response = self._client.list_objects_v2(**kwargs)
+            keys.extend(str(item["Key"]) for item in response.get("Contents", []))
+            if not response.get("IsTruncated"):
+                break
+            token = str(response["NextContinuationToken"])
+        return keys
