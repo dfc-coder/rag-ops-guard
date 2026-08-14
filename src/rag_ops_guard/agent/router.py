@@ -18,9 +18,7 @@ Route = Literal[
     "safety",
 ]
 
-_CONTROL_ROUTES: frozenset[Route] = frozenset(
-    {"chat", "capabilities", "catalog", "out_of_scope"}
-)
+_CONTROL_ROUTES: frozenset[Route] = frozenset({"chat", "capabilities", "catalog", "out_of_scope"})
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 DEFAULT_ROUTE_EXAMPLES: dict[Route, list[str]] = {
@@ -107,9 +105,7 @@ class SemanticRouter:
                     normalized = _normalize_control_text(utterance)
                     existing = self._exact_control_routes.get(normalized)
                     if existing is not None and existing != route:
-                        raise ValueError(
-                            f"normalized control example is ambiguous: {utterance!r}"
-                        )
+                        raise ValueError(f"normalized control example is ambiguous: {utterance!r}")
                     self._exact_control_routes[normalized] = route
 
     def route(self, text: str) -> RouteDecision:
