@@ -11,6 +11,7 @@ class EvidenceResolver:
     def resolve(
         self, evidence: list[Evidence], context: QueryContext, limit: int = 5
     ) -> list[Evidence]:
+        input_rank = {item.chunk.id: index for index, item in enumerate(evidence)}
         eligible = [item for item in evidence if self._eligible(item, context)]
         grouped: dict[str, list[Evidence]] = defaultdict(list)
         for item in eligible:
@@ -20,7 +21,7 @@ class EvidenceResolver:
         for group in grouped.values():
             selected.extend(self._resolve_logical_document(group))
 
-        selected.sort(key=lambda item: (item.distance is None, item.distance or 0.0))
+        selected.sort(key=lambda item: input_rank.get(item.chunk.id, len(input_rank)))
         return selected[:limit]
 
     @staticmethod
