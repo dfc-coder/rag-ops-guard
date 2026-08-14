@@ -88,62 +88,56 @@ def test_router_routes_clear_catalog_question() -> None:
     assert decision.score == 1.0
 
 
-def test_router_sends_operational_question_to_knowledge() -> None:
+def test_free_form_operational_question_requires_retrieval_probe() -> None:
     router = SemanticRouter(FakeEmbeddings(), route_examples=_examples())
 
     decision = router.route("What does this API do?")
 
-    assert decision.route == "knowledge"
+    assert decision.route == "uncertain"
+    assert decision.scores["knowledge"] == 1.0
 
 
-def test_router_can_abstain_when_routes_are_too_close() -> None:
+def test_free_form_control_collision_cannot_skip_retrieval_probe() -> None:
     embeddings = MappingEmbeddings(
         {
             "query": [1.0, 0.0],
-            "control-example": [1.0, 0.0],
-            "knowledge-example": [1.0, 0.0],
+            "capability-example": [1.0, 0.0],
+            "knowledge-example": [0.9, 0.43589],
         }
     )
     router = SemanticRouter(
         embeddings,  # type: ignore[arg-type]
         route_examples={
-            "capabilities": ["control-example"],
+            "capabilities": ["capability-example"],
             "knowledge": ["knowledge-example"],
         },
-        min_score=0.0,
-        min_margin=0.1,
+    )
+
+    decision = router.route("query")
+
+    assert decision.scores["capabilities"] > decision.scores["knowledge"]
+    assert decision.route == "uncertain"
+
+
+def test_router_preserves_semantic_scores_for_post_retrieval_fallback() -> None:
+    embeddings = MappingEmbeddings(
+        {
+            "query": [1.0, 0.0],
+            "capability-example": [0.8, 0.6],
+            "knowledge-example": [0.99, 0.141067],
+            "catalog-example": [0.6, 0.8],
+        }
+    )
+    router = SemanticRouter(
+        embeddings,  # type: ignore[arg-type]
+        route_examples={
+            "capabilities": ["capability-example"],
+            "knowledge": ["knowledge-example"],
+            "catalog": ["catalog-example"],
+        },
     )
 
     decision = router.route("query")
 
     assert decision.route == "uncertain"
-    assert decision.margin == 0.0
-
-
-def test_semantic_fallback_uses_closest_example_and_can_surface_collision() -> None:
-    embeddings = MappingEmbeddings(
-        {
-            "query": [1.0, 0.0],
-            "cap-1": [0.8, 0.6],
-            "cap-2": [0.8, -0.6],
-            "knowledge-collision": [0.99, 0.141067],
-            "knowledge-other": [0.0, 1.0],
-            "catalog-1": [0.6, 0.8],
-            "catalog-2": [0.5, -0.866025],
-        }
-    )
-    router = SemanticRouter(
-        embeddings,  # type: ignore[arg-type]
-        route_examples={
-            "capabilities": ["cap-1", "cap-2"],
-            "knowledge": ["knowledge-collision", "knowledge-other"],
-            "catalog": ["catalog-1", "catalog-2"],
-        },
-        min_score=0.0,
-        min_margin=0.0,
-    )
-
-    decision = router.route("query")
-
-    assert decision.route == "knowledge"
     assert decision.scores["knowledge"] > decision.scores["capabilities"]
