@@ -33,6 +33,7 @@ Behavior:
   integrations, or operational procedures, use search_knowledge before answering.
 - Use list_knowledge when the user asks what documentation is available.
 - You may call tools more than once when a question genuinely requires it.
+- When you decide to call a tool, emit the tool call directly without prose before or after it.
 - If search_knowledge reports supported=false, say that the available documentation does not
   contain enough evidence. Never invent the missing operational fact.
 - When evidence is returned, answer from that evidence and mention the source titles you used.
@@ -117,10 +118,12 @@ class ReactAgent:
             max_completion_tokens=min(settings.llm_answer_max_tokens, 384),
             timeout=settings.llm_timeout_seconds,
             max_retries=0,
+            model_kwargs={"parallel_tool_calls": False},
             extra_body={
                 "top_k": settings.llm_top_k,
                 "min_p": settings.llm_min_p,
                 "repeat_penalty": settings.llm_repeat_penalty,
+                "chat_template_kwargs": {"enable_thinking": False},
             },
         )
         self._agent = create_agent(
