@@ -10,7 +10,7 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.retrieval_context_k == 4
     assert settings.router_min_score == 0.35
     assert settings.router_min_margin == 0.015
-    assert settings.llm_model == "qwen35-0.8b-rag"
+    assert settings.llm_model == "qwen35-2b-rag"
     assert settings.llm_analysis_max_tokens == 128
     assert settings.llm_answer_max_tokens == 512
     assert settings.llm_analysis_max_tokens < settings.llm_answer_max_tokens
@@ -22,6 +22,5 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.llm_presence_penalty == 1.5
     assert settings.llm_repeat_penalty == 1.0
     assert settings.embedding_model == "qwen3-embedding-0.6b"
-    assert settings.reranker_model == "bge-reranker-v2-m3"
-    assert settings.reranker_calibration_path == ".local/reranker-calibration.json"
+    assert settings.reranker_model == "qwen3-reranker-0.6b"
     assert settings.langsmith_endpoint == "https://api.smith.langchain.com"
