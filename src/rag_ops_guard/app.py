@@ -9,6 +9,7 @@ from rag_ops_guard.config import get_settings
 from rag_ops_guard.graph.timed_workflow import TimedRagWorkflow
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
+from rag_ops_guard.observability.langsmith import configure_langsmith
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 
@@ -51,6 +52,7 @@ def vector_store() -> S3VectorsStore:
 @lru_cache(maxsize=1)
 def chat_model() -> LlamaCppChatAdapter:
     settings = get_settings()
+    configure_langsmith(settings)
     return LlamaCppChatAdapter(
         base_url=settings.llm_base_url,
         model=settings.llm_model,
@@ -84,6 +86,7 @@ def ingestion_service() -> IngestionService:
 @lru_cache(maxsize=1)
 def query_workflow() -> TimedRagWorkflow:
     settings = get_settings()
+    configure_langsmith(settings)
     return TimedRagWorkflow(
         chat=chat_model(),
         embeddings=embeddings(),
