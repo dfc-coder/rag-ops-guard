@@ -9,7 +9,7 @@ RETRIEVAL_TOP_K ?= 20
 RETRIEVAL_CONTEXT_K ?= 4
 export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -55,7 +55,12 @@ demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
 
-ui: models local-up demo-prepare
+# Normal UI start: reuse the already provisioned local knowledge base.
+ui: models local-up
+	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
+
+# First-time/reset UI start: provision and ingest the demo corpus once.
+ui-init: models local-up demo-prepare
 	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
 
 # Benchmarks the same in-process workflow used by Gradio.
