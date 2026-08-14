@@ -67,6 +67,22 @@ def default_model_dir() -> Path:
     return cache_home / "rag-ops-guard" / "models"
 
 
+def selected_models() -> tuple[Model, ...]:
+    requested = {
+        item.strip()
+        for item in os.environ.get("MODEL_FILES", "").split(",")
+        if item.strip()
+    }
+    if not requested:
+        return MODELS
+
+    available = {model.filename: model for model in MODELS}
+    unknown = requested.difference(available)
+    if unknown:
+        raise SystemExit(f"unknown MODEL_FILES entries: {', '.join(sorted(unknown))}")
+    return tuple(model for model in MODELS if model.filename in requested)
+
+
 def _download_once(model: Model, temporary: Path, timeout_seconds: int) -> None:
     offset = temporary.stat().st_size if temporary.exists() else 0
     headers = {"User-Agent": "rag-ops-guard/0.1"}
@@ -150,7 +166,7 @@ def download(model: Model, directory: Path) -> None:
 def main() -> int:
     directory = Path(os.environ.get("MODEL_DIR", default_model_dir())).expanduser().resolve()
     print(f"model cache: {directory}")
-    for model in MODELS:
+    for model in selected_models():
         download(model, directory)
     return 0
 

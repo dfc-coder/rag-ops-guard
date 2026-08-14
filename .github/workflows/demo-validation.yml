@@ -6,21 +6,44 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: rag-e2e-runner
+  cancel-in-progress: true
+
 jobs:
   demo:
     name: demo/functional
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 30
     env:
-      AWS_ENDPOINT_URL: http://localhost:4566
+      APP_ENV: ci
+      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo
+      RAG_OPS_NETWORK: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo-net
+      FLOCI_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo-floci
+      LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo-gen
+      LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo-embed
+      LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo-rerank
+      FLOCI_HOST_PORT: '14566'
+      LLAMA_GEN_HOST_PORT: '18080'
+      LLAMA_EMBED_HOST_PORT: '18081'
+      LLAMA_RERANK_HOST_PORT: '18082'
+      AWS_ENDPOINT_URL: http://localhost:14566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      LLM_BASE_URL: http://localhost:18080/v1
+      EMBEDDING_BASE_URL: http://localhost:18081/v1
+      RERANKER_BASE_URL: http://localhost:18082
+      RERANKER_TIMEOUT_SECONDS: '90'
     steps:
+      - name: Remove legacy Floci bind-mount data
+        run: |
+          if [ -e "$GITHUB_WORKSPACE/.local/floci" ]; then
+            podman unshare rm -rf "$GITHUB_WORKSPACE/.local/floci"
+          fi
       - uses: actions/checkout@v7.0.1
       - run: make doctor
       - run: make setup
-      - run: make reset || true
       - name: Run exact client readiness gate
         run: |
           mkdir -p artifacts
@@ -34,4 +57,4 @@ jobs:
           path: artifacts/
           if-no-files-found: warn
       - if: always()
-        run: make local-down || true
+        run: make local-clean || true

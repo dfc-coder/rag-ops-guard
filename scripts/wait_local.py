@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 
@@ -7,11 +8,32 @@ import httpx
 
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 
+
+def env_port(name: str, default: int) -> int:
+    return int(os.environ.get(name, str(default)))
+
+
+FLOCI_HOST_PORT = env_port("FLOCI_HOST_PORT", 4566)
+LLAMA_GEN_HOST_PORT = env_port("LLAMA_GEN_HOST_PORT", 8080)
+LLAMA_EMBED_HOST_PORT = env_port("LLAMA_EMBED_HOST_PORT", 8081)
+LLAMA_RERANK_HOST_PORT = env_port("LLAMA_RERANK_HOST_PORT", 8082)
+
+FLOCI_CONTAINER = os.environ.get("FLOCI_CONTAINER_NAME", "rag-ops-floci")
+LLAMA_GEN_CONTAINER = os.environ.get("LLAMA_GEN_CONTAINER_NAME", "rag-ops-llama-gen")
+LLAMA_EMBED_CONTAINER = os.environ.get("LLAMA_EMBED_CONTAINER_NAME", "rag-ops-llama-embed")
+LLAMA_RERANK_CONTAINER = os.environ.get("LLAMA_RERANK_CONTAINER_NAME", "rag-ops-llama-rerank")
+
 SERVICES = {
-    "floci": ("http://127.0.0.1:4566/", "rag-ops-floci"),
-    "llama-gen": ("http://127.0.0.1:8080/health", "rag-ops-llama-gen"),
-    "llama-embed": ("http://127.0.0.1:8081/health", "rag-ops-llama-embed"),
-    "llama-rerank": ("http://127.0.0.1:8082/health", "rag-ops-llama-rerank"),
+    "floci": (f"http://127.0.0.1:{FLOCI_HOST_PORT}/", FLOCI_CONTAINER),
+    "llama-gen": (f"http://127.0.0.1:{LLAMA_GEN_HOST_PORT}/health", LLAMA_GEN_CONTAINER),
+    "llama-embed": (
+        f"http://127.0.0.1:{LLAMA_EMBED_HOST_PORT}/health",
+        LLAMA_EMBED_CONTAINER,
+    ),
+    "llama-rerank": (
+        f"http://127.0.0.1:{LLAMA_RERANK_HOST_PORT}/health",
+        LLAMA_RERANK_CONTAINER,
+    ),
 }
 
 
@@ -56,8 +78,12 @@ def wait_for(name: str, url: str, container: str, timeout_seconds: int = 180) ->
 
 
 def verify_reranker() -> None:
+    base_url = os.environ.get(
+        "RERANKER_BASE_URL",
+        f"http://127.0.0.1:{LLAMA_RERANK_HOST_PORT}",
+    )
     adapter = LlamaCppRerankerAdapter(
-        "http://127.0.0.1:8082",
+        base_url,
         "qwen3-reranker-0.6b",
         timeout_seconds=30.0,
     )
@@ -72,7 +98,7 @@ def verify_reranker() -> None:
         if len(grades) != 2 or not grades[0].relevant or grades[1].relevant:
             raise ValueError(f"unexpected relevance grades: {grades}")
     except (httpx.HTTPError, ValueError) as exc:
-        logs = container_logs("rag-ops-llama-rerank")
+        logs = container_logs(LLAMA_RERANK_CONTAINER)
         raise SystemExit(f"llama-rerank capability probe failed: {exc}\n{logs}") from exc
     print("llama-rerank: functional yes/no grading")
 

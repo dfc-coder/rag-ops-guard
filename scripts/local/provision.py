@@ -5,6 +5,7 @@ import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import boto3
 from botocore.config import Config
@@ -112,7 +113,7 @@ def lambda_environment() -> dict[str, str]:
         "CHUNK_TOKENS": "400",
         "CHUNK_OVERLAP": "60",
         "LLM_BASE_URL": "http://llama-gen:8080/v1",
-        "LLM_MODEL": "qwen35-0.8b-rag",
+        "LLM_MODEL": "qwen35-2b-rag",
         "LLM_ANSWER_MAX_TOKENS": "512",
         "LLM_TIMEOUT_SECONDS": "60",
         "LLM_TEMPERATURE": "0.7",
@@ -124,6 +125,9 @@ def lambda_environment() -> dict[str, str]:
         "EMBEDDING_BASE_URL": "http://llama-embed:8081/v1",
         "EMBEDDING_MODEL": "qwen3-embedding-0.6b",
         "EMBEDDING_DIMENSION": "1024",
+        "RERANKER_BASE_URL": "http://llama-rerank:8082",
+        "RERANKER_MODEL": "qwen3-reranker-0.6b",
+        "RERANKER_TIMEOUT_SECONDS": "90",
         "LANGSMITH_TRACING": "false",
     }
 
@@ -183,7 +187,9 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
             )
     api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
 
-    endpoint = f"http://{api_id}.execute-api.localhost.floci.io:4566"
+    parsed_endpoint = urlparse(ENDPOINT)
+    host_port = parsed_endpoint.port or (443 if parsed_endpoint.scheme == "https" else 80)
+    endpoint = f"http://{api_id}.execute-api.localhost.floci.io:{host_port}"
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint)
     return endpoint

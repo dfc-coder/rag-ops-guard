@@ -1,30 +1,30 @@
-name: rag-ops-guard
+name: ${COMPOSE_PROJECT_NAME:-rag-ops-guard}
 
 services:
   floci:
     image: docker.io/floci/floci:1.5.34
-    container_name: rag-ops-floci
+    container_name: ${FLOCI_CONTAINER_NAME:-rag-ops-floci}
     ports:
-      - "127.0.0.1:4566:4566"
+      - "127.0.0.1:${FLOCI_HOST_PORT:-4566}:4566"
     environment:
       FLOCI_HOSTNAME: floci
       FLOCI_DEFAULT_REGION: us-east-1
       FLOCI_STORAGE_MODE: hybrid
       FLOCI_STORAGE_PERSISTENT_PATH: /app/data
-      FLOCI_SERVICES_DOCKER_NETWORK: rag-ops-net
-      FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: rag-ops-net
+      FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
+      FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
       FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci
       FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED: "true"
       FLOCI_DNS_CONTAINER_FALLBACK_ENABLED: "false"
     volumes:
-      - ../.local/floci:/app/data:z
+      - floci-data:/app/data
       - "${PODMAN_SOCKET}:/var/run/docker.sock:z"
     networks:
       - rag-ops-net
 
   llama-gen:
     image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
-    container_name: rag-ops-llama-gen
+    container_name: ${LLAMA_GEN_CONTAINER_NAME:-rag-ops-llama-gen}
     command:
       - -m
       - /models/Qwen3.5-2B-Q4_K_M.gguf
@@ -60,7 +60,7 @@ services:
       - --jinja
       - --metrics
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${LLAMA_GEN_HOST_PORT:-8080}:8080"
     volumes:
       - "${MODEL_DIR:-../.models}:/models:ro"
     networks:
@@ -68,7 +68,7 @@ services:
 
   llama-embed:
     image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
-    container_name: rag-ops-llama-embed
+    container_name: ${LLAMA_EMBED_CONTAINER_NAME:-rag-ops-llama-embed}
     command:
       - -m
       - /models/Qwen3-Embedding-0.6B-Q8_0.gguf
@@ -91,7 +91,7 @@ services:
       - last
       - --metrics
     ports:
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${LLAMA_EMBED_HOST_PORT:-8081}:8081"
     volumes:
       - "${MODEL_DIR:-../.models}:/models:ro"
     networks:
@@ -99,7 +99,7 @@ services:
 
   llama-rerank:
     image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
-    container_name: rag-ops-llama-rerank
+    container_name: ${LLAMA_RERANK_CONTAINER_NAME:-rag-ops-llama-rerank}
     command:
       - -m
       - /models/Qwen3-Reranker-0.6B-Q4_K_M.gguf
@@ -127,7 +127,7 @@ services:
       - rank
       - --metrics
     ports:
-      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:${LLAMA_RERANK_HOST_PORT:-8082}:8082"
     volumes:
       - "${MODEL_DIR:-../.models}:/models:ro"
     networks:
@@ -135,4 +135,7 @@ services:
 
 networks:
   rag-ops-net:
-    name: rag-ops-net
+    name: ${RAG_OPS_NETWORK:-rag-ops-net}
+
+volumes:
+  floci-data:

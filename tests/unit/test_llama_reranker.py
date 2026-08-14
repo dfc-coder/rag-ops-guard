@@ -49,6 +49,60 @@ def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> 
     assert "different target is not relevant" in str(body["query"])
 
 
+def test_qwen_reranker_batches_documents_without_reordering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    batches: list[list[str]] = []
+    top_ns: list[int] = []
+
+    def fake_post(url: str, **kwargs: object) -> FakeResponse:
+        assert url == "http://localhost:8082/v1/rerank"
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        documents = body["documents"]
+        assert isinstance(documents, list)
+        batches.append(documents)
+        top_n = body["top_n"]
+        assert isinstance(top_n, int)
+        top_ns.append(top_n)
+        return FakeResponse(
+            {
+                "results": [
+                    {
+                        "index": index,
+                        "relevance_score": 0.9 if document.endswith("0") else 0.1,
+                    }
+                    for index, document in enumerate(documents)
+                ]
+            }
+        )
+
+    monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
+    adapter = LlamaCppRerankerAdapter(
+        "http://localhost:8082",
+        "qwen3-reranker-0.6b",
+        batch_size=4,
+    )
+    documents = [f"doc-{index}" for index in range(10)]
+
+    grades = adapter.grade("query", documents)
+
+    assert [len(batch) for batch in batches] == [4, 4, 2]
+    assert [document for batch in batches for document in batch] == documents
+    assert top_ns == [4, 4, 2]
+    assert [grade.score for grade in grades] == [0.9] + [0.1] * 9
+    assert [grade.relevant for grade in grades] == [True] + [False] * 9
+
+
+def test_qwen_reranker_rejects_invalid_batch_size() -> None:
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        LlamaCppRerankerAdapter(
+            "http://localhost:8082",
+            "qwen3-reranker-0.6b",
+            batch_size=0,
+        )
+
+
 def test_qwen_reranker_uses_native_yes_no_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs

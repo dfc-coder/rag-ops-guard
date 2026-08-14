@@ -17,6 +17,11 @@ _STOPWORDS = {
     "and",
     "what",
     "which",
+    "who",
+    "where",
+    "when",
+    "why",
+    "how",
     "about",
     "this",
     "that",
@@ -25,14 +30,36 @@ _STOPWORDS = {
     "from",
     "tell",
     "me",
+    "can",
+    "could",
+    "should",
+    "would",
+    "is",
+    "are",
+    "do",
+    "did",
     "para",
     "por",
     "que",
     "qué",
     "cual",
     "cuál",
+    "cuales",
+    "cuáles",
     "como",
     "cómo",
+    "cuando",
+    "cuándo",
+    "donde",
+    "dónde",
+    "quien",
+    "quién",
+    "quienes",
+    "quiénes",
+    "cuantos",
+    "cuántos",
+    "cuantas",
+    "cuántas",
     "este",
     "esta",
     "esto",
@@ -41,6 +68,7 @@ _STOPWORDS = {
     "los",
     "una",
     "uno",
+    "se",
     "entonces",
     "con",
     "sobre",
@@ -51,6 +79,23 @@ _STOPWORDS = {
     "dime",
     "decime",
     "contame",
+}
+_GENERIC_OPERATION_TOKENS = {
+    "api",
+    "dlq",
+    "http",
+    "https",
+    "id",
+    "ids",
+    "json",
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "rest",
+    "sla",
+    "sql",
+    "xml",
 }
 
 QueryMode = Literal["knowledge", "probe"]
@@ -99,10 +144,11 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve broadly, then grade candidates against the actual user question.
+        """Retrieve broadly, then grade candidates against the resolved user intent.
 
-        ``ranking_query`` lets contextual query expansion improve recall without allowing
-        conversational history to replace the semantic question used by the relevance model.
+        For contextual follow-ups, ``query`` is the standalone rewrite used for recall and
+        ``ranking_query`` is the literal current turn. The reranker receives both so it keeps
+        the resolved topic without losing what the user actually asked in the follow-up.
         """
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
@@ -115,7 +161,25 @@ class KnowledgeSearch:
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
         candidates = resolved[: self._candidate_k]
 
-        relevance_query = (ranking_query or query).strip()
+        standalone_query = query.strip()
+        literal_query = (ranking_query or "").strip()
+        relevance_query = (
+            f"{standalone_query}\n{literal_query}"
+            if literal_query and literal_query != standalone_query
+            else standalone_query
+        )
+        if not _candidates_cover_explicit_anchors(relevance_query, candidates):
+            return KnowledgeSearchResult(
+                dense=dense,
+                lexical=lexical,
+                fused=fused,
+                admitted=[],
+                relevance=0.0,
+                lexical_relevance=0.0,
+                supported=False,
+                reranker_scores={},
+            )
+
         grades = self._reranker.grade(
             relevance_query,
             [_reranker_document(item) for item in candidates],
@@ -218,12 +282,43 @@ def _reranker_document(item: Evidence) -> str:
     parts = [
         f"Title: {chunk.title}",
         f"System: {chunk.metadata.system}",
+        f"Environment: {chunk.metadata.environment}",
+        f"Version: {chunk.version}",
         f"Document type: {chunk.metadata.document_type.value}",
     ]
     if section:
         parts.append(f"Section: {section}")
     parts.append(chunk.text)
     return "\n".join(parts)
+
+
+def _candidates_cover_explicit_anchors(query: str, candidates: list[Evidence]) -> bool:
+    anchors = _explicit_query_anchors(query)
+    if not anchors:
+        return True
+
+    candidate_tokens: set[str] = set()
+    for item in candidates:
+        candidate_tokens.update(_all_tokens(_reranker_document(item)))
+    return anchors.issubset(candidate_tokens)
+
+
+def _explicit_query_anchors(text: str) -> set[str]:
+    anchors: set[str] = set()
+    for match in _TOKEN_RE.finditer(text):
+        token = match.group(0)
+        folded = token.casefold()
+        if folded in _STOPWORDS or folded in _GENERIC_OPERATION_TOKENS:
+            continue
+        has_letter = any(char.isalpha() for char in token)
+        has_internal_upper = any(char.isupper() for char in token[1:])
+        if has_letter and (token.isupper() or has_internal_upper or token[:1].isupper()):
+            anchors.add(folded)
+    return anchors
+
+
+def _all_tokens(text: str) -> set[str]:
+    return {match.group(0).casefold() for match in _TOKEN_RE.finditer(text)}
 
 
 def _informative_tokens(text: str) -> set[str]:

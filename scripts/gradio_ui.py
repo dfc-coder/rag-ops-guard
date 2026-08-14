@@ -151,6 +151,12 @@ footer {
 """
 
 
+# Build the agent before Gradio starts accepting requests. SemanticRouter initialization
+# embeds its route examples, which is intentionally paid once at application startup instead
+# of making the first user message appear to hang.
+AGENT = query_workflow()
+
+
 def _timing_line(timings: dict[str, float], elapsed_ms: int) -> str:
     stages = " · ".join(
         f"{TIMING_LABELS[key]} {timings[key] / 1000:.1f}s"
@@ -186,7 +192,7 @@ def chat(
     started = time.perf_counter()
 
     try:
-        response = query_workflow().invoke(
+        response = AGENT.invoke(
             QueryRequest(
                 question=message,
                 thread_id=thread_id,
@@ -202,7 +208,9 @@ def chat(
             f"<small>route error · {elapsed_ms / 1000:.1f}s total</small>\n\n</details>"
         )
 
-    elapsed_ms = int(response.timings_ms.get("total", (time.perf_counter() - started) * 1000))
+    # Always report wall-clock latency seen by the user. Internal stage timings remain visible
+    # below, but they must not hide initialization/transport overhead.
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
     status = response.status.value
     text = response.answer or response.clarification_question or ""
     timing_line = _timing_line(response.timings_ms, elapsed_ms)
@@ -229,7 +237,7 @@ def chat(
 
 def clear_conversation(thread_id: str) -> str:
     if thread_id:
-        query_workflow().clear_thread(thread_id)
+        AGENT.clear_thread(thread_id)
     return str(uuid4())
 
 
@@ -251,7 +259,7 @@ def ingest_file(
 
     progress(0.7, desc="Generando embeddings")
     result = ingestion_service().ingest(key)
-    query_workflow().refresh_knowledge()
+    AGENT.refresh_knowledge()
     progress(1.0, desc="Listo")
 
     return f"**{metadata.title}** · {result.chunks} chunks · v{metadata.version}"
