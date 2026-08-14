@@ -174,6 +174,7 @@ def test_uncertain_route_uses_real_evidence_to_resolve_to_knowledge() -> None:
 
     assert response.route == "knowledge"
     assert response.status == QueryStatus.ANSWERED
+    assert response.relevance_score == 0.9
     assert response.citations
     assert knowledge.queries == [question]
     assert chat.answer_calls == 1
@@ -192,6 +193,7 @@ def test_uncertain_route_with_weak_evidence_falls_back_to_best_control_intent() 
 
     assert response.route == "capabilities"
     assert response.status == QueryStatus.ANSWERED
+    assert response.relevance_score == 0.1
     assert "knowledge base" in (response.answer or "")
     assert knowledge.queries == [question]
     assert chat.chat_calls == 0
