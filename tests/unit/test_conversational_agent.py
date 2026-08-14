@@ -10,17 +10,18 @@ from tests.fixtures.builders import evidence
 
 
 class FakeRouter:
-    def __init__(self, route: str) -> None:
+    def __init__(self, route: str, scores: dict[str, float] | None = None) -> None:
         self._route = route
+        self._scores = scores or {route: 0.9}
         self.questions: list[str] = []
 
     def route(self, text: str) -> RouteDecision:
         self.questions.append(text)
         return RouteDecision(
             route=self._route,  # type: ignore[arg-type]
-            score=0.9,
-            margin=0.4,
-            scores={self._route: 0.9},
+            score=max(self._scores.values()),
+            margin=0.0 if self._route == "uncertain" else 0.4,
+            scores=self._scores,
         )
 
 
@@ -104,13 +105,14 @@ def _agent(
     knowledge: FakeKnowledge | None = None,
     chat: FakeChat | None = None,
     catalog: FakeCatalog | None = None,
+    scores: dict[str, float] | None = None,
 ) -> tuple[ConversationalAgent, FakeKnowledge, FakeChat, FakeCatalog]:
     resolved_knowledge = knowledge or FakeKnowledge()
     resolved_chat = chat or FakeChat()
     resolved_catalog = catalog or FakeCatalog()
     agent = ConversationalAgent(
         chat=resolved_chat,
-        router=FakeRouter(route),  # type: ignore[arg-type]
+        router=FakeRouter(route, scores=scores),  # type: ignore[arg-type]
         knowledge=resolved_knowledge,  # type: ignore[arg-type]
         catalog=resolved_catalog,  # type: ignore[arg-type]
         relevance_threshold=0.4,
@@ -155,6 +157,43 @@ def test_capabilities_route_is_deterministic_and_skips_llm() -> None:
     assert response.route == "capabilities"
     assert "knowledge base" in (response.answer or "")
     assert knowledge.queries == []
+    assert chat.chat_calls == 0
+    assert chat.answer_calls == 0
+
+
+def test_uncertain_route_uses_real_evidence_to_resolve_to_knowledge() -> None:
+    question = "¿Qué pasa con SendGrid?"
+    knowledge = FakeKnowledge(relevance_by_query={question: 0.9})
+    agent, _, chat, _ = _agent(
+        "uncertain",
+        knowledge=knowledge,
+        scores={"knowledge": 0.63, "out_of_scope": 0.625, "capabilities": 0.2, "chat": 0.1},
+    )
+
+    response = agent.invoke(QueryRequest(question=question, thread_id="thread-sendgrid"))
+
+    assert response.route == "knowledge"
+    assert response.status == QueryStatus.ANSWERED
+    assert response.citations
+    assert knowledge.queries == [question]
+    assert chat.answer_calls == 1
+
+
+def test_uncertain_route_with_weak_evidence_falls_back_to_best_control_intent() -> None:
+    question = "¿Qué haces?"
+    knowledge = FakeKnowledge(relevance_by_query={question: 0.1})
+    agent, _, chat, _ = _agent(
+        "uncertain",
+        knowledge=knowledge,
+        scores={"capabilities": 0.62, "knowledge": 0.615, "chat": 0.4, "out_of_scope": 0.2},
+    )
+
+    response = agent.invoke(QueryRequest(question=question, thread_id="thread-what-do-you-do"))
+
+    assert response.route == "capabilities"
+    assert response.status == QueryStatus.ANSWERED
+    assert "knowledge base" in (response.answer or "")
+    assert knowledge.queries == [question]
     assert chat.chat_calls == 0
     assert chat.answer_calls == 0
 
