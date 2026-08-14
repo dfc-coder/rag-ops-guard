@@ -20,7 +20,7 @@ from rag_ops_guard.agent.responses import (
 )
 from rag_ops_guard.agent.router import Route, RouteDecision, SemanticRouter
 from rag_ops_guard.agent.safety import SafetyGuard
-from rag_ops_guard.domain.errors import CitationValidationError, EvidenceConflictError
+from rag_ops_guard.domain.errors import EvidenceConflictError
 from rag_ops_guard.domain.models import (
     Citation,
     Evidence,
@@ -388,7 +388,7 @@ class ConversationalAgent:
 
         started = perf_counter()
         try:
-            grounded = self._chat.generate_answer(answer_prompt(question, evidence), history=None)
+            answer = self._chat.generate_grounded_text(answer_prompt(question, evidence))
         except (APITimeoutError, LengthFinishReasonError, ValidationError) as exc:
             generation_ms = round((perf_counter() - started) * 1000, 2)
             QUERY_LOGGER.warning(
@@ -399,45 +399,18 @@ class ConversationalAgent:
                     "generation_ms": generation_ms,
                 },
             )
-            answer = insufficient_evidence_response(question)
+            fallback = insufficient_evidence_response(question)
             return {
-                "messages": [AIMessage(content=answer)],
+                "messages": [AIMessage(content=fallback)],
                 "status": QueryStatus.INSUFFICIENT_EVIDENCE,
-                "answer": answer,
+                "answer": fallback,
                 "citations": [],
                 "focus": None,
                 "timings_ms": _timings(state, generation=generation_ms),
             }
 
         generation_ms = round((perf_counter() - started) * 1000, 2)
-        if grounded.status != "answered":
-            return {
-                "messages": [AIMessage(content=grounded.answer)],
-                "status": QueryStatus.INSUFFICIENT_EVIDENCE,
-                "answer": grounded.answer,
-                "citations": [],
-                "focus": None,
-                "timings_ms": _timings(state, generation=generation_ms),
-            }
-
-        try:
-            citation_ids = _expand_citation_refs(grounded.citation_ids, evidence)
-            citations = validate_citations(citation_ids, evidence)
-        except CitationValidationError as exc:
-            QUERY_LOGGER.warning(
-                "invalid_generated_citation",
-                extra={"request_id": state["request_id"], "detail": str(exc)},
-            )
-            answer = insufficient_evidence_response(question)
-            return {
-                "messages": [AIMessage(content=answer)],
-                "status": QueryStatus.INSUFFICIENT_EVIDENCE,
-                "answer": answer,
-                "citations": [],
-                "focus": None,
-                "timings_ms": _timings(state, generation=generation_ms),
-            }
-
+        citations = validate_citations(_admitted_source_ids(evidence), evidence)
         trusted_query = state.get("retrieval_query") or question
         focus: ConversationFocus = {
             "query": trusted_query,
@@ -445,9 +418,9 @@ class ConversationalAgent:
             "context": _context_snapshot(state["context"]),
         }
         return {
-            "messages": [AIMessage(content=grounded.answer)],
+            "messages": [AIMessage(content=answer)],
             "status": QueryStatus.ANSWERED,
-            "answer": grounded.answer,
+            "answer": answer,
             "citations": citations,
             "focus": focus,
             "timings_ms": _timings(state, generation=generation_ms),
@@ -506,7 +479,14 @@ def _uncertain_prefers_knowledge(
     return semantic_prefers_knowledge or admitted_has_lexical_anchor
 
 
-def _expand_citation_refs(citation_ids: list[str], evidence: list[Evidence]) -> list[str]:
-    lookup = {f"E{index}": item.chunk.id for index, item in enumerate(evidence, start=1)}
-    lookup.update({item.chunk.id: item.chunk.id for item in evidence})
-    return [lookup.get(citation_id, citation_id) for citation_id in citation_ids]
+def _admitted_source_ids(evidence: list[Evidence]) -> list[str]:
+    """Attach one valid citation per admitted document version, preserving rank order."""
+    seen: set[tuple[str, str]] = set()
+    citation_ids: list[str] = []
+    for item in evidence:
+        key = (item.chunk.logical_id, item.chunk.version)
+        if key in seen:
+            continue
+        seen.add(key)
+        citation_ids.append(item.chunk.id)
+    return citation_ids
