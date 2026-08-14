@@ -17,28 +17,35 @@ Intel Iris Xe / OpenVINO Model Server
 
 The ReAct agent exposes RAG as `search_knowledge` and documentation inventory as `list_knowledge`. Conversation state is stored by `thread_id` using the LangGraph checkpointer. Additional tools can be added to the tool list without changing the RAG implementation.
 
-## First run
+The client-validated recovery point is `baseline/beta-react-v0.1` at commit `a16c1cc5b66fc7c83890760c5658e16699ca1264`.
+
+## Normal start
 
 From the repository root:
 
 ```bash
-git switch fix/self-hosted-ci-isolation
+git switch develop
 git pull --ff-only
+make beta-react
+```
 
+`make beta-react` is the stable primary entrypoint. It verifies the generation model, starts the CPU-side services, prepares/starts OpenVINO, ensures the OpenVINO vector index is valid, and launches Gradio.
+
+The browser UI is served at `http://127.0.0.1:8000`.
+
+## First-run / diagnostic commands
+
+The normal beta command already chains these steps, but they remain useful when diagnosing the runtime:
+
+```bash
 ls -l /dev/dri/render*
-stat -c '%g %n' /dev/dri/render*
-
-make local-down
 make openvino-models
 make openvino-up
 make openvino-smoke
 make react-smoke
-make beta-react
 ```
 
 `openvino-models` is the expensive first-run step. It downloads/prepares the embedding and reranking models into `~/.cache/rag-ops-guard/openvino-models`. Later runs reuse that cache.
-
-The browser UI is served at `http://127.0.0.1:8000`.
 
 ## What each command validates
 
@@ -72,14 +79,23 @@ The OpenVINO path uses `ops-knowledge-openvino-v1` instead of the legacy vector 
 ```bash
 make openvino-status
 podman ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+podman stats
 podman logs --tail 100 rag-ops-ovms-rag
 podman logs --tail 100 rag-ops-llama-gen
+sudo intel_gpu_top
 ```
-
-GPU activity can be inspected with Intel GPU tooling when installed, for example `intel_gpu_top`.
 
 ## Stop
 
+Stop the complete beta runtime with:
+
 ```bash
 make local-down
+```
+
+The stable operator contract is therefore:
+
+```text
+start: make beta-react
+stop:  make local-down
 ```
