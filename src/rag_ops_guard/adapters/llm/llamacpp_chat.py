@@ -9,7 +9,6 @@ from openai import APITimeoutError, LengthFinishReasonError
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
-from rag_ops_guard.retrieval.identifiers import focus_allows_rewrite
 
 
 class _QueryAnalysisOutput(BaseModel):
@@ -23,12 +22,6 @@ class _QueryAnalysisOutput(BaseModel):
     clarification_question: str | None = None
     safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
     fallback_message: str = Field(min_length=1, max_length=180)
-
-
-class _QueryRewriteOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    standalone_query: str = Field(min_length=1, max_length=2000)
 
 
 class _GroundedAnswerOutput(BaseModel):
@@ -46,25 +39,19 @@ class _GroundedDraftOutput(BaseModel):
 
 
 _REWRITE_SYSTEM_PROMPT = """
-Rewrite a conversational follow-up into one standalone retrieval query.
-Use only CURRENT_QUESTION, PREVIOUS_GROUNDED_QUERY and SOURCE_TITLES.
-Do not answer the question and do not add facts.
-Preserve named systems, APIs, identifiers and the language of CURRENT_QUESTION.
-If CURRENT_QUESTION is already self-contained, return it unchanged.
-Return only the structured schema requested by the caller.
+Rewrite CURRENT_QUESTION as one standalone retrieval query using only
+PREVIOUS_GROUNDED_QUERY and SOURCE_TITLES when context is actually needed.
+
+Rules:
+- Return exactly one plain-text query. No JSON, markdown, explanation or answer.
+- Preserve the language of CURRENT_QUESTION.
+- If CURRENT_QUESTION is already self-contained, return it unchanged.
+- If CURRENT_QUESTION introduces a new system, API, product or topic, keep that new topic and
+  do not carry the previous topic into the rewrite.
+- If CURRENT_QUESTION is genuinely elliptical, resolve only the missing reference from the
+  grounded context.
+- Never add facts that are not present in the inputs.
 """.strip()
-
-
-def _trusted_followup_fallback(
-    current_question: str,
-    previous_query: str,
-    source_titles: list[str],
-) -> str:
-    titles = list(dict.fromkeys(title.strip() for title in source_titles if title.strip()))
-    parts = [previous_query.strip(), current_question.strip()]
-    if titles:
-        parts.append(f"Relevant sources: {' | '.join(titles)}")
-    return "\n".join(part for part in parts if part)
 
 
 class LlamaCppChatAdapter:
@@ -115,14 +102,10 @@ class LlamaCppChatAdapter:
         )
         self._answer_system_prompt = answer_system_prompt
         self._chat_system_prompt = chat_system_prompt
-        # Light chat is intentionally deterministic; grounded answers retain the configured sampler.
+        # Lightweight chat and contextual rewrite are intentionally deterministic.
         self._chat = analysis_model
         self._analysis = analysis_model.with_structured_output(
             _QueryAnalysisOutput,
-            method="json_schema",
-        )
-        self._rewrite = analysis_model.with_structured_output(
-            _QueryRewriteOutput,
             method="json_schema",
         )
         # Legacy workflow output retains status/citation decisions for compatibility.
@@ -149,41 +132,34 @@ class LlamaCppChatAdapter:
         previous_query: str,
         source_titles: list[str],
     ) -> str:
+        """Contextualize a follow-up without making rewrite success a correctness dependency."""
         current_question = current_question.strip()
-        previous_query = previous_query.strip()
-        if not focus_allows_rewrite(current_question, previous_query, source_titles):
-            return current_question
-
         payload = {
             "CURRENT_QUESTION": current_question,
-            "PREVIOUS_GROUNDED_QUERY": previous_query,
+            "PREVIOUS_GROUNDED_QUERY": previous_query.strip(),
             "SOURCE_TITLES": source_titles,
         }
         try:
-            result = self._rewrite.invoke(
+            result = self._chat.invoke(
                 [
                     SystemMessage(content=_REWRITE_SYSTEM_PROMPT),
                     HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
                 ]
             )
-            if isinstance(result, BaseModel):
-                parsed = _QueryRewriteOutput.model_validate(result.model_dump())
-            else:
-                parsed = _QueryRewriteOutput.model_validate(result)
-            return parsed.standalone_query.strip()
+            rewritten = _message_text(result).strip()
+            if not rewritten or len(rewritten) > 2000:
+                return current_question
+            return rewritten
         except (APITimeoutError, LengthFinishReasonError, ValidationError):
-            return _trusted_followup_fallback(
-                current_question=current_question,
-                previous_query=previous_query,
-                source_titles=source_titles,
-            )
+            # A failed contextualizer must never contaminate retrieval with stale conversation state.
+            return current_question
 
     def generate_chat(self, messages: list[BaseMessage]) -> str:
         request = list(messages)
         if self._chat_system_prompt:
             request.insert(0, SystemMessage(content=self._chat_system_prompt))
         result = self._chat.invoke(request)
-        return str(result.content)
+        return _message_text(result)
 
     def generate_answer(
         self,
@@ -210,3 +186,10 @@ class LlamaCppChatAdapter:
         else:
             parsed = _GroundedDraftOutput.model_validate(result)
         return parsed.answer.strip()
+
+
+def _message_text(message: BaseMessage) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content.strip()
+    return "".join(str(part) for part in content).strip()
