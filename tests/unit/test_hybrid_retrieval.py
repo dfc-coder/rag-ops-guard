@@ -98,6 +98,53 @@ def test_hybrid_search_includes_lexical_document_missing_from_dense_results() ->
     assert result.lexical[0].chunk.logical_id == "sendgrid-failure"
 
 
+def test_probe_mode_embeds_raw_query_without_operational_instruction() -> None:
+    class RecordingEmbeddings(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.queries: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.queries.append(text)
+            return super().embed_query(text)
+
+    embeddings = RecordingEmbeddings()
+    search = KnowledgeSearch(
+        embeddings=embeddings,
+        vectors=FakeVectorStore(),
+        objects=FakeObjectStore(),
+        resolver=EvidenceResolver(),
+    )
+
+    search.search("¿Qué haces?", QueryContext(), query_mode="probe")
+
+    assert embeddings.queries == ["¿Qué haces?"]
+
+
+def test_knowledge_mode_keeps_operational_embedding_instruction() -> None:
+    class RecordingEmbeddings(FakeEmbeddingProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.queries: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.queries.append(text)
+            return super().embed_query(text)
+
+    embeddings = RecordingEmbeddings()
+    search = KnowledgeSearch(
+        embeddings=embeddings,
+        vectors=FakeVectorStore(),
+        objects=FakeObjectStore(),
+        resolver=EvidenceResolver(),
+    )
+
+    search.search("¿Qué pasa con SendGrid?", QueryContext(), query_mode="knowledge")
+
+    assert "Instruct:" in embeddings.queries[0]
+    assert "SendGrid" in embeddings.queries[0]
+
+
 def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     sendgrid = _named_evidence(
         "SendGrid Failure Runbook",
@@ -122,24 +169,23 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     )
 
 
-def test_relevance_accepts_strong_lexical_support_even_when_dense_is_weak() -> None:
+def test_relevance_accepts_strong_admitted_support() -> None:
     calypso = _named_evidence(
         "Calypso Integration API",
         "The Calypso adapter accepts payment instructions from Payments API.",
         logical_id="calypso-api",
-        distance=0.8,
+        distance=0.3,
     )
 
     score = retrieval_relevance(
         "¿Cuál es el objetivo de Calypso Payments API?",
-        dense=[calypso],
         admitted=[calypso],
     )
 
     assert score >= 0.4
 
 
-def test_relevance_rejects_weak_dense_result_without_lexical_support() -> None:
+def test_relevance_rejects_weak_admitted_result_without_lexical_support() -> None:
     payments = _named_evidence(
         "Payment Retry Policy",
         "Transient payment timeouts may be retried.",
@@ -149,8 +195,29 @@ def test_relevance_rejects_weak_dense_result_without_lexical_support() -> None:
 
     score = retrieval_relevance(
         "¿Cuál es la capital de Francia?",
-        dense=[payments],
         admitted=[payments],
     )
 
     assert score < 0.4
+
+
+def test_rejected_dense_candidate_cannot_raise_final_relevance() -> None:
+    rejected = _named_evidence(
+        "France Geography",
+        "Paris is the capital of France.",
+        logical_id="rejected",
+        distance=0.01,
+    )
+    admitted = _named_evidence(
+        "Payment Retry Policy",
+        "Transient payment timeouts may be retried.",
+        logical_id="payment-retry-policy",
+        distance=0.8,
+    )
+
+    without_rejected = retrieval_relevance("capital de Francia", admitted=[admitted])
+    with_only_admitted = retrieval_relevance("capital de Francia", admitted=[admitted])
+
+    assert rejected.distance == 0.01
+    assert with_only_admitted == without_rejected
+    assert with_only_admitted < 0.4
