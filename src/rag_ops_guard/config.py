@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     vector_distance_metric: Literal["cosine", "euclidean"] = "cosine"
     retrieval_top_k: int = Field(default=20, ge=1, le=100)
     retrieval_context_k: int = Field(default=4, ge=1, le=20)
+    retrieval_relevance_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
+    router_min_score: float = Field(default=0.35, ge=-1.0, le=1.0)
+    router_min_margin: float = Field(default=0.015, ge=0.0, le=2.0)
 
     chunk_tokens: int = Field(default=400, ge=50, le=4000)
     chunk_overlap: int = Field(default=60, ge=0, le=1000)
