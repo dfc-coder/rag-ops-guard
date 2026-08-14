@@ -16,11 +16,10 @@ from rag_ops_guard.graph.workflow import RagWorkflow
 from rag_ops_guard.observability.runtime import QUERY_LOGGER
 from rag_ops_guard.retrieval.citations import validate_citations
 from rag_ops_guard.retrieval.query_instruction import embedding_query
-from rag_ops_guard.retrieval.reranker import rerank_evidence
 
 
 class TimedRagWorkflow(RagWorkflow):
-    """Production hot path: retrieve, resolve, then make exactly one LLM call."""
+    """Legacy one-pass workflow retained for compatibility and timing tests."""
 
     @staticmethod
     def _timings(state: RagState, **updates: float) -> dict[str, float]:
@@ -107,12 +106,11 @@ class TimedRagWorkflow(RagWorkflow):
     def _resolve_evidence(self, state: RagState) -> RagState:
         started = perf_counter()
         try:
-            candidates = self._resolver.resolve(
+            resolved = self._resolver.resolve(
                 state.get("retrieved_evidence", []),
                 state["context"],
-                limit=self._top_k,
+                limit=self._context_k,
             )
-            resolved = rerank_evidence(state["question"], candidates)[: self._context_k]
         except EvidenceConflictError as exc:
             QUERY_LOGGER.warning(
                 "evidence_conflict",
