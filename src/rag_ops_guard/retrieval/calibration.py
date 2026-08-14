@@ -39,6 +39,10 @@ def derive_separating_threshold(
     )
 
 
+def file_fingerprint(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def corpus_fingerprint(root: Path = Path("knowledge-base")) -> str:
     digest = hashlib.sha256()
     files = sorted(path for path in root.rglob("*.md") if path.is_file())
@@ -57,6 +61,7 @@ def load_calibrated_threshold(
     *,
     reranker_model: str,
     corpus_root: Path = Path("knowledge-base"),
+    dataset_path: Path = Path("evaluation/datasets/retrieval-calibration-v1.json"),
 ) -> float:
     if not path.exists():
         raise RuntimeError(
@@ -68,6 +73,8 @@ def load_calibrated_threshold(
         raise RuntimeError("reranker calibration model does not match runtime model")
     if payload.get("corpus_fingerprint") != corpus_fingerprint(corpus_root):
         raise RuntimeError("reranker calibration corpus fingerprint is stale")
+    if payload.get("dataset_fingerprint") != file_fingerprint(dataset_path):
+        raise RuntimeError("reranker calibration dataset fingerprint is stale")
 
     threshold = payload.get("threshold")
     if not isinstance(threshold, int | float):
