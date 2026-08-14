@@ -225,7 +225,12 @@ class TimedRagWorkflow(RagWorkflow):
         }
 
     @staticmethod
-    def _expand_citation_refs(citation_ids: list[str], evidence: list[Evidence]) -> list[str]:
-        lookup = {f"E{index}": item.chunk.id for index, item in enumerate(evidence, start=1)}
+    def _expand_citation_refs(
+        citation_ids: list[str], evidence: list[Evidence]
+    ) -> list[str]:
+        lookup = {
+            f"E{index}": item.chunk.id
+            for index, item in enumerate(evidence, start=1)
+        }
         lookup.update({item.chunk.id: item.chunk.id for item in evidence})
         return [lookup.get(citation_id, citation_id) for citation_id in citation_ids]
