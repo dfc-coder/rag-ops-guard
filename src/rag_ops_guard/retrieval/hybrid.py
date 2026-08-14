@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
-from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, VectorStore
+from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, VectorStore
 from rag_ops_guard.retrieval.bm25 import BM25Index
 from rag_ops_guard.retrieval.query_instruction import embedding_query
-from rag_ops_guard.retrieval.reranker import rerank_evidence
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 _RRF_K = 60
@@ -65,10 +64,12 @@ class KnowledgeSearchResult:
     admitted: list[Evidence]
     relevance: float = 0.0
     lexical_relevance: float = 0.0
+    supported: bool = False
+    reranker_scores: dict[str, float] = field(default_factory=dict)
 
 
 class KnowledgeSearch:
-    """Single production retrieval path: dense + BM25 + RRF + policy resolver + rerank."""
+    """Dense + BM25 + RRF + deterministic resolver + cross-encoder reranking."""
 
     def __init__(
         self,
@@ -77,15 +78,19 @@ class KnowledgeSearch:
         vectors: VectorStore,
         objects: ObjectStore,
         resolver: EvidenceResolver,
+        reranker: Reranker,
         candidate_k: int = 20,
         context_k: int = 4,
+        min_reranker_score: float = 0.5,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
         self._objects = objects
         self._resolver = resolver
+        self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
+        self._min_reranker_score = min_reranker_score
         self._bm25: BM25Index | None = None
 
     def search(
@@ -105,15 +110,31 @@ class KnowledgeSearch:
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
         candidates = resolved[: self._candidate_k]
-        admitted = rerank_evidence(query, candidates)[: self._context_k]
+
+        scores = self._reranker.score(query, [_reranker_document(item) for item in candidates])
+        if len(scores) != len(candidates):
+            raise ValueError("reranker returned a score count that does not match candidates")
+
+        ranked = sorted(
+            zip(candidates, scores, strict=True),
+            key=lambda pair: (-pair[1], fused_rank.get(pair[0].chunk.id, len(fused_rank))),
+        )
+        admitted_pairs = [pair for pair in ranked if pair[1] >= self._min_reranker_score][
+            : self._context_k
+        ]
+        admitted = [item for item, _score in admitted_pairs]
+        top_score = ranked[0][1] if ranked else 0.0
+        reranker_scores = {item.chunk.id: round(score, 6) for item, score in ranked}
 
         return KnowledgeSearchResult(
             dense=dense,
             lexical=lexical,
             fused=fused,
             admitted=admitted,
-            relevance=retrieval_relevance(query, admitted=admitted),
+            relevance=round(top_score, 6),
             lexical_relevance=retrieval_lexical_relevance(query, admitted=admitted),
+            supported=bool(admitted),
+            reranker_scores=reranker_scores,
         )
 
     def refresh(self) -> None:
@@ -156,7 +177,7 @@ def reciprocal_rank_fusion(
 
 
 def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Estimate support from evidence that survived deterministic admission only."""
+    """Legacy diagnostic score; production admission is decided by the cross-encoder."""
     semantic = 0.0
     distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
@@ -173,7 +194,7 @@ def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
 
 
 def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Measure informative token overlap against admitted evidence only."""
+    """Diagnostic informative-token overlap against admitted evidence."""
     query_tokens = _informative_tokens(query)
     if not query_tokens:
         return 0.0
@@ -183,6 +204,20 @@ def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> floa
         document_tokens = _informative_tokens(f"{item.chunk.title}\n{item.chunk.text}")
         lexical = max(lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens))
     return round(max(0.0, min(1.0, lexical)), 6)
+
+
+def _reranker_document(item: Evidence) -> str:
+    chunk = item.chunk
+    section = " > ".join(chunk.header_path)
+    parts = [
+        f"Title: {chunk.title}",
+        f"System: {chunk.metadata.system}",
+        f"Document type: {chunk.metadata.document_type.value}",
+    ]
+    if section:
+        parts.append(f"Section: {section}")
+    parts.append(chunk.text)
+    return "\n".join(parts)
 
 
 def _informative_tokens(text: str) -> set[str]:
