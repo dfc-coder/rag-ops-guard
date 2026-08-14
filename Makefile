@@ -47,8 +47,8 @@ local-down:
 local-data:
 	uv run python scripts/local/ensure_data.py
 
-# Data-driven admission calibration. Reuses a cached artifact only when the
-# reranker model, labeled dataset, and knowledge-base fingerprint all match.
+# Data-driven admission calibration. Recomputed on every invocation against the
+# current corpus, labeled dataset, and local reranker runtime.
 retrieval-calibrate:
 	uv run python scripts/calibrate_retrieval.py
 
