@@ -81,10 +81,7 @@ def main() -> None:
         float(payload.get("timings_ms", {}).get("generation", 0.0)) for _, payload in results
     ]
 
-    print(
-        f"transport={args.transport} requests={args.requests} "
-        f"concurrency={args.concurrency}"
-    )
+    print(f"transport={args.transport} requests={args.requests} concurrency={args.concurrency}")
     print(f"wall={wall_seconds:.2f}s throughput={args.requests / wall_seconds:.2f} req/s")
     print(
         "latency_ms "
