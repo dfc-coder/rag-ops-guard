@@ -103,6 +103,8 @@ This specification hardens the bounded conversational agent and local demo path.
 
 The hardening change is not declared client-ready from deterministic CI alone. The final acceptance signal is a successful `make demo-ready` execution on the same local runtime that will be used for the client session.
 
+The deterministic CI suite must also be green for the exact commit used by that local runtime.
+
 ## Non-goals for this hardening pass
 
 - Postgres/Redis conversation persistence.
