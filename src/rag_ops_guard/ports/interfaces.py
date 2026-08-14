@@ -17,11 +17,15 @@ class ChatModel(Protocol):
         source_titles: list[str],
     ) -> str: ...
 
+    # Legacy workflow contract. The conversational agent does not use this method.
     def generate_answer(
         self,
         prompt: str,
         history: list[BaseMessage] | None = None,
     ) -> GroundedAnswer: ...
+
+    # Conversational-agent contract: evidence sufficiency and citations are decided by code.
+    def generate_grounded_text(self, prompt: str) -> str: ...
 
     def generate_chat(self, messages: list[BaseMessage]) -> str: ...
 
