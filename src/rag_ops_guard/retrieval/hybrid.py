@@ -46,8 +46,13 @@ class KnowledgeSearch:
         dense = self._vectors.query(dense_vector, self._candidate_k)
         lexical = self._lexical_index().search(query, limit=self._candidate_k)
         fused = reciprocal_rank_fusion(dense=dense, lexical=lexical)
-        resolved = self._resolver.resolve(fused, context, limit=self._candidate_k)
-        admitted = rerank_evidence(query, resolved)[: self._context_k]
+
+        fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
+        resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
+        resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
+        candidates = resolved[: self._candidate_k]
+        admitted = rerank_evidence(query, candidates)[: self._context_k]
+
         return KnowledgeSearchResult(
             dense=dense,
             lexical=lexical,
