@@ -25,7 +25,11 @@ def main() -> None:
             json={"s3_key": key},
             timeout=180,
         )
-        response.raise_for_status()
+        if response.is_error:
+            raise RuntimeError(
+                f"ingestion failed for {key}: "
+                f"HTTP {response.status_code}: {response.text[:2000]}"
+            )
         payload = response.json()
         print(f"{key}: {payload['status']} ({payload['chunks']} chunks)")
 
