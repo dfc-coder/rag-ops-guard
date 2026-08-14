@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -45,6 +45,7 @@ class LlamaCppChatAdapter:
         presence_penalty: float = 1.5,
         repeat_penalty: float = 1.0,
         answer_system_prompt: str = "",
+        chat_system_prompt: str = "",
     ) -> None:
         extra_body = {
             "top_k": top_k,
@@ -76,6 +77,8 @@ class LlamaCppChatAdapter:
             extra_body=extra_body,
         )
         self._answer_system_prompt = answer_system_prompt
+        self._chat_system_prompt = chat_system_prompt
+        self._chat = answer_model
         self._analysis = analysis_model.with_structured_output(
             _QueryAnalysisOutput,
             method="json_schema",
@@ -91,15 +94,22 @@ class LlamaCppChatAdapter:
             return QueryAnalysis.model_validate(result.model_dump())
         return QueryAnalysis.model_validate(result)
 
-    def generate_answer(self, prompt: str) -> GroundedAnswer:
-        request: object
+    def generate_chat(self, messages: list[BaseMessage]) -> str:
+        request = list(messages)
+        if self._chat_system_prompt:
+            request.insert(0, SystemMessage(content=self._chat_system_prompt))
+        result = self._chat.invoke(request)
+        return str(result.content)
+
+    def generate_answer(
+        self,
+        prompt: str,
+        history: list[BaseMessage] | None = None,
+    ) -> GroundedAnswer:
+        request: list[BaseMessage] = list(history or [])
         if self._answer_system_prompt:
-            request = [
-                SystemMessage(content=self._answer_system_prompt),
-                HumanMessage(content=prompt),
-            ]
-        else:
-            request = prompt
+            request.insert(0, SystemMessage(content=self._answer_system_prompt))
+        request.append(HumanMessage(content=prompt))
         result = self._answer.invoke(request)
         if isinstance(result, BaseModel):
             return GroundedAnswer.model_validate(result.model_dump())
