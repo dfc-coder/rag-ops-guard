@@ -27,8 +27,8 @@ def capabilities_response(question: str) -> str:
         )
     return (
         "I can discuss integration operations, search the knowledge base when evidence is needed, "
-        "list the available documentation, keep context across follow-ups, and answer with citations "
-        "to the sources used."
+        "list available documentation, keep context across follow-ups, and answer with "
+        "citations to the sources used."
     )
 
 
