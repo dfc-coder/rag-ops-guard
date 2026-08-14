@@ -183,7 +183,7 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     )
 
 
-def test_cross_encoder_admits_cross_language_retry_policy() -> None:
+def test_learned_grader_admits_cross_language_retry_policy() -> None:
     calypso = _named_evidence(
         "Calypso Integration API",
         "The Calypso adapter accepts payment instructions from Payments API.",
@@ -200,10 +200,12 @@ def test_cross_encoder_admits_cross_language_retry_policy() -> None:
     _store_documents(objects, [calypso, retries])
     reranker = FakeReranker(
         default_score=0.2,
+        default_relevant=False,
         scores_by_document={
             "Payment Retry Policy": 0.94,
             "Calypso Integration API": 0.58,
         },
+        relevant_by_document={"Payment Retry Policy": True},
     )
     search = KnowledgeSearch(
         embeddings=FakeEmbeddingProvider(),
@@ -213,7 +215,6 @@ def test_cross_encoder_admits_cross_language_retry_policy() -> None:
         reranker=reranker,
         candidate_k=5,
         context_k=4,
-        min_reranker_score=0.5,
     )
 
     result = search.search(
@@ -226,7 +227,7 @@ def test_cross_encoder_admits_cross_language_retry_policy() -> None:
     assert "reintentos" in reranker.calls[0][0].casefold()
 
 
-def test_contextual_retrieval_reranks_against_current_question() -> None:
+def test_contextual_retrieval_grades_against_current_question() -> None:
     calypso = _named_evidence(
         "Calypso Timeout Runbook",
         "Production Calypso timeout handling and escalation guidance.",
@@ -234,7 +235,7 @@ def test_contextual_retrieval_reranks_against_current_question() -> None:
     )
     objects = FakeObjectStore()
     _store_documents(objects, [calypso])
-    reranker = FakeReranker(default_score=0.2)
+    reranker = FakeReranker(default_score=0.2, default_relevant=False)
     search = KnowledgeSearch(
         embeddings=FakeEmbeddingProvider(),
         vectors=FakeVectorStore(evidence=[calypso]),
@@ -243,7 +244,6 @@ def test_contextual_retrieval_reranks_against_current_question() -> None:
         reranker=reranker,
         candidate_k=5,
         context_k=4,
-        min_reranker_score=0.5,
     )
 
     result = search.search(
@@ -258,11 +258,11 @@ def test_contextual_retrieval_reranks_against_current_question() -> None:
     assert result.relevance == 0.2
 
 
-def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
+def test_learned_grader_can_reject_semantically_similar_candidate() -> None:
     payments = _named_evidence(
-        "Payment Retry Policy",
-        "Transient payment timeouts may be retried.",
-        logical_id="payment-retry-policy",
+        "Payment DLQ Replay Runbook",
+        "Replay failed payment messages from the payment DLQ.",
+        logical_id="payment-dlq-replay",
         distance=0.1,
     )
     objects = FakeObjectStore()
@@ -272,14 +272,13 @@ def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
         vectors=FakeVectorStore(evidence=[payments]),
         objects=objects,
         resolver=EvidenceResolver(),
-        reranker=FakeReranker(default_score=0.1),
-        min_reranker_score=0.5,
+        reranker=FakeReranker(default_score=0.91, default_relevant=False),
     )
 
-    result = search.search("Cual es la capital de Francia?", QueryContext(), query_mode="probe")
+    result = search.search("How do I replay a Kafka DLQ?", QueryContext(), query_mode="probe")
 
     assert result.supported is False
-    assert result.relevance == 0.1
+    assert result.relevance == 0.91
     assert result.admitted == []
 
 
