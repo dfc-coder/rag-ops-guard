@@ -18,6 +18,8 @@ BENCH_REQUESTS ?= 5
 BENCH_CONCURRENCY ?= 1
 RETRIEVAL_TOP_K ?= 20
 RETRIEVAL_CONTEXT_K ?= 4
+BETA_RETRIEVAL_TOP_K ?= 8
+BETA_RETRIEVAL_CONTEXT_K ?= 3
 ROUTER_MIN_SCORE ?= 0.35
 ROUTER_MIN_MARGIN ?= 0.015
 LLM_ANSWER_MAX_TOKENS ?= 512
@@ -96,9 +98,9 @@ ui-init: models local-up local-data retrieval-validate
 	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
 # Fast beta path: boot the real local runtime and corpus, then open Gradio.
-# It intentionally skips acceptance/CI validation so the product can be exercised interactively.
+# Keep the learned reranker, but rerank only the strongest 8 candidates instead of 20.
 beta: models local-up local-data
-	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
+	RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
 # Client gate: real Floci + embeddings + Qwen relevance grader + Qwen 2B + multi-turn assertions.
 demo-ready: models local-up local-data retrieval-validate
