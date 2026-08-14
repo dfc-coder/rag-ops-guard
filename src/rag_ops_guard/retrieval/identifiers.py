@@ -32,6 +32,17 @@ _NON_IDENTIFIER_WORDS = {
     "why",
     "y",
 }
+_GENERIC_TECHNICAL_IDENTIFIERS = {
+    "api",
+    "dlq",
+    "http",
+    "https",
+    "p0",
+    "p1",
+    "p2",
+    "p3",
+    "sla",
+}
 
 
 def explicit_identifiers(text: str) -> set[str]:
@@ -52,7 +63,9 @@ def explicit_identifiers(text: str) -> set[str]:
 
         if is_acronym or is_camel_case or is_title_case or has_digit:
             identifiers.add(normalized)
-    return identifiers
+
+    named_identifiers = identifiers.difference(_GENERIC_TECHNICAL_IDENTIFIERS)
+    return named_identifiers or identifiers
 
 
 def text_tokens(text: str) -> set[str]:
