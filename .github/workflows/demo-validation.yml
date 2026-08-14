@@ -1,6 +1,8 @@
 name: demo-validation
 
 on:
+  push:
+    branches: [fix/self-hosted-ci-isolation]
   workflow_dispatch:
 
 permissions:
