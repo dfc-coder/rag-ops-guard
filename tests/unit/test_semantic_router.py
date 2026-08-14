@@ -46,7 +46,7 @@ def _examples() -> dict[Route, list[str]]:
     return {
         "chat": ["hola"],
         "capabilities": ["¿Qué haces?"],
-        "catalog": ["documentation"],
+        "catalog": ["What documentation is available?"],
         "knowledge": ["api"],
         "out_of_scope": ["weather"],
         "uncertain": [],
@@ -79,10 +79,10 @@ def test_router_rejects_control_examples_that_collide_after_normalization() -> N
         )
 
 
-def test_router_routes_clear_catalog_question() -> None:
+def test_router_routes_registered_catalog_question() -> None:
     router = SemanticRouter(FakeEmbeddings(), route_examples=_examples())
 
-    decision = router.route("What documentation is available?")
+    decision = router.route("WHAT DOCUMENTATION IS AVAILABLE!!!")
 
     assert decision.route == "catalog"
     assert decision.score == 1.0
