@@ -77,7 +77,7 @@ class RouteDecision:
 
 
 class SemanticRouter:
-    """Embedding router with exact control intents, semantic scoring and abstention."""
+    """Resolve narrow controls exactly; use semantics only as hints for free-form turns."""
 
     def __init__(
         self,
@@ -128,14 +128,16 @@ class SemanticRouter:
         if not ordered:
             return RouteDecision(route="uncertain", score=0.0, margin=0.0, scores={})
 
-        best_route, best_score = ordered[0]
+        best_score = ordered[0][1]
         second_score = ordered[1][1] if len(ordered) > 1 else 0.0
         margin = best_score - second_score
-        route: Route = best_route
-        if best_score < self._min_score or margin < self._min_margin:
-            route = "uncertain"
+
+        # Free-form semantic similarity is advisory only. It must never prevent a real
+        # knowledge-base probe by directly choosing a control intent. The orchestrator
+        # resolves this uncertain turn after retrieval using admitted evidence plus these
+        # semantic scores as fallback hints.
         return RouteDecision(
-            route=route,
+            route="uncertain",
             score=best_score,
             margin=margin,
             scores={key: round(value, 6) for key, value in scores.items()},
