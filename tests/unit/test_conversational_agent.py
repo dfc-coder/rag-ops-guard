@@ -36,11 +36,16 @@ class FakeCatalog:
 
 
 class FakeKnowledge:
-    def __init__(self, relevance_by_query: dict[str, float] | None = None) -> None:
+    def __init__(
+        self,
+        relevance_by_query: dict[str, float] | None = None,
+        supported_by_query: dict[str, bool] | None = None,
+    ) -> None:
         self.queries: list[str] = []
         self.query_modes: list[str] = []
         self.refreshed = False
         self._relevance_by_query = relevance_by_query or {}
+        self._supported_by_query = supported_by_query or {}
 
     def search(
         self,
@@ -54,12 +59,15 @@ class FakeKnowledge:
         self.query_modes.append(query_mode)
         item = evidence(text="After the third retry, escalate to Treasury Integrations.")
         relevance = self._relevance_by_query.get(query, 0.9)
+        supported = self._supported_by_query.get(query, relevance >= 0.4)
         return KnowledgeSearchResult(
             dense=[item],
             lexical=[item],
             fused=[item],
-            admitted=[item],
+            admitted=[item] if supported else [],
             relevance=relevance,
+            supported=supported,
+            reranker_scores={item.chunk.id: relevance},
         )
 
     def refresh(self) -> None:
@@ -125,7 +133,6 @@ def _agent(
         router=FakeRouter(route, scores=scores),  # type: ignore[arg-type]
         knowledge=resolved_knowledge,  # type: ignore[arg-type]
         catalog=resolved_catalog,  # type: ignore[arg-type]
-        relevance_threshold=0.4,
     )
     return agent, resolved_knowledge, resolved_chat, resolved_catalog
 
@@ -191,6 +198,27 @@ def test_uncertain_route_probes_with_raw_query_and_resolves_from_real_evidence()
     assert chat.answer_calls == 1
 
 
+def test_cross_encoder_support_wins_even_when_legacy_score_is_below_old_threshold() -> None:
+    question = "Cuantos reintentos permite Calypso?"
+    knowledge = FakeKnowledge(
+        relevance_by_query={question: 0.372242},
+        supported_by_query={question: True},
+    )
+    agent, _, chat, _ = _agent(
+        "uncertain",
+        knowledge=knowledge,
+        scores={"capabilities": 0.62, "knowledge": 0.56, "out_of_scope": 0.61, "chat": 0.4},
+    )
+
+    response = agent.invoke(QueryRequest(question=question, thread_id="thread-cross-language"))
+
+    assert response.route == "knowledge"
+    assert response.status == QueryStatus.ANSWERED
+    assert response.relevance_score == 0.372242
+    assert response.citations
+    assert chat.answer_calls == 1
+
+
 def test_admitted_evidence_status_cannot_be_vetoed_by_generation_model() -> None:
     agent, _, chat, _ = _agent("knowledge")
 
@@ -212,9 +240,12 @@ def test_clear_knowledge_route_uses_instructed_knowledge_search() -> None:
     assert knowledge.query_modes == ["knowledge"]
 
 
-def test_uncertain_route_with_weak_evidence_falls_back_to_best_control_intent() -> None:
+def test_uncertain_route_with_unsupported_evidence_falls_back_to_best_control_intent() -> None:
     question = "¿Qué haces?"
-    knowledge = FakeKnowledge(relevance_by_query={question: 0.1})
+    knowledge = FakeKnowledge(
+        relevance_by_query={question: 0.9},
+        supported_by_query={question: False},
+    )
     agent, _, chat, _ = _agent(
         "uncertain",
         knowledge=knowledge,
@@ -225,7 +256,7 @@ def test_uncertain_route_with_weak_evidence_falls_back_to_best_control_intent() 
 
     assert response.route == "capabilities"
     assert response.status == QueryStatus.ANSWERED
-    assert response.relevance_score == 0.1
+    assert response.relevance_score == 0.9
     assert "knowledge base" in (response.answer or "")
     assert knowledge.queries == [question]
     assert knowledge.query_modes == ["probe"]
@@ -269,16 +300,13 @@ def test_knowledge_search_uses_only_current_question_not_chat_history() -> None:
     assert chat.answer_histories == [None]
 
 
-def test_low_relevance_followup_rewrites_from_trusted_grounded_focus() -> None:
+def test_unsupported_followup_rewrites_from_trusted_grounded_focus() -> None:
     first_query = "Contame sobre los reintentos de Calypso"
     followup = "¿Y qué pasa después del tercero?"
     rewritten = f"{first_query} {followup}"
     knowledge = FakeKnowledge(
-        relevance_by_query={
-            first_query: 0.9,
-            followup: 0.1,
-            rewritten: 0.9,
-        }
+        relevance_by_query={first_query: 0.9, followup: 0.8, rewritten: 0.9},
+        supported_by_query={first_query: True, followup: False, rewritten: True},
     )
     agent, _, chat, _ = _agent("knowledge", knowledge=knowledge)
 
@@ -305,7 +333,13 @@ def test_failed_knowledge_turn_clears_focus_before_later_followup() -> None:
             missing: 0.1,
             missing_rewrite: 0.1,
             later: 0.1,
-        }
+        },
+        supported_by_query={
+            first_query: True,
+            missing: False,
+            missing_rewrite: False,
+            later: False,
+        },
     )
     agent, _, chat, _ = _agent("knowledge", knowledge=knowledge)
 
@@ -322,7 +356,9 @@ def test_failed_knowledge_turn_clears_focus_before_later_followup() -> None:
 def test_focus_is_not_reused_when_query_context_changes() -> None:
     first_query = "Contame sobre los reintentos de Calypso"
     followup = "¿Y después?"
-    knowledge = FakeKnowledge(relevance_by_query={first_query: 0.9, followup: 0.1})
+    knowledge = FakeKnowledge(
+        supported_by_query={first_query: True, followup: False},
+    )
     agent, _, chat, _ = _agent("knowledge", knowledge=knowledge)
 
     agent.invoke(
@@ -347,7 +383,9 @@ def test_focus_is_not_reused_when_query_context_changes() -> None:
 def test_clear_thread_removes_trusted_followup_memory() -> None:
     first_query = "Contame sobre los reintentos de Calypso"
     followup = "¿Y después del tercero?"
-    knowledge = FakeKnowledge(relevance_by_query={first_query: 0.9, followup: 0.1})
+    knowledge = FakeKnowledge(
+        supported_by_query={first_query: True, followup: False},
+    )
     agent, _, chat, _ = _agent("knowledge", knowledge=knowledge)
 
     agent.invoke(QueryRequest(question=first_query, thread_id="thread-clear"))
@@ -358,9 +396,12 @@ def test_clear_thread_removes_trusted_followup_memory() -> None:
     assert chat.rewrite_calls == 0
 
 
-def test_low_relevance_without_grounded_focus_abstains_before_generation() -> None:
+def test_unsupported_evidence_without_grounded_focus_abstains_before_generation() -> None:
     question = "¿Qué información existe sobre un sistema desconocido?"
-    knowledge = FakeKnowledge(relevance_by_query={question: 0.1})
+    knowledge = FakeKnowledge(
+        relevance_by_query={question: 0.95},
+        supported_by_query={question: False},
+    )
     agent, _, chat, _ = _agent("knowledge", knowledge=knowledge)
 
     response = agent.invoke(QueryRequest(question=question, thread_id="thread-low"))
