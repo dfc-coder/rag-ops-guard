@@ -23,12 +23,12 @@ class Model:
 
 MODELS = (
     Model(
-        filename="Qwen3.5-0.8B-Q4_K_M.gguf",
+        filename="Qwen3.5-2B-Q4_K_M.gguf",
         url=(
-            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/"
-            "Qwen3.5-0.8B-Q4_K_M.gguf?download=true"
+            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/"
+            "Qwen3.5-2B-Q4_K_M.gguf?download=true"
         ),
-        sha256="bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+        sha256="aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
     ),
     Model(
         filename="Qwen3-Embedding-0.6B-Q8_0.gguf",
@@ -39,12 +39,12 @@ MODELS = (
         sha256="06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
     ),
     Model(
-        filename="bge-reranker-v2-m3-Q4_K_M.gguf",
+        filename="Qwen3-Reranker-0.6B.Q4_K_M.gguf",
         url=(
-            "https://huggingface.co/smarttasks/bge-reranker-v2-m3-GGUF/resolve/main/"
-            "bge-reranker-v2-m3-Q4_K_M.gguf?download=true"
+            "https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF/resolve/main/"
+            "Qwen3-Reranker-0.6B.Q4_K_M.gguf?download=true"
         ),
-        sha256="efee6434f8b888b414a3765d8a531e9513a9fee64a0cf51126620d11e7bc71b6",
+        sha256="783d816e7541ba78a5105f949a010217fecf31795c267d69ffa5a96403dff4a7",
     ),
 )
 
