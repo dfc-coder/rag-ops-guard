@@ -69,7 +69,5 @@ class LlamaCppRerankerAdapter:
         # relevance_score is the model-native yes probability; 0.5 is therefore the
         # yes-vs-no decision boundary, not a corpus-tuned admission threshold.
         return [
-            RerankGrade(relevant=score >= 0.5, score=score)
-            for score in scores
-            if score is not None
+            RerankGrade(relevant=score >= 0.5, score=score) for score in scores if score is not None
         ]
