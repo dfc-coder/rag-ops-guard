@@ -32,7 +32,7 @@ def test_timed_workflow_uses_one_llm_call_and_reports_stage_latencies() -> None:
         GroundedAnswer(
             status="answered",
             answer="The current policy allows three retries.",
-            citation_ids=[item.chunk.id],
+            citation_ids=["E1"],
         )
     )
     workflow = TimedRagWorkflow(
@@ -54,6 +54,7 @@ def test_timed_workflow_uses_one_llm_call_and_reports_stage_latencies() -> None:
     assert expected.issubset(response.timings_ms)
     assert "analysis" not in response.timings_ms
     assert all(response.timings_ms[key] >= 0 for key in expected)
+    assert response.citations[0].chunk_id == item.chunk.id
     assert chat.analysis_calls == 0
     assert chat.generation_calls == 1
 
