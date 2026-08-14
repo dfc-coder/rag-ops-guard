@@ -46,6 +46,8 @@ class FakeStructured:
             }
         if "standalone_query" in fields:
             return {"standalone_query": "Calypso retries after the third attempt"}
+        if set(fields) == {"answer"}:
+            return {"answer": "grounded draft"}
         return {
             "status": "answered",
             "answer": "grounded",
@@ -110,6 +112,7 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         source_titles=["Payment Retry Policy"],
     )
     answer = adapter.generate_answer("answer")
+    grounded_text = adapter.generate_grounded_text("grounded answer")
     chat = adapter.generate_chat([HumanMessage(content="hello")])
 
     assert analysis.normalized_question == "normalized"
@@ -120,6 +123,7 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         answer="grounded",
         citation_ids=["doc:1.0:000:deadbeef"],
     )
+    assert grounded_text == "grounded draft"
     assert chat == "chat response"
     assert len(FakeChat.instances) == 2
     assert FakeChat.instances[0].kwargs["temperature"] == 0.0
@@ -136,6 +140,11 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     assert isinstance(rewrite_request, list)
     assert isinstance(rewrite_request[0], SystemMessage)
     assert isinstance(rewrite_request[1], HumanMessage)
+
+    grounded_request = FakeChat.instances[1].structured[1].last_request
+    assert isinstance(grounded_request, list)
+    assert isinstance(grounded_request[0], SystemMessage)
+    assert isinstance(grounded_request[1], HumanMessage)
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
