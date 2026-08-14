@@ -102,7 +102,7 @@ services:
     container_name: rag-ops-llama-rerank
     command:
       - -m
-      - /models/Qwen3-Reranker-0.6B.Q4_K_M.gguf
+      - /models/Qwen3-Reranker-0.6B-Q4_K_M.gguf
       - --alias
       - qwen3-reranker-0.6b
       - --host
@@ -121,6 +121,10 @@ services:
       - "2048"
       - --ubatch-size
       - "2048"
+      - --embedding
+      - --reranking
+      - --pooling
+      - rank
       - --metrics
     ports:
       - "127.0.0.1:8082:8082"
