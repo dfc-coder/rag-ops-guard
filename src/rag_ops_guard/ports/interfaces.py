@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from langchain_core.messages import BaseMessage
 
 from rag_ops_guard.domain.models import Chunk, Evidence, GroundedAnswer, QueryAnalysis
+
+
+@dataclass(frozen=True)
+class RerankGrade:
+    """Learned relevance decision for one query-document pair."""
+
+    relevant: bool
+    score: float
 
 
 class ChatModel(Protocol):
@@ -37,9 +46,9 @@ class EmbeddingProvider(Protocol):
 
 
 class Reranker(Protocol):
-    """Score query-document pairs with a dedicated cross-encoder reranker."""
+    """Grade query-document pairs with a learned relevance model."""
 
-    def score(self, query: str, documents: list[str]) -> list[float]: ...
+    def grade(self, query: str, documents: list[str]) -> list[RerankGrade]: ...
 
 
 class VectorStore(Protocol):
