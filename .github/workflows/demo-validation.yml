@@ -36,11 +36,11 @@ jobs:
       LLM_BASE_URL: http://localhost:18080/v1
       EMBEDDING_BASE_URL: http://localhost:18081/v1
       RERANKER_BASE_URL: http://localhost:18082
+      RERANKER_TIMEOUT_SECONDS: '90'
     steps:
       - uses: actions/checkout@v7.0.1
       - run: make doctor
       - run: make setup
-      - run: make reset || true
       - name: Run exact client readiness gate
         run: |
           mkdir -p artifacts
