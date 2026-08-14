@@ -250,7 +250,9 @@ def _latest_user_message(messages: list[BaseMessage]) -> str:
 
 
 def _recent_user_context(messages: list[BaseMessage], limit: int = 3) -> str:
-    user_messages = [str(message.content) for message in messages if isinstance(message, HumanMessage)]
+    user_messages = [
+        str(message.content) for message in messages if isinstance(message, HumanMessage)
+    ]
     return "\n".join(user_messages[-limit:])
 
 
