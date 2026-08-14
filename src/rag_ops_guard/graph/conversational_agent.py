@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -112,7 +113,7 @@ class ConversationalAgent:
     def refresh_knowledge(self) -> None:
         self._knowledge.refresh()
 
-    def _route(self, state: AgentState) -> AgentState:
+    def _route(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         route_text = _recent_user_context(state["messages"])
         route = self._router.route(route_text)
@@ -130,7 +131,7 @@ class ConversationalAgent:
             "timings_ms": _timings(state, route=route_ms),
         }
 
-    def _search_knowledge(self, state: AgentState) -> AgentState:
+    def _search_knowledge(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         query = _recent_user_context(state["messages"])
         try:
@@ -157,7 +158,7 @@ class ConversationalAgent:
             "timings_ms": _timings(state, search=search_ms),
         }
 
-    def _generate_chat(self, state: AgentState) -> AgentState:
+    def _generate_chat(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         answer = self._chat.generate_chat(_recent_messages(state["messages"]))
         generation_ms = round((perf_counter() - started) * 1000, 2)
@@ -169,7 +170,7 @@ class ConversationalAgent:
             "timings_ms": _timings(state, generation=generation_ms),
         }
 
-    def _generate_grounded_answer(self, state: AgentState) -> AgentState:
+    def _generate_grounded_answer(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         evidence = state.get("evidence", [])
         question = _latest_user_message(state["messages"])
@@ -234,22 +235,22 @@ def _timings(state: AgentState, **updates: float) -> dict[str, float]:
     return {**state.get("timings_ms", {}), **updates}
 
 
-def _recent_messages(messages: list[BaseMessage], limit: int = 8) -> list[BaseMessage]:
+def _recent_messages(messages: Sequence[BaseMessage], limit: int = 8) -> list[BaseMessage]:
     return list(messages[-limit:])
 
 
-def _prior_messages(messages: list[BaseMessage], limit: int = 6) -> list[BaseMessage]:
+def _prior_messages(messages: Sequence[BaseMessage], limit: int = 6) -> list[BaseMessage]:
     return list(messages[:-1][-limit:])
 
 
-def _latest_user_message(messages: list[BaseMessage]) -> str:
+def _latest_user_message(messages: Sequence[BaseMessage]) -> str:
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
             return str(message.content)
     raise ValueError("conversation has no user message")
 
 
-def _recent_user_context(messages: list[BaseMessage], limit: int = 3) -> str:
+def _recent_user_context(messages: Sequence[BaseMessage], limit: int = 3) -> str:
     user_messages = [
         str(message.content) for message in messages if isinstance(message, HumanMessage)
     ]
