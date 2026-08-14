@@ -67,9 +67,17 @@ def main() -> None:
     wall_started = time.perf_counter()
 
     def run(_: int) -> tuple[float, dict[str, Any]]:
-        if args.transport == "api":
-            return run_one_api(url, args.question)
-        return run_one_direct(args.question)
+        started = time.perf_counter()
+        try:
+            if args.transport == "api":
+                return run_one_api(url, args.question)
+            return run_one_direct(args.question)
+        except Exception as exc:  # benchmark must report failures, not stop the run
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            return elapsed_ms, {
+                "status": "error",
+                "error": type(exc).__name__,
+            }
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         results = list(pool.map(run, range(args.requests)))
@@ -77,6 +85,11 @@ def main() -> None:
     wall_seconds = time.perf_counter() - wall_started
     latencies = [elapsed for elapsed, _ in results]
     statuses = Counter(str(payload.get("status")) for _, payload in results)
+    errors = Counter(
+        str(payload.get("error"))
+        for _, payload in results
+        if payload.get("status") == "error"
+    )
     generation = [
         float(payload.get("timings_ms", {}).get("generation", 0.0)) for _, payload in results
     ]
@@ -96,6 +109,8 @@ def main() -> None:
             f"p95={percentile(generation, 0.95):.0f}"
         )
     print("statuses=" + ", ".join(f"{key}:{value}" for key, value in sorted(statuses.items())))
+    if errors:
+        print("errors=" + ", ".join(f"{key}:{value}" for key, value in sorted(errors.items())))
 
 
 if __name__ == "__main__":
