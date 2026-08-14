@@ -93,7 +93,10 @@ def ingestion_service() -> IngestionService:
         vector_store=vector_store(),
         embeddings=embeddings(),
         chunker=MarkdownChunker(
-            token_counter=LlamaCppTokenCounter(settings.embedding_base_url),
+            # Token counting is lightweight orchestration work and stays on the CPU-side
+            # llama.cpp server. OpenVINO owns only embeddings and reranking; its v3 API is
+            # not wire-compatible with llama.cpp's /tokenize endpoint used by this adapter.
+            token_counter=LlamaCppTokenCounter(settings.llm_base_url),
             target_tokens=settings.chunk_tokens,
             overlap_tokens=settings.chunk_overlap,
         ),
