@@ -19,7 +19,9 @@ STATUS_LABELS = {
 
 TIMING_LABELS = {
     "route": "route",
+    "catalog": "catálogo",
     "search": "search",
+    "rewrite": "rewrite",
     "generation": "generación",
 }
 
@@ -154,6 +156,20 @@ def _timing_line(timings: dict[str, float], elapsed_ms: int) -> str:
     return f"{total} · {stages}" if stages else total
 
 
+def _diagnostic_line(response: object) -> str:
+    route = getattr(response, "route", None) or "unknown"
+    parts = [f"route {route}"]
+    confidence = getattr(response, "route_confidence", None)
+    if confidence is not None:
+        parts.append(f"confidence {confidence:.2f}")
+    relevance = getattr(response, "relevance_score", None)
+    if route == "knowledge" and relevance is not None:
+        parts.append(f"relevance {relevance:.2f}")
+    if getattr(response, "rewritten_query", None):
+        parts.append("query rewritten")
+    return " · ".join(parts)
+
+
 def chat(
     message: str,
     _history: list,
@@ -180,6 +196,7 @@ def chat(
     status = response.status.value
     text = response.answer or response.clarification_question or ""
     timing_line = _timing_line(response.timings_ms, elapsed_ms)
+    diagnostic_line = _diagnostic_line(response)
 
     parts: list[str] = []
     status_label = STATUS_LABELS.get(status)
@@ -193,10 +210,9 @@ def chat(
         source_summary = f"Fuentes ({len(response.citations)})"
         parts.append(f"<details><summary>{source_summary}</summary>\n\n{sources}\n\n</details>")
 
-    route = response.route or "unknown"
     parts.append(
         f"<details><summary>Detalles</summary>\n\n"
-        f"<small>route {route} · {timing_line}</small>\n\n</details>"
+        f"<small>{diagnostic_line} · {timing_line}</small>\n\n</details>"
     )
     return "\n\n".join(part for part in parts if part)
 
