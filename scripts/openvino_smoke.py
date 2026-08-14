@@ -18,7 +18,13 @@ RERANKER_MODEL = os.environ.get(
 
 def timed_post(path: str, payload: dict[str, object]) -> tuple[float, httpx.Response]:
     started = perf_counter()
-    response = httpx.post(f"{BASE_URL}/{path}", json=payload, timeout=120.0)
+    try:
+        response = httpx.post(f"{BASE_URL}/{path}", json=payload, timeout=120.0)
+    except httpx.ConnectError as exc:
+        raise SystemExit(
+            f"OpenVINO backend is not reachable at {BASE_URL}. "
+            "Run `make openvino-models` and then `make openvino-up` before this smoke test."
+        ) from exc
     elapsed = perf_counter() - started
     response.raise_for_status()
     return elapsed, response
