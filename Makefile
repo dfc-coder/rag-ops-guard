@@ -5,7 +5,9 @@ CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
 BENCH_REQUESTS ?= 5
 BENCH_CONCURRENCY ?= 1
-export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL
+RETRIEVAL_TOP_K ?= 20
+RETRIEVAL_CONTEXT_K ?= 4
+export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K
 
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
