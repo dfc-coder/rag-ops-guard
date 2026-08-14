@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     reranker_base_url: str = "http://localhost:8082"
     reranker_model: str = "qwen3-reranker-0.6b"
-    reranker_timeout_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
+    reranker_timeout_seconds: float = Field(default=90.0, ge=5.0, le=300.0)
 
     langsmith_tracing: bool = False
     langsmith_project: str = "rag-ops-guard-local"
