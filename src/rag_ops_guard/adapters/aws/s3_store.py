@@ -39,6 +39,9 @@ class S3ObjectStore:
             ContentType=content_type,
         )
 
+    def delete(self, key: str) -> None:
+        self._client.delete_object(Bucket=self._bucket, Key=key)
+
     def exists(self, key: str) -> bool:
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)
