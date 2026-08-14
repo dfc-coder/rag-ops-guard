@@ -9,14 +9,15 @@ def test_answered_response_requires_citation_by_default() -> None:
         QueryResponse(request_id="1", status=QueryStatus.ANSWERED, answer="answer")
 
 
-def test_chat_answer_does_not_require_citation() -> None:
-    response = QueryResponse(
-        request_id="1",
-        status=QueryStatus.ANSWERED,
-        route="chat",
-        answer="Soy un asistente de operaciones.",
-    )
-    assert response.citations == []
+def test_non_grounded_agent_routes_do_not_require_citations() -> None:
+    for route in ("chat", "capabilities", "catalog", "out_of_scope", "uncertain"):
+        response = QueryResponse(
+            request_id="1",
+            status=QueryStatus.ANSWERED,
+            route=route,
+            answer="Deterministic application response.",
+        )
+        assert response.citations == []
 
 
 def test_clarification_requires_question() -> None:
