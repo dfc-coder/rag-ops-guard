@@ -53,7 +53,7 @@ class LlamaCppRerankerAdapter:
 
         if any(score is None for score in scores):
             raise ValueError("reranker response did not score every document")
-        return [float(score) for score in scores]
+        return [score for score in scores if score is not None]
 
 
 def _normalized_score(value: object) -> float:
