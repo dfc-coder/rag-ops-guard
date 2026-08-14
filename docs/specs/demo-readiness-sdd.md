@@ -99,6 +99,10 @@ This specification hardens the bounded conversational agent and local demo path.
 
 `make demo-client` is the only recommended entry point for a client-facing demo. It runs the real behavioral gate first and launches Gradio only on success.
 
+## Validation rule
+
+The hardening change is not declared client-ready from deterministic CI alone. The final acceptance signal is a successful `make demo-ready` execution on the same local runtime that will be used for the client session.
+
 ## Non-goals for this hardening pass
 
 - Postgres/Redis conversation persistence.
