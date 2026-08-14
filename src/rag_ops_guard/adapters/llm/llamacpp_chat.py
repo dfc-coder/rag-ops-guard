@@ -9,6 +9,7 @@ from openai import APITimeoutError, LengthFinishReasonError
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from rag_ops_guard.domain.models import GroundedAnswer, QueryAnalysis
+from rag_ops_guard.retrieval.identifiers import focus_allows_rewrite
 
 
 class _QueryAnalysisOutput(BaseModel):
@@ -148,9 +149,14 @@ class LlamaCppChatAdapter:
         previous_query: str,
         source_titles: list[str],
     ) -> str:
+        current_question = current_question.strip()
+        previous_query = previous_query.strip()
+        if not focus_allows_rewrite(current_question, previous_query, source_titles):
+            return current_question
+
         payload = {
-            "CURRENT_QUESTION": current_question.strip(),
-            "PREVIOUS_GROUNDED_QUERY": previous_query.strip(),
+            "CURRENT_QUESTION": current_question,
+            "PREVIOUS_GROUNDED_QUERY": previous_query,
             "SOURCE_TITLES": source_titles,
         }
         try:
