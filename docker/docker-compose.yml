@@ -97,6 +97,42 @@ services:
     networks:
       - rag-ops-net
 
+  llama-rerank:
+    image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
+    container_name: rag-ops-llama-rerank
+    command:
+      - -m
+      - /models/bge-reranker-v2-m3-Q4_K_M.gguf
+      - --alias
+      - bge-reranker-v2-m3
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8082"
+      - --threads
+      - "8"
+      - --threads-batch
+      - "8"
+      - --ctx-size
+      - "2048"
+      - --parallel
+      - "1"
+      - --batch-size
+      - "2048"
+      - --ubatch-size
+      - "2048"
+      - --embedding
+      - --reranking
+      - --pooling
+      - rank
+      - --metrics
+    ports:
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - "${MODEL_DIR:-../.models}:/models:ro"
+    networks:
+      - rag-ops-net
+
 networks:
   rag-ops-net:
     name: rag-ops-net
