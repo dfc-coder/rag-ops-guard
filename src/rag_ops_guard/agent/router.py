@@ -26,6 +26,7 @@ DEFAULT_ROUTE_EXAMPLES: dict[Route, list[str]] = {
     ],
     "capabilities": [
         "¿Qué puedes hacer?",
+        "¿Qué haces?",
         "¿Cómo puedes ayudarme?",
         "¿Quién eres y para qué sirves?",
         "What can you do?",
@@ -71,7 +72,7 @@ class RouteDecision:
 
 
 class SemanticRouter:
-    """Embedding router with per-example scoring, confidence and abstention."""
+    """Embedding router with robust per-route prototype scoring and abstention."""
 
     def __init__(
         self,
@@ -80,10 +81,14 @@ class SemanticRouter:
         route_examples: dict[Route, list[str]] | None = None,
         min_score: float = 0.35,
         min_margin: float = 0.015,
+        prototype_k: int = 2,
     ) -> None:
+        if prototype_k < 1:
+            raise ValueError("prototype_k must be at least 1")
         self._embeddings = embeddings
         self._min_score = min_score
         self._min_margin = min_margin
+        self._prototype_k = prototype_k
         examples = route_examples or DEFAULT_ROUTE_EXAMPLES
         self._vectors: dict[Route, list[list[float]]] = {}
         for route, utterances in examples.items():
@@ -97,7 +102,7 @@ class SemanticRouter:
     def route(self, text: str) -> RouteDecision:
         vector = self._embeddings.embed_query(text.strip())
         scores = {
-            route: max(_cosine(vector, example) for example in examples)
+            route: _prototype_score(vector, examples, self._prototype_k)
             for route, examples in self._vectors.items()
         }
         ordered = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
@@ -116,6 +121,12 @@ class SemanticRouter:
             margin=margin,
             scores={key: round(value, 6) for key, value in scores.items()},
         )
+
+
+def _prototype_score(query: list[float], examples: list[list[float]], k: int) -> float:
+    similarities = sorted((_cosine(query, example) for example in examples), reverse=True)
+    selected = similarities[: min(k, len(similarities))]
+    return sum(selected) / len(selected)
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
