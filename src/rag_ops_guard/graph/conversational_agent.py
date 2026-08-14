@@ -50,6 +50,7 @@ class AgentState(MessagesState, total=False):
     route_margin: float
     route_scores: dict[str, float]
     evidence: list[Evidence]
+    evidence_supported: bool
     answer: str | None
     citations: list[Citation]
     status: QueryStatus
@@ -70,7 +71,6 @@ class ConversationalAgent:
         router: SemanticRouter,
         knowledge: KnowledgeSearch,
         catalog: KnowledgeCatalog,
-        relevance_threshold: float = 0.4,
         checkpointer: InMemorySaver | None = None,
         safety: SafetyGuard | None = None,
     ) -> None:
@@ -78,7 +78,6 @@ class ConversationalAgent:
         self._router = router
         self._knowledge = knowledge
         self._catalog = catalog
-        self._relevance_threshold = relevance_threshold
         self._checkpointer = checkpointer or InMemorySaver()
         self._safety = safety or SafetyGuard()
         self._graph = self._build_graph(self._checkpointer)
@@ -135,6 +134,7 @@ class ConversationalAgent:
             "context": request.context,
             "citations": [],
             "evidence": [],
+            "evidence_supported": False,
             "answer": None,
             "timings_ms": {},
             "retrieval_query": "",
@@ -230,7 +230,7 @@ class ConversationalAgent:
             if stored_focus and _focus_compatible(stored_focus, state["context"])
             else None
         )
-        if result.relevance < self._relevance_threshold and focus:
+        if not result.supported and focus:
             rewrite_started = perf_counter()
             try:
                 candidate = self._chat.rewrite_query(
@@ -253,20 +253,15 @@ class ConversationalAgent:
                     state,
                     query_mode="knowledge",
                 )
-                if rewritten_result.relevance > result.relevance:
+                if rewritten_result.supported or rewritten_result.relevance > result.relevance:
                     result = rewritten_result
                     retrieval_query = rewritten_query
 
         resolved_route = original_route
         if original_route == "uncertain":
-            if _uncertain_prefers_knowledge(
-                state.get("route_scores", {}),
-                result,
-                self._relevance_threshold,
-            ):
-                resolved_route = "knowledge"
-            else:
-                resolved_route = _best_control_route(state.get("route_scores", {}))
+            resolved_route = (
+                "knowledge" if result.supported else _best_control_route(state.get("route_scores", {}))
+            )
 
         search_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
@@ -280,6 +275,8 @@ class ConversationalAgent:
                 "rewritten_query": rewritten_query or "",
                 "query_mode": initial_mode,
                 "relevance": result.relevance,
+                "supported": result.supported,
+                "reranker_scores": result.reranker_scores,
                 "lexical_relevance": result.lexical_relevance,
                 "dense_titles": [item.chunk.title for item in result.dense[:5]],
                 "lexical_titles": [item.chunk.title for item in result.lexical[:5]],
@@ -294,6 +291,7 @@ class ConversationalAgent:
         return {
             "route": resolved_route,
             "evidence": result.admitted,
+            "evidence_supported": result.supported,
             "retrieval_query": retrieval_query,
             "rewritten_query": rewritten_query,
             "relevance_score": result.relevance,
@@ -314,7 +312,14 @@ class ConversationalAgent:
                 "evidence_conflict",
                 extra={"request_id": state["request_id"], "detail": str(exc)},
             )
-            return KnowledgeSearchResult(dense=[], lexical=[], fused=[], admitted=[], relevance=0.0)
+            return KnowledgeSearchResult(
+                dense=[],
+                lexical=[],
+                fused=[],
+                admitted=[],
+                relevance=0.0,
+                supported=False,
+            )
 
     def _generate_chat(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
@@ -375,8 +380,7 @@ class ConversationalAgent:
     def _generate_grounded_answer(self, state: AgentState) -> dict[str, Any]:
         evidence = state.get("evidence", [])
         question = _latest_user_message(state["messages"])
-        relevance = state.get("relevance_score", 0.0)
-        if not evidence or relevance < self._relevance_threshold:
+        if not evidence or not state.get("evidence_supported", False):
             answer = insufficient_evidence_response(question)
             return {
                 "messages": [AIMessage(content=answer)],
@@ -461,22 +465,6 @@ def _best_control_route(scores: dict[str, float]) -> Route:
     if best_score == float("-inf"):
         return "out_of_scope"
     return best_route
-
-
-def _uncertain_prefers_knowledge(
-    scores: dict[str, float],
-    result: KnowledgeSearchResult,
-    relevance_threshold: float,
-) -> bool:
-    if not result.admitted or result.relevance < relevance_threshold:
-        return False
-
-    best_control = _best_control_route(scores)
-    knowledge_score = scores.get("knowledge", float("-inf"))
-    control_score = scores.get(best_control, float("-inf"))
-    semantic_prefers_knowledge = knowledge_score >= control_score
-    admitted_has_lexical_anchor = result.lexical_relevance > 0.0
-    return semantic_prefers_knowledge or admitted_has_lexical_anchor
 
 
 def _admitted_source_ids(evidence: list[Evidence]) -> list[str]:
