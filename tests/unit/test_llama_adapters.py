@@ -83,6 +83,21 @@ class FakeHttpResponse:
         return {"tokens": [1, 2, 3]}
 
 
+def _chat_adapter(monkeypatch: pytest.MonkeyPatch) -> LlamaCppChatAdapter:
+    FakeChat.instances.clear()
+    monkeypatch.setattr(llamacpp_chat, "ChatOpenAI", FakeChat)
+    return LlamaCppChatAdapter(
+        "http://localhost:8080/v1",
+        "qwen",
+        0.7,
+        analysis_max_tokens=128,
+        answer_max_tokens=256,
+        timeout_seconds=60.0,
+        answer_system_prompt="grounding rules",
+        chat_system_prompt="chat rules",
+    )
+
+
 def test_embedding_adapter_normalizes_and_validates_dimension(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -93,18 +108,7 @@ def test_embedding_adapter_normalizes_and_validates_dimension(
 
 
 def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -> None:
-    FakeChat.instances.clear()
-    monkeypatch.setattr(llamacpp_chat, "ChatOpenAI", FakeChat)
-    adapter = LlamaCppChatAdapter(
-        "http://localhost:8080/v1",
-        "qwen",
-        0.7,
-        analysis_max_tokens=128,
-        answer_max_tokens=256,
-        timeout_seconds=60.0,
-        answer_system_prompt="grounding rules",
-        chat_system_prompt="chat rules",
-    )
+    adapter = _chat_adapter(monkeypatch)
     analysis = adapter.analyze_query("analyze")
     rewrite = adapter.rewrite_query(
         current_question="¿Y después del tercero?",
@@ -145,6 +149,22 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     assert isinstance(grounded_request, list)
     assert isinstance(grounded_request[0], SystemMessage)
     assert isinstance(grounded_request[1], HumanMessage)
+
+
+def test_rewrite_does_not_cross_explicit_named_topic_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _chat_adapter(monkeypatch)
+    rewrite_structured = FakeChat.instances[0].structured[1]
+
+    rewritten = adapter.rewrite_query(
+        current_question="Cual es el timeout exacto de SAP en produccion?",
+        previous_query="Cuantos reintentos permite Calypso?",
+        source_titles=["Payment Retry Policy"],
+    )
+
+    assert rewritten == "Cual es el timeout exacto de SAP en produccion?"
+    assert rewrite_structured.last_request is None
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
