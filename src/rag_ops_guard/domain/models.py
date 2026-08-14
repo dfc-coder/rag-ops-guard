@@ -157,7 +157,12 @@ class QueryAnalysis(BaseModel):
 class GroundedAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["answered", "insufficient_evidence"]
+    status: Literal[
+        "answered",
+        "insufficient_evidence",
+        "clarification_required",
+        "safety_blocked",
+    ]
     answer: str = Field(min_length=1)
     citation_ids: list[str] = Field(default_factory=list)
 
@@ -172,7 +177,7 @@ class GroundedAnswer(BaseModel):
             self.status = "insufficient_evidence"
             self.citation_ids = []
 
-        if self.status == "insufficient_evidence":
+        if self.status != "answered":
             self.citation_ids = []
 
         return self
