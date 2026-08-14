@@ -77,4 +77,4 @@ The caller supplies a `thread_id`. Messages in the same thread are retained by a
 
 Initial implementation is wired on `develop` with thread memory, semantic routing, hybrid Dense+BM25 retrieval with RRF, the existing deterministic evidence resolver, one generation per turn, Gradio session threading, and LangGraph/LangSmith trace boundaries.
 
-The integration validation keeps resolver policy deterministic and applies fused retrieval relevance outside that policy layer.
+The integration validation keeps resolver policy deterministic and applies fused retrieval relevance outside that policy layer. Unit, property, security, Floci integration and CDK validation pass; the final quality pass validates formatting, lint and static typing on the integrated state.
