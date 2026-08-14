@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import os
 from uuid import uuid4
+
+os.environ.setdefault("EMBEDDING_BASE_URL", "http://127.0.0.1:8083/v3")
+os.environ.setdefault("EMBEDDING_MODEL", "OpenVINO/Qwen3-Embedding-0.6B-int8-ov")
+os.environ.setdefault("RERANKER_BASE_URL", "http://127.0.0.1:8083/v3")
+os.environ.setdefault("RERANKER_MODEL", "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov")
+os.environ.setdefault("S3_VECTOR_INDEX", "ops-knowledge-openvino-v1")
+os.environ.setdefault("RETRIEVAL_TOP_K", "8")
+os.environ.setdefault("RETRIEVAL_CONTEXT_K", "3")
 
 from rag_ops_guard.agent.react_agent import ReactAgent
 from rag_ops_guard.domain.models import QueryContext
