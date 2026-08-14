@@ -17,15 +17,6 @@ class FakeResponse:
         return self._payload
 
 
-def _completion(yes: float | None, no: float | None) -> dict[str, object]:
-    top: list[dict[str, object]] = []
-    if yes is not None:
-        top.append({"token": "yes", "logprob": yes})
-    if no is not None:
-        top.append({"token": "no", "logprob": no})
-    return {"probs": [{"top_logprobs": top}]}
-
-
 def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -33,10 +24,12 @@ def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> 
         captured["url"] = url
         captured.update(kwargs)
         return FakeResponse(
-            [
-                _completion(yes=-0.05, no=-4.0),
-                _completion(yes=-5.0, no=-0.02),
-            ]
+            {
+                "results": [
+                    {"index": 1, "relevance_score": 0.03},
+                    {"index": 0, "relevance_score": 0.97},
+                ]
+            }
         )
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
@@ -45,54 +38,54 @@ def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> 
     grades = adapter.grade("Calypso retries", ["Calypso policy", "Kafka policy"])
 
     assert [grade.relevant for grade in grades] == [True, False]
-    assert grades[0].score > 0.9
-    assert grades[1].score < 0.1
-    assert captured["url"] == "http://localhost:8082/completion"
+    assert [grade.score for grade in grades] == [0.97, 0.03]
+    assert captured["url"] == "http://localhost:8082/v1/rerank"
     body = captured["json"]
     assert isinstance(body, dict)
-    assert body["n_predict"] == 1
-    assert body["temperature"] == -1.0
-    prompts = body["prompt"]
-    assert isinstance(prompts, list)
-    assert "<Query>: Calypso retries" in prompts[0]
-    assert "<Document>: Calypso policy" in prompts[0]
-    assert "different target is not relevant" in prompts[0]
+    assert body["model"] == "qwen3-reranker-0.6b"
+    assert body["documents"] == ["Calypso policy", "Kafka policy"]
+    assert body["top_n"] == 2
+    assert "Query: Calypso retries" in str(body["query"])
+    assert "different target is not relevant" in str(body["query"])
 
 
-def test_qwen_reranker_uses_reference_missing_class_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_qwen_reranker_uses_native_yes_no_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs
-        return FakeResponse(_completion(yes=-0.01, no=None))
+        return FakeResponse(
+            {
+                "results": [
+                    {"index": 0, "relevance_score": 0.5},
+                    {"index": 1, "relevance_score": 0.4999},
+                ]
+            }
+        )
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
     adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
 
-    grade = adapter.grade("query", ["document"])[0]
+    grades = adapter.grade("query", ["yes-doc", "no-doc"])
 
-    assert grade.relevant is True
-    assert grade.score > 0.99
+    assert grades[0].relevant is True
+    assert grades[1].relevant is False
 
 
-def test_qwen_reranker_rejects_response_without_yes_no_logits(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_qwen_reranker_rejects_invalid_score(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs
-        return FakeResponse({"probs": [{"top_logprobs": [{"token": "maybe", "logprob": 0.0}]}]})
+        return FakeResponse({"results": [{"index": 0, "relevance_score": 1.2}]})
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
     adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
 
-    with pytest.raises(ValueError, match="yes/no logit"):
+    with pytest.raises(ValueError, match="between 0 and 1"):
         adapter.grade("query", ["document"])
 
 
-def test_qwen_reranker_rejects_incomplete_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qwen_reranker_rejects_incomplete_response(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_post(url: str, **kwargs: object) -> FakeResponse:
         del url, kwargs
-        return FakeResponse(_completion(yes=-0.1, no=-3.0))
+        return FakeResponse({"results": [{"index": 0, "relevance_score": 0.8}]})
 
     monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
     adapter = LlamaCppRerankerAdapter("http://localhost:8082", "qwen3-reranker-0.6b")
