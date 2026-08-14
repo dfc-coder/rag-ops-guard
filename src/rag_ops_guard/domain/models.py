@@ -4,7 +4,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DocumentStatus(StrEnum):
@@ -87,9 +87,19 @@ class QueryContext(BaseModel):
 class QueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: str = Field(min_length=3, max_length=2000)
+    question: str = Field(min_length=1, max_length=2000)
     context: QueryContext = Field(default_factory=QueryContext)
     thread_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def normalize_question(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("question must contain non-whitespace text")
+        return normalized
 
 
 class QueryResponse(BaseModel):
@@ -105,6 +115,7 @@ class QueryResponse(BaseModel):
             "knowledge",
             "out_of_scope",
             "uncertain",
+            "safety",
         ]
         | None
     ) = None
@@ -122,7 +133,14 @@ class QueryResponse(BaseModel):
     def validate_status_contract(self) -> QueryResponse:
         if self.status == QueryStatus.ANSWERED and not self.answer:
             raise ValueError("answered responses require an answer")
-        ungrounded_routes = {"chat", "capabilities", "catalog", "out_of_scope", "uncertain"}
+        ungrounded_routes = {
+            "chat",
+            "capabilities",
+            "catalog",
+            "out_of_scope",
+            "uncertain",
+            "safety",
+        }
         if (
             self.status == QueryStatus.ANSWERED
             and self.route not in ungrounded_routes
