@@ -36,6 +36,12 @@ class EmbeddingProvider(Protocol):
     def embed_query(self, text: str) -> list[float]: ...
 
 
+class Reranker(Protocol):
+    """Score query-document pairs with a dedicated cross-encoder reranker."""
+
+    def score(self, query: str, documents: list[str]) -> list[float]: ...
+
+
 class VectorStore(Protocol):
     def put(self, chunks: list[Chunk], embeddings: list[list[float]]) -> list[str]: ...
 
