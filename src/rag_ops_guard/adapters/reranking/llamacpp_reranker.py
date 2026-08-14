@@ -10,6 +10,7 @@ _DEFAULT_INSTRUCTION = (
     "protocol, environment, version, and requested operation. A document about a different "
     "target is not relevant merely because it describes a similar operation."
 )
+_DEFAULT_BATCH_SIZE = 8
 
 
 class LlamaCppRerankerAdapter:
@@ -21,16 +22,17 @@ class LlamaCppRerankerAdapter:
         model: str,
         timeout_seconds: float = 30.0,
         instruction: str = _DEFAULT_INSTRUCTION,
+        batch_size: int = _DEFAULT_BATCH_SIZE,
     ) -> None:
+        if batch_size < 1:
+            raise ValueError("reranker batch_size must be at least 1")
         self._url = f"{base_url.rstrip('/')}/v1/rerank"
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._instruction = instruction
+        self._batch_size = batch_size
 
-    def grade(self, query: str, documents: list[str]) -> list[RerankGrade]:
-        if not documents:
-            return []
-
+    def _grade_batch(self, query: str, documents: list[str]) -> list[float]:
         response = httpx.post(
             self._url,
             json={
@@ -64,10 +66,18 @@ class LlamaCppRerankerAdapter:
 
         if any(score is None for score in scores):
             raise ValueError("reranker response did not grade every document")
+        return [score for score in scores if score is not None]
+
+    def grade(self, query: str, documents: list[str]) -> list[RerankGrade]:
+        if not documents:
+            return []
+
+        scores: list[float] = []
+        for start in range(0, len(documents), self._batch_size):
+            batch = documents[start : start + self._batch_size]
+            scores.extend(self._grade_batch(query, batch))
 
         # Qwen3-Reranker GGUF exposes classifier.output_labels=[yes,no]. The returned
         # relevance_score is the model-native yes probability; 0.5 is therefore the
         # yes-vs-no decision boundary, not a corpus-tuned admission threshold.
-        return [
-            RerankGrade(relevant=score >= 0.5, score=score) for score in scores if score is not None
-        ]
+        return [RerankGrade(relevant=score >= 0.5, score=score) for score in scores]
