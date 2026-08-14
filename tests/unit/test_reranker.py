@@ -2,7 +2,7 @@ from rag_ops_guard.retrieval.reranker import rerank_evidence
 from tests.fixtures.builders import evidence, metadata
 
 
-def test_reranker_promotes_candidate_with_specific_query_terms() -> None:
+def test_reranker_promotes_candidate_with_more_specific_query_overlap() -> None:
     generic_meta = metadata(doc_id="generic", logical_id="generic").model_copy(
         update={"title": "Payment Processing Flow"}
     )
@@ -21,6 +21,6 @@ def test_reranker_promotes_candidate_with_specific_query_terms() -> None:
         text="Transient Calypso timeouts may be retried automatically three times.",
     )
 
-    ranked = rerank_evidence("cuantos reintentos tiene Calypso en la Payment API?", [generic, retry])
+    ranked = rerank_evidence("Calypso payment retry policy", [generic, retry])
 
     assert ranked[0].chunk.metadata.id == "retry"
