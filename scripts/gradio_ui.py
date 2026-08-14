@@ -187,7 +187,9 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
             f"<details><summary>Fuentes ({len(response.citations)})</summary>\n\n{sources}\n\n</details>"
         )
 
-    parts.append(f"<details><summary>Detalles</summary>\n\n<small>{timing_line}</small>\n\n</details>")
+    parts.append(
+        f"<details><summary>Detalles</summary>\n\n<small>{timing_line}</small>\n\n</details>"
+    )
     return "\n\n".join(part for part in parts if part)
 
 
