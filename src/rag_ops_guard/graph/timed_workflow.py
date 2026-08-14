@@ -16,10 +16,11 @@ from rag_ops_guard.graph.workflow import RagWorkflow
 from rag_ops_guard.observability.runtime import QUERY_LOGGER
 from rag_ops_guard.retrieval.citations import validate_citations
 from rag_ops_guard.retrieval.query_instruction import embedding_query
+from rag_ops_guard.retrieval.reranker import rerank_evidence
 
 
 class TimedRagWorkflow(RagWorkflow):
-    """Production hot path: retrieve, resolve, then make exactly one LLM call."""
+    """Production hot path: retrieve, resolve, rerank, then make exactly one LLM call."""
 
     @staticmethod
     def _timings(state: RagState, **updates: float) -> dict[str, float]:
@@ -106,11 +107,12 @@ class TimedRagWorkflow(RagWorkflow):
     def _resolve_evidence(self, state: RagState) -> RagState:
         started = perf_counter()
         try:
-            resolved = self._resolver.resolve(
+            eligible = self._resolver.resolve(
                 state.get("retrieved_evidence", []),
                 state["context"],
-                limit=self._context_k,
+                limit=self._top_k,
             )
+            resolved = rerank_evidence(state["question"], eligible)[: self._context_k]
         except EvidenceConflictError as exc:
             QUERY_LOGGER.warning(
                 "evidence_conflict",
@@ -119,6 +121,15 @@ class TimedRagWorkflow(RagWorkflow):
             resolved = []
 
         resolver_ms = round((perf_counter() - started) * 1000, 2)
+        QUERY_LOGGER.info(
+            "evidence_resolved",
+            extra={
+                "request_id": state["request_id"],
+                "resolved_documents": len(resolved),
+                "resolved_titles": [item.chunk.title for item in resolved],
+                "resolved_distances": [item.distance for item in resolved],
+            },
+        )
         return {
             "resolved_evidence": resolved,
             "timings_ms": self._timings(state, resolver=resolver_ms),
