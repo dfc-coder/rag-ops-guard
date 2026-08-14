@@ -144,10 +144,11 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve broadly, then grade candidates against the actual user question.
+        """Retrieve broadly, then grade candidates against the resolved user intent.
 
-        ``ranking_query`` lets contextual query expansion improve recall without allowing
-        conversational history to replace the semantic question used by the relevance model.
+        For contextual follow-ups, ``query`` is the standalone rewrite used for recall and
+        ``ranking_query`` is the literal current turn. The reranker receives both so it keeps
+        the resolved topic without losing what the user actually asked in the follow-up.
         """
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
@@ -160,7 +161,13 @@ class KnowledgeSearch:
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
         candidates = resolved[: self._candidate_k]
 
-        relevance_query = (ranking_query or query).strip()
+        standalone_query = query.strip()
+        literal_query = (ranking_query or "").strip()
+        relevance_query = (
+            f"{standalone_query}\n{literal_query}"
+            if literal_query and literal_query != standalone_query
+            else standalone_query
+        )
         if not _candidates_cover_explicit_anchors(relevance_query, candidates):
             return KnowledgeSearchResult(
                 dense=dense,
