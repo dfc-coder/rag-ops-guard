@@ -10,6 +10,9 @@ from typing import Any
 
 import httpx
 
+from rag_ops_guard.app import query_workflow
+from rag_ops_guard.domain.models import QueryRequest
+
 
 def api_url() -> str:
     configured = os.environ.get("RAG_API_URL")
@@ -27,7 +30,14 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
-def run_one(url: str, question: str) -> tuple[float, dict[str, Any]]:
+def run_one_direct(question: str) -> tuple[float, dict[str, Any]]:
+    started = time.perf_counter()
+    response = query_workflow().invoke(QueryRequest(question=question))
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    return elapsed_ms, dict(response.model_dump(mode="json"))
+
+
+def run_one_api(url: str, question: str) -> tuple[float, dict[str, Any]]:
     started = time.perf_counter()
     response = httpx.post(
         f"{url}/v1/query",
@@ -35,7 +45,10 @@ def run_one(url: str, question: str) -> tuple[float, dict[str, Any]]:
         timeout=180,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000
-    response.raise_for_status()
+    if response.is_error:
+        raise RuntimeError(
+            f"API benchmark failed with HTTP {response.status_code}: {response.text}"
+        )
     return elapsed_ms, dict(response.json())
 
 
@@ -43,30 +56,35 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--requests", type=int, default=5)
     parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--transport", choices=["direct", "api"], default="direct")
     parser.add_argument("--question", default="¿Qué puedes contarme de Calypso?")
     args = parser.parse_args()
 
     if args.requests < 1 or args.concurrency < 1:
         raise SystemExit("requests and concurrency must be >= 1")
 
-    url = api_url()
+    url = api_url() if args.transport == "api" else ""
     wall_started = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-        results = list(
-            pool.map(
-                lambda _: run_one(url, args.question),
-                range(args.requests),
-            )
-        )
-    wall_seconds = time.perf_counter() - wall_started
 
+    def run(_: int) -> tuple[float, dict[str, Any]]:
+        if args.transport == "api":
+            return run_one_api(url, args.question)
+        return run_one_direct(args.question)
+
+    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+        results = list(pool.map(run, range(args.requests)))
+
+    wall_seconds = time.perf_counter() - wall_started
     latencies = [elapsed for elapsed, _ in results]
     statuses = Counter(str(payload.get("status")) for _, payload in results)
     generation = [
         float(payload.get("timings_ms", {}).get("generation", 0.0)) for _, payload in results
     ]
 
-    print(f"requests={args.requests} concurrency={args.concurrency}")
+    print(
+        f"transport={args.transport} requests={args.requests} "
+        f"concurrency={args.concurrency}"
+    )
     print(f"wall={wall_seconds:.2f}s throughput={args.requests / wall_seconds:.2f} req/s")
     print(
         "latency_ms "
