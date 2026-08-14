@@ -17,10 +17,13 @@ DEFAULT_CHAT_EXAMPLES = [
 
 DEFAULT_KNOWLEDGE_EXAMPLES = [
     "¿Qué dice la documentación sobre este sistema?",
+    "Contame sobre este sistema o servicio.",
+    "¿Qué sabemos de esta plataforma?",
     "¿Qué política aplica en este caso?",
     "¿Qué pasó en este incidente?",
     "¿Cuál es el SLA documentado?",
     "¿Qué runbook debo consultar?",
+    "Tell me about this system or service.",
     "What does the operational documentation say?",
     "What happened in this incident?",
 ]
