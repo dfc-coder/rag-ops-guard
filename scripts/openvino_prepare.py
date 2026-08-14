@@ -66,6 +66,12 @@ def configured_models() -> set[str]:
         name = config.get("name")
         if isinstance(name, str):
             configured.add(name)
+    for item in payload.get("mediapipe_config_list", []):
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if isinstance(name, str):
+            configured.add(name)
     return configured
 
 
