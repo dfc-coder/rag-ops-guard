@@ -39,12 +39,13 @@ MODELS = (
         sha256="06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
     ),
     Model(
-        filename="Qwen3-Reranker-0.6B.Q4_K_M.gguf",
+        filename="Qwen3-Reranker-0.6B-Q4_K_M.gguf",
         url=(
-            "https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF/resolve/main/"
-            "Qwen3-Reranker-0.6B.Q4_K_M.gguf?download=true"
+            "https://huggingface.co/Voodisss/"
+            "Qwen3-Reranker-0.6B-GGUF-llama_cpp/resolve/main/"
+            "Qwen3-Reranker-0.6B-Q4_K_M.gguf?download=true"
         ),
-        sha256="783d816e7541ba78a5105f949a010217fecf31795c267d69ffa5a96403dff4a7",
+        sha256="c04f5f5657c52e04538c455e8c62817db3d3b795b39e9f547f8581510445f075",
     ),
 )
 
