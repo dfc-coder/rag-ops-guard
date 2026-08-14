@@ -97,14 +97,14 @@ class FakeChat:
         prompt: str,
         history: list[BaseMessage] | None = None,
     ) -> GroundedAnswer:
+        del prompt, history
+        raise AssertionError("conversational agent must not use legacy model-owned status/citations")
+
+    def generate_grounded_text(self, prompt: str) -> str:
         del prompt
         self.answer_calls += 1
-        self.answer_histories.append(history)
-        return GroundedAnswer(
-            status="answered",
-            answer="Después del tercer reintento se escala a Treasury Integrations.",
-            citation_ids=["E1"],
-        )
+        self.answer_histories.append(None)
+        return "Después del tercer reintento se escala a Treasury Integrations."
 
 
 def _agent(
@@ -186,6 +186,16 @@ def test_uncertain_route_probes_with_raw_query_and_resolves_from_real_evidence()
     assert response.citations
     assert knowledge.queries == [question]
     assert knowledge.query_modes == ["probe"]
+    assert chat.answer_calls == 1
+
+
+def test_admitted_evidence_status_cannot_be_vetoed_by_generation_model() -> None:
+    agent, _, chat, _ = _agent("knowledge")
+
+    response = agent.invoke(QueryRequest(question="¿Qué pasa con SendGrid?"))
+
+    assert response.status == QueryStatus.ANSWERED
+    assert response.citations
     assert chat.answer_calls == 1
 
 
