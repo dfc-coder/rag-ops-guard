@@ -72,3 +72,7 @@ The caller supplies a `thread_id`. Messages in the same thread are retained by a
 - OpenSearch/Elasticsearch.
 - LLM query rewriting or LLM relevance grading.
 - Model-size or inference-backend changes.
+
+## Implementation status
+
+Initial implementation is wired on `develop` with thread memory, semantic routing, hybrid Dense+BM25 retrieval with RRF, the existing deterministic evidence resolver, one generation per turn, Gradio session threading, and LangGraph/LangSmith trace boundaries.
