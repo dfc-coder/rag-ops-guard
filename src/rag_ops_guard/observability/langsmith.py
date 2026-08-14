@@ -7,7 +7,9 @@ from rag_ops_guard.config import Settings
 
 def configure_langsmith(settings: Settings) -> None:
     """Propagate pydantic settings to LangChain/LangGraph tracing environment."""
-    os.environ["LANGSMITH_TRACING"] = "true" if settings.langsmith_tracing else "false"
+    enabled = settings.langsmith_tracing and bool(settings.langsmith_api_key)
+
+    os.environ["LANGSMITH_TRACING"] = "true" if enabled else "false"
     os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
     os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
 
