@@ -6,6 +6,7 @@ from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbedd
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.config import get_settings
+from rag_ops_guard.graph.prompts import GROUNDING_SYSTEM_PROMPT
 from rag_ops_guard.graph.timed_workflow import TimedRagWorkflow
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
@@ -65,6 +66,7 @@ def chat_model() -> LlamaCppChatAdapter:
         min_p=settings.llm_min_p,
         presence_penalty=settings.llm_presence_penalty,
         repeat_penalty=settings.llm_repeat_penalty,
+        answer_system_prompt=GROUNDING_SYSTEM_PROMPT,
     )
 
 
