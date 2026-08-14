@@ -16,7 +16,7 @@ LLM_PRESENCE_PENALTY ?= 1.5
 LLM_REPEAT_PENALTY ?= 1.0
 export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-data local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -38,6 +38,11 @@ local-up:
 
 local-down:
 	$(COMPOSE) down
+
+# Fast, idempotent local data-plane check. Rebuilds demo vectors only when
+# Floci lost the document/vector buckets or the vector index is empty.
+local-data:
+	uv run python scripts/local/ensure_data.py
 
 local-provision: package-lambda
 	uv run python scripts/local/provision.py
@@ -62,16 +67,18 @@ demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
 
-# Normal UI start: reuse the already provisioned local knowledge base.
-ui: models local-up
+# Normal UI start. Ensures the lightweight local data plane and only rebuilds
+# embeddings if Floci actually lost them.
+ui: models local-up local-data
 	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
 
-# First-time/reset UI start: provision and ingest the demo corpus once.
-ui-init: models local-up demo-prepare
+# Kept as an explicit first-run alias; local-data is already self-healing.
+ui-init: models local-up local-data
 	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
 
-# Benchmarks the same in-process workflow used by Gradio.
-benchmark:
+# Benchmarks the same in-process workflow used by Gradio. It is safe to run
+# standalone: containers and the local vector data are ensured first.
+benchmark: models local-up local-data
 	uv run python scripts/benchmark_runtime.py --transport direct --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 # Optional end-to-end benchmark through the locally provisioned API Gateway/Lambda route.
