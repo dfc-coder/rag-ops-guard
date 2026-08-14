@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from rag_ops_guard.adapters.aws.s3_store import S3ObjectStore
 from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
@@ -14,6 +15,7 @@ from rag_ops_guard.graph.prompts import CONVERSATIONAL_SYSTEM_PROMPT, GROUNDING_
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.observability.langsmith import configure_langsmith
+from rag_ops_guard.retrieval.calibration import load_calibrated_threshold
 from rag_ops_guard.retrieval.hybrid import KnowledgeSearch
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
@@ -103,6 +105,10 @@ def ingestion_service() -> IngestionService:
 @lru_cache(maxsize=1)
 def knowledge_search() -> KnowledgeSearch:
     settings = get_settings()
+    calibrated_threshold = load_calibrated_threshold(
+        Path(settings.reranker_calibration_path),
+        reranker_model=settings.reranker_model,
+    )
     return KnowledgeSearch(
         embeddings=embeddings(),
         vectors=vector_store(),
@@ -111,7 +117,7 @@ def knowledge_search() -> KnowledgeSearch:
         reranker=reranker(),
         candidate_k=settings.retrieval_top_k,
         context_k=settings.retrieval_context_k,
-        min_reranker_score=settings.reranker_min_score,
+        min_reranker_score=calibrated_threshold,
     )
 
 
