@@ -7,8 +7,14 @@ BENCH_REQUESTS ?= 5
 BENCH_CONCURRENCY ?= 1
 RETRIEVAL_TOP_K ?= 20
 RETRIEVAL_CONTEXT_K ?= 4
-LLM_ANSWER_MAX_TOKENS ?= 320
-export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K LLM_ANSWER_MAX_TOKENS
+LLM_ANSWER_MAX_TOKENS ?= 512
+LLM_TEMPERATURE ?= 0.7
+LLM_TOP_P ?= 0.8
+LLM_TOP_K ?= 20
+LLM_MIN_P ?= 0.0
+LLM_PRESENCE_PENALTY ?= 1.5
+LLM_REPEAT_PENALTY ?= 1.0
+export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
 
 .PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
