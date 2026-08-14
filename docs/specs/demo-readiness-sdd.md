@@ -26,10 +26,13 @@ This specification hardens the bounded conversational agent and local demo path.
 1. A clear `knowledge` route uses the operational retrieval instruction.
 2. An `uncertain` route probes the corpus with the raw user query, not with an instruction that presupposes an integration-operations intent.
 3. `uncertain` is not a user-facing terminal route.
-4. Strong admitted evidence resolves `uncertain` to `knowledge`.
-5. Weak evidence resolves `uncertain` to the best non-knowledge control route.
-6. Relevance is computed only from evidence that survived deterministic admission/version/context rules.
-7. Rejected dense candidates must not increase the final relevance score.
+4. Route scoring must not be dominated by one accidental nearest prototype; semantic route classes use multiple prototypes.
+5. Direct product-role questions such as `¿Qué haces?` belong to the `capabilities` intent and must not enter RAG.
+6. If `knowledge` is already the strongest semantic hypothesis, admitted evidence above the normal relevance threshold may confirm it.
+7. If a non-knowledge control intent leads semantically, a raw retrieval probe may override it only when admitted evidence also has an informative lexical anchor to the question.
+8. Dense-only nearest-neighbor similarity is not sufficient to convert a control/meta question into `knowledge`.
+9. Relevance and lexical support are computed only from evidence that survived deterministic admission/version/context rules.
+10. Rejected dense candidates must not increase the final relevance or lexical-support signal.
 
 ### C. Trusted conversational memory
 
@@ -79,8 +82,12 @@ This specification hardens the bounded conversational agent and local demo path.
 ### Unit / deterministic
 
 - QueryRequest normalization and short inputs.
+- Multi-prototype semantic routing and collision resistance.
+- Direct capabilities intent coverage.
 - Relevance uses only admitted evidence.
 - Raw-query uncertain probe.
+- Dense-only probe cannot override a leading control intent.
+- Admitted lexical anchor may confirm knowledge when the router is uncertain.
 - Focus context compatibility and focus invalidation.
 - Thread deletion.
 - Safety guard on current agent.
