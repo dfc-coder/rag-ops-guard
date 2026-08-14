@@ -7,6 +7,7 @@ from collections import Counter
 from rag_ops_guard.domain.models import Evidence
 
 _TOKEN_RE = re.compile(r"\w{2,}", re.UNICODE)
+_LEXICAL_WEIGHT = 1.5
 
 
 def rerank_evidence(question: str, evidence: list[Evidence]) -> list[Evidence]:
@@ -52,7 +53,7 @@ def rerank_evidence(question: str, evidence: list[Evidence]) -> list[Evidence]:
         semantic = 1.0 / (60 + semantic_rank[index])
         lexical = 0.0
         if lexical_scores[index] > 0:
-            lexical = 1.0 / (60 + lexical_rank[index])
+            lexical = _LEXICAL_WEIGHT / (60 + lexical_rank[index])
         return semantic + lexical
 
     ranked = sorted(range(total), key=fused_score, reverse=True)
