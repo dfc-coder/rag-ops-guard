@@ -37,6 +37,12 @@ class _GroundedAnswerOutput(BaseModel):
     citation_ids: list[str] = Field(default_factory=list)
 
 
+class _GroundedDraftOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(min_length=1)
+
+
 _REWRITE_SYSTEM_PROMPT = """
 Rewrite a conversational follow-up into one standalone retrieval query.
 Use only CURRENT_QUESTION, PREVIOUS_GROUNDED_QUERY and SOURCE_TITLES.
@@ -105,8 +111,15 @@ class LlamaCppChatAdapter:
             _QueryRewriteOutput,
             method="json_schema",
         )
+        # Legacy workflow output retains status/citation decisions for compatibility.
         self._answer = answer_model.with_structured_output(
             _GroundedAnswerOutput,
+            method="json_schema",
+        )
+        # Conversational-agent output is intentionally answer-only. Retrieval/admission code owns
+        # evidence sufficiency and the application owns source attachment.
+        self._grounded_draft = answer_model.with_structured_output(
+            _GroundedDraftOutput,
             method="json_schema",
         )
 
@@ -159,3 +172,15 @@ class LlamaCppChatAdapter:
         if isinstance(result, BaseModel):
             return GroundedAnswer.model_validate(result.model_dump())
         return GroundedAnswer.model_validate(result)
+
+    def generate_grounded_text(self, prompt: str) -> str:
+        request: list[BaseMessage] = []
+        if self._answer_system_prompt:
+            request.append(SystemMessage(content=self._answer_system_prompt))
+        request.append(HumanMessage(content=prompt))
+        result = self._grounded_draft.invoke(request)
+        if isinstance(result, BaseModel):
+            parsed = _GroundedDraftOutput.model_validate(result.model_dump())
+        else:
+            parsed = _GroundedDraftOutput.model_validate(result)
+        return parsed.answer.strip()
