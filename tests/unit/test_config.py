@@ -6,8 +6,8 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.app_env == "local"
     assert settings.aws_endpoint_url == "http://localhost:4566"
     assert settings.vector_dimension == 1024
-    assert settings.retrieval_top_k == 8
-    assert settings.retrieval_context_k == 3
+    assert settings.retrieval_top_k == 20
+    assert settings.retrieval_context_k == 4
     assert settings.llm_model == "qwen35-0.8b-rag"
     assert settings.llm_analysis_max_tokens == 128
     assert settings.llm_answer_max_tokens == 256
