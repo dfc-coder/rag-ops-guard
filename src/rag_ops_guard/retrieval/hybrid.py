@@ -69,7 +69,7 @@ class KnowledgeSearchResult:
 
 
 class KnowledgeSearch:
-    """Dense + BM25 + RRF + resolver + learned cross-encoder reranking."""
+    """Dense + BM25 + RRF + resolver + learned relevance grading."""
 
     def __init__(
         self,
@@ -81,7 +81,6 @@ class KnowledgeSearch:
         reranker: Reranker,
         candidate_k: int = 20,
         context_k: int = 4,
-        min_reranker_score: float = 0.0,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
@@ -90,9 +89,6 @@ class KnowledgeSearch:
         self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
-        # Production supplies this value from a labeled calibration artifact.
-        # Zero is reserved for tests/calibration runs that need raw ranking.
-        self._min_reranker_score = min_reranker_score
         self._bm25: BM25Index | None = None
 
     def search(
@@ -103,10 +99,10 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve with ``query`` and judge relevance against ``ranking_query`` when provided.
+        """Retrieve broadly, then grade candidates against the actual user question.
 
         ``ranking_query`` lets contextual query expansion improve recall without allowing
-        conversational history to change the semantic question used by the relevance model.
+        conversational history to replace the semantic question used by the relevance model.
         """
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
@@ -120,23 +116,21 @@ class KnowledgeSearch:
         candidates = resolved[: self._candidate_k]
 
         relevance_query = (ranking_query or query).strip()
-        scores = self._reranker.score(
+        grades = self._reranker.grade(
             relevance_query,
             [_reranker_document(item) for item in candidates],
         )
-        if len(scores) != len(candidates):
-            raise ValueError("reranker returned a score count that does not match candidates")
+        if len(grades) != len(candidates):
+            raise ValueError("reranker returned a grade count that does not match candidates")
 
         ranked = sorted(
-            zip(candidates, scores, strict=True),
-            key=lambda pair: (-pair[1], fused_rank.get(pair[0].chunk.id, len(fused_rank))),
+            zip(candidates, grades, strict=True),
+            key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
         )
-        admitted_pairs = [pair for pair in ranked if pair[1] >= self._min_reranker_score][
-            : self._context_k
-        ]
-        admitted = [item for item, _score in admitted_pairs]
-        top_score = ranked[0][1] if ranked else 0.0
-        reranker_scores = {item.chunk.id: round(score, 6) for item, score in ranked}
+        admitted_pairs = [pair for pair in ranked if pair[1].relevant][: self._context_k]
+        admitted = [item for item, _grade in admitted_pairs]
+        top_score = ranked[0][1].score if ranked else 0.0
+        reranker_scores = {item.chunk.id: round(grade.score, 6) for item, grade in ranked}
 
         return KnowledgeSearchResult(
             dense=dense,
@@ -189,7 +183,7 @@ def reciprocal_rank_fusion(
 
 
 def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Legacy diagnostic score; production admission is decided by calibrated reranking."""
+    """Legacy diagnostic score; production admission is decided by learned grading."""
     semantic = 0.0
     distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
