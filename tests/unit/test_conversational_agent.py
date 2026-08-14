@@ -98,7 +98,9 @@ class FakeChat:
         history: list[BaseMessage] | None = None,
     ) -> GroundedAnswer:
         del prompt, history
-        raise AssertionError("conversational agent must not use legacy model-owned status/citations")
+        raise AssertionError(
+            "conversational agent must not use legacy model-owned status/citations"
+        )
 
     def generate_grounded_text(self, prompt: str) -> str:
         del prompt
