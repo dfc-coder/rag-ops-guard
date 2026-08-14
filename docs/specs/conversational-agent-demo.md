@@ -119,3 +119,7 @@ Each turn exposes/traces:
 - OpenSearch/Elasticsearch.
 - LLM relevance grading.
 - Model-size or inference-backend changes.
+
+## Validation
+
+The implementation is validated as one integrated `develop` state. Unit, property, Floci integration, security, CDK, formatting, linting and strict typing must all pass before the demo is considered ready for live manual validation.
