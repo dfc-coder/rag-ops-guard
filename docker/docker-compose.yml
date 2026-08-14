@@ -27,9 +27,9 @@ services:
     container_name: rag-ops-llama-gen
     command:
       - -m
-      - /models/Qwen3.5-0.8B-Q4_K_M.gguf
+      - /models/Qwen3.5-2B-Q4_K_M.gguf
       - --alias
-      - qwen35-0.8b-rag
+      - qwen35-2b-rag
       - --host
       - 0.0.0.0
       - --port
@@ -102,9 +102,9 @@ services:
     container_name: rag-ops-llama-rerank
     command:
       - -m
-      - /models/bge-reranker-v2-m3-Q4_K_M.gguf
+      - /models/Qwen3-Reranker-0.6B.Q4_K_M.gguf
       - --alias
-      - bge-reranker-v2-m3
+      - qwen3-reranker-0.6b
       - --host
       - 0.0.0.0
       - --port
@@ -114,17 +114,13 @@ services:
       - --threads-batch
       - "8"
       - --ctx-size
-      - "2048"
+      - "4096"
       - --parallel
       - "1"
       - --batch-size
       - "2048"
       - --ubatch-size
       - "2048"
-      - --embedding
-      - --reranking
-      - --pooling
-      - rank
       - --metrics
     ports:
       - "127.0.0.1:8082:8082"
