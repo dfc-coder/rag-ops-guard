@@ -53,9 +53,39 @@ def wait_for(name: str, url: str, container: str, timeout_seconds: int = 180) ->
     raise SystemExit(f"{name} did not become ready: {last_error}\n{logs}")
 
 
+def verify_reranker() -> None:
+    try:
+        response = httpx.post(
+            "http://127.0.0.1:8082/v1/rerank",
+            json={
+                "model": "bge-reranker-v2-m3",
+                "query": "payment retry policy",
+                "documents": [
+                    "Payment Retry Policy: transient payment failures may be retried.",
+                    "Weather forecast for tomorrow.",
+                ],
+                "top_n": 2,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("results")
+        if not isinstance(results, list) or len(results) != 2:
+            raise ValueError("reranker probe did not return two scored documents")
+        indexes = {item.get("index") for item in results if isinstance(item, dict)}
+        if indexes != {0, 1}:
+            raise ValueError("reranker probe returned invalid document indexes")
+    except (httpx.HTTPError, ValueError) as exc:
+        logs = container_logs("rag-ops-llama-rerank")
+        raise SystemExit(f"llama-rerank capability probe failed: {exc}\n{logs}") from exc
+    print("llama-rerank: functional")
+
+
 def main() -> None:
     for name, (url, container) in SERVICES.items():
         wait_for(name, url, container)
+    verify_reranker()
 
 
 if __name__ == "__main__":
