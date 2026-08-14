@@ -27,8 +27,7 @@ def main() -> None:
         )
         if response.is_error:
             raise RuntimeError(
-                f"ingestion failed for {key}: "
-                f"HTTP {response.status_code}: {response.text[:2000]}"
+                f"ingestion failed for {key}: HTTP {response.status_code}: {response.text[:2000]}"
             )
         payload = response.json()
         print(f"{key}: {payload['status']} ({payload['chunks']} chunks)")
