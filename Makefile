@@ -7,7 +7,7 @@ BENCH_REQUESTS ?= 5
 BENCH_CONCURRENCY ?= 1
 export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui benchmark test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -56,9 +56,13 @@ demo-query:
 ui: models local-up demo-prepare
 	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
 
-# Usage: make benchmark BENCH_REQUESTS=6 BENCH_CONCURRENCY=2
+# Benchmarks the same in-process workflow used by Gradio.
 benchmark:
-	uv run python scripts/benchmark_runtime.py --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
+	uv run python scripts/benchmark_runtime.py --transport direct --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
+
+# Optional end-to-end benchmark through the locally provisioned API Gateway/Lambda route.
+benchmark-api:
+	uv run python scripts/benchmark_runtime.py --transport api --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 lint:
 	uv run ruff format --check .
