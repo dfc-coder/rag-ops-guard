@@ -39,6 +39,11 @@ jobs:
       RERANKER_BASE_URL: http://localhost:28082
       RERANKER_TIMEOUT_SECONDS: '90'
     steps:
+      - name: Remove legacy Floci bind-mount data
+        run: |
+          if [ -e "$GITHUB_WORKSPACE/.local/floci" ]; then
+            podman unshare rm -rf "$GITHUB_WORKSPACE/.local/floci"
+          fi
       - uses: actions/checkout@v7.0.1
       - run: make doctor
       - run: make setup
@@ -84,6 +89,11 @@ jobs:
       RERANKER_BASE_URL: http://localhost:38082
       RERANKER_TIMEOUT_SECONDS: '90'
     steps:
+      - name: Remove legacy Floci bind-mount data
+        run: |
+          if [ -e "$GITHUB_WORKSPACE/.local/floci" ]; then
+            podman unshare rm -rf "$GITHUB_WORKSPACE/.local/floci"
+          fi
       - uses: actions/checkout@v7.0.1
         with:
           clean: true
