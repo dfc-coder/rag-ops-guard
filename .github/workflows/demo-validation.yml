@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: rag-e2e-runner
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   demo:
