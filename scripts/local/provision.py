@@ -107,14 +107,20 @@ def lambda_environment() -> dict[str, str]:
         "S3_VECTOR_BUCKET": VECTOR_BUCKET,
         "S3_VECTOR_INDEX": VECTOR_INDEX,
         "VECTOR_DIMENSION": "1024",
-        "RETRIEVAL_TOP_K": "8",
-        "RETRIEVAL_CONTEXT_K": "5",
+        "RETRIEVAL_TOP_K": "20",
+        "RETRIEVAL_CONTEXT_K": "4",
         "CHUNK_TOKENS": "400",
         "CHUNK_OVERLAP": "60",
         "LLM_BASE_URL": "http://llama-gen:8080/v1",
-        "LLM_MODEL": "qwen3-4b-rag",
-        "LLM_MAX_TOKENS": "256",
+        "LLM_MODEL": "qwen35-0.8b-rag",
+        "LLM_ANSWER_MAX_TOKENS": "512",
+        "LLM_TIMEOUT_SECONDS": "60",
         "LLM_TEMPERATURE": "0.7",
+        "LLM_TOP_P": "0.8",
+        "LLM_TOP_K": "20",
+        "LLM_MIN_P": "0.0",
+        "LLM_PRESENCE_PENALTY": "1.5",
+        "LLM_REPEAT_PENALTY": "1.0",
         "EMBEDDING_BASE_URL": "http://llama-embed:8081/v1",
         "EMBEDDING_MODEL": "qwen3-embedding-0.6b",
         "EMBEDDING_DIMENSION": "1024",
@@ -177,8 +183,6 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
             )
     api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
 
-    # Floci's API Gateway v2 data plane is exposed through its local
-    # execute-api domain, not the AWS-shaped ApiEndpoint returned by CreateApi.
     endpoint = f"http://{api_id}.execute-api.localhost.floci.io:4566"
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint)
