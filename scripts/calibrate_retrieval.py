@@ -67,11 +67,7 @@ def main() -> None:
         admitted_titles = [item.chunk.title for item in result.admitted]
 
         if label == "positive":
-            matches = [
-                item
-                for item in result.admitted
-                if item.chunk.title in expected_titles
-            ]
+            matches = [item for item in result.admitted if item.chunk.title in expected_titles]
             if not matches:
                 raise RuntimeError(
                     f"positive calibration case {sample['id']} did not retrieve an expected title; "
