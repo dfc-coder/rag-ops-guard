@@ -146,7 +146,7 @@ beta-openvino: models local-core-up openvino-up
 # Conversational ReAct beta. RAG is a tool and conversation state is kept by thread id.
 beta-react: models local-core-up openvino-up
 	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
+	$(OPENVINO_ENV) uv run --with "langchain>=1.3,<2" --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
 
 # Client gate: real Floci + embeddings + Qwen relevance grader + Qwen 2B + multi-turn assertions.
 demo-ready: models local-up local-data retrieval-validate
