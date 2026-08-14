@@ -97,17 +97,29 @@ class QueryResponse(BaseModel):
 
     request_id: str
     status: QueryStatus
-    route: Literal["chat", "knowledge"] | None = None
+    route: Literal[
+        "chat",
+        "capabilities",
+        "catalog",
+        "knowledge",
+        "out_of_scope",
+        "uncertain",
+    ] | None = None
     answer: str | None = None
     clarification_question: str | None = None
     citations: list[Citation] = Field(default_factory=list)
     timings_ms: dict[str, float] = Field(default_factory=dict)
+    route_confidence: float | None = None
+    route_margin: float | None = None
+    relevance_score: float | None = None
+    retrieval_query: str | None = None
+    rewritten_query: str | None = None
 
     @model_validator(mode="after")
     def validate_status_contract(self) -> QueryResponse:
         if self.status == QueryStatus.ANSWERED and not self.answer:
             raise ValueError("answered responses require an answer")
-        if self.status == QueryStatus.ANSWERED and self.route != "chat" and not self.citations:
+        if self.status == QueryStatus.ANSWERED and self.route == "knowledge" and not self.citations:
             raise ValueError("grounded answered responses require citations")
         if self.status == QueryStatus.CLARIFICATION_REQUIRED and not self.clarification_question:
             raise ValueError("clarification_required requires clarification_question")
