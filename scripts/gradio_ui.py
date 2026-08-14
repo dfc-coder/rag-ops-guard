@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import gradio as gr
 
+from rag_ops_guard.agent.responses import runtime_error_response
 from rag_ops_guard.app import ingestion_service, object_store, query_workflow
 from rag_ops_guard.config import get_settings
 from rag_ops_guard.domain.models import QueryContext, QueryRequest
 from rag_ops_guard.ingestion.metadata import parse_document
 
+
+LOGGER = logging.getLogger("rag_ops_guard.demo_ui")
 
 STATUS_LABELS = {
     "insufficient_evidence": "Evidencia insuficiente",
@@ -173,24 +178,29 @@ def _diagnostic_line(response: object) -> str:
 def chat(
     message: str,
     _history: list,
-    system: str,
     environment: str,
-    request: gr.Request | None = None,
+    thread_id: str,
 ) -> str:
+    del _history
     env = environment if environment in {"production", "staging"} else None
     started = time.perf_counter()
-    thread_id = request.session_hash if request and request.session_hash else None
 
-    response = query_workflow().invoke(
-        QueryRequest(
-            question=message,
-            thread_id=thread_id,
-            context=QueryContext(
-                system=system.strip() or None,
-                environment=env,
-            ),
+    try:
+        response = query_workflow().invoke(
+            QueryRequest(
+                question=message,
+                thread_id=thread_id,
+                context=QueryContext(environment=env),
+            )
         )
-    )
+    except Exception:
+        LOGGER.exception("client_demo_turn_failed", extra={"thread_id": thread_id})
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        text = runtime_error_response(message)
+        return (
+            f"{text}\n\n<details><summary>Detalles</summary>\n\n"
+            f"<small>route error · {elapsed_ms / 1000:.1f}s total</small>\n\n</details>"
+        )
 
     elapsed_ms = int(response.timings_ms.get("total", (time.perf_counter() - started) * 1000))
     status = response.status.value
@@ -215,6 +225,12 @@ def chat(
         f"<small>{diagnostic_line} · {timing_line}</small>\n\n</details>"
     )
     return "\n\n".join(part for part in parts if part)
+
+
+def clear_conversation(thread_id: str) -> str:
+    if thread_id:
+        query_workflow().clear_thread(thread_id)
+    return str(uuid4())
 
 
 def ingest_file(
@@ -244,7 +260,7 @@ def ingest_file(
 def _observability_label() -> str:
     settings = get_settings()
     connected = settings.langsmith_tracing and bool(settings.langsmith_api_key)
-    state = "conectado" if connected else "desconectado"
+    state = "configurado" if connected else "desconectado"
     return f"<div class='rag-observability'>LangSmith · <strong>{state}</strong></div>"
 
 
@@ -256,6 +272,8 @@ with (
     ) as demo,
     gr.Column(elem_id="app-shell"),
 ):
+    thread_id = gr.State(lambda: str(uuid4()))
+
     with gr.Row(elem_id="rag-header"):
         with gr.Column(scale=5, min_width=320):
             gr.Markdown(
@@ -269,11 +287,6 @@ with (
         with gr.Column(scale=1, min_width=280, elem_id="context-panel"):
             with gr.Group():
                 gr.Markdown("### Contexto")
-                system = gr.Textbox(
-                    label="Sistema",
-                    placeholder="Opcional, ej. payments",
-                    value="",
-                )
                 environment = gr.Dropdown(
                     choices=[
                         ("Cualquiera", ""),
@@ -313,7 +326,13 @@ with (
             gr.ChatInterface(
                 fn=chat,
                 chatbot=chatbot,
-                additional_inputs=[system, environment],
+                additional_inputs=[environment, thread_id],
+            )
+            chatbot.clear(
+                clear_conversation,
+                inputs=[thread_id],
+                outputs=[thread_id],
+                queue=False,
             )
 
 
@@ -321,6 +340,6 @@ if __name__ == "__main__":
     demo.queue().launch(
         server_name="127.0.0.1",
         server_port=8000,
-        show_error=True,
+        show_error=False,
         css=CSS,
     )
