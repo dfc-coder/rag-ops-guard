@@ -79,11 +79,22 @@ class FakeChatModel:
     answer: GroundedAnswer
     analysis_calls: int = 0
     generation_calls: int = 0
+    rewrite_calls: int = 0
 
     def analyze_query(self, prompt: str) -> QueryAnalysis:
         del prompt
         self.analysis_calls += 1
         return self.analysis
+
+    def rewrite_query(
+        self,
+        current_question: str,
+        previous_query: str,
+        source_titles: list[str],
+    ) -> str:
+        del source_titles
+        self.rewrite_calls += 1
+        return f"{previous_query} {current_question}".strip()
 
     def generate_answer(
         self,
