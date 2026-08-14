@@ -96,18 +96,20 @@ def start() -> None:
     if not config.exists():
         raise SystemExit("OpenVINO config.json is missing. Run `make openvino-models` first.")
 
+    # Fail early with a useful message before Podman gets a chance to report a generic
+    # device error.
+    render_group_id()
     stop()
     command = [
         "run",
         "-d",
         "--name",
         OVMS_CONTAINER_NAME,
-        "--user",
-        f"{os.getuid()}:{os.getgid()}",
+        # Match the host UID/GID inside rootless Podman so the runtime sees the same
+        # ownership model as the preparation step and can read the cached repository.
+        "--userns=keep-id",
         "--device",
         "/dev/dri",
-        "--group-add",
-        render_group_id(),
         "-p",
         f"127.0.0.1:{OVMS_HOST_PORT}:8000",
         "-v",
