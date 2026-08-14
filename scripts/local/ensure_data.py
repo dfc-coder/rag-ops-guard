@@ -66,11 +66,15 @@ def ensure_vector_index() -> bool:
 
 
 def has_vectors() -> bool:
+    """Probe through QueryVectors because Floci does not currently route ListVectors correctly."""
     vectors = client("s3vectors")
-    response = vectors.list_vectors(
+    probe = [0.0] * VECTOR_DIMENSION
+    probe[0] = 1.0
+    response = vectors.query_vectors(
         vectorBucketName=VECTOR_BUCKET,
         indexName=VECTOR_INDEX,
-        maxResults=1,
+        queryVector={"float32": probe},
+        topK=1,
     )
     return bool(response.get("vectors"))
 
