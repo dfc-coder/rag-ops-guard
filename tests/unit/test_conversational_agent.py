@@ -97,7 +97,9 @@ def test_same_thread_keeps_previous_user_subject_for_followup_search() -> None:
     knowledge = FakeKnowledge()
     agent = ConversationalAgent(chat=chat, router=FakeRouter(), knowledge=knowledge)  # type: ignore[arg-type]
 
-    agent.invoke(QueryRequest(question="Contame sobre los reintentos de Calypso", thread_id="thread-3"))
+    agent.invoke(
+        QueryRequest(question="Contame sobre los reintentos de Calypso", thread_id="thread-3")
+    )
     agent.invoke(QueryRequest(question="¿Y qué pasa después del tercero?", thread_id="thread-3"))
 
     assert len(knowledge.queries) == 2
