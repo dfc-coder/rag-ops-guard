@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from langchain_core.messages import BaseMessage
+
 from rag_ops_guard.domain.models import (
     Chunk,
     Evidence,
@@ -23,6 +25,9 @@ class FakeObjectStore:
 
     def exists(self, key: str) -> bool:
         return key in self.values
+
+    def list_keys(self, prefix: str) -> list[str]:
+        return sorted(key for key in self.values if key.startswith(prefix))
 
 
 @dataclass
@@ -80,7 +85,16 @@ class FakeChatModel:
         self.analysis_calls += 1
         return self.analysis
 
-    def generate_answer(self, prompt: str) -> GroundedAnswer:
-        del prompt
+    def generate_answer(
+        self,
+        prompt: str,
+        history: list[BaseMessage] | None = None,
+    ) -> GroundedAnswer:
+        del prompt, history
         self.generation_calls += 1
         return self.answer
+
+    def generate_chat(self, messages: list[BaseMessage]) -> str:
+        del messages
+        self.generation_calls += 1
+        return self.answer.answer
