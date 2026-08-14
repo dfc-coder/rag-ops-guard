@@ -227,7 +227,7 @@ def test_learned_grader_admits_cross_language_retry_policy() -> None:
     assert "reintentos" in reranker.calls[0][0].casefold()
 
 
-def test_contextual_retrieval_grades_against_current_question() -> None:
+def test_contextual_retrieval_reranks_with_standalone_and_literal_followup() -> None:
     calypso = _named_evidence(
         "Calypso Timeout Runbook",
         "Production Calypso timeout handling and escalation guidance.",
@@ -246,14 +246,16 @@ def test_contextual_retrieval_grades_against_current_question() -> None:
         context_k=4,
     )
 
+    standalone = "Cual es el timeout exacto de Calypso en produccion?"
+    followup = "Y si vuelve a fallar?"
     result = search.search(
-        "previous Calypso context plus timeout",
+        standalone,
         QueryContext(),
         query_mode="knowledge",
-        ranking_query="Cual es el timeout exacto de Calypso en produccion?",
+        ranking_query=followup,
     )
 
-    assert reranker.calls[0][0] == "Cual es el timeout exacto de Calypso en produccion?"
+    assert reranker.calls[0][0] == f"{standalone}\n{followup}"
     assert result.supported is False
     assert result.relevance == 0.2
 
