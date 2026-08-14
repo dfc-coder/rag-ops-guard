@@ -38,6 +38,14 @@ MODELS = (
         ),
         sha256="06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
     ),
+    Model(
+        filename="bge-reranker-v2-m3-Q4_K_M.gguf",
+        url=(
+            "https://huggingface.co/smarttasks/bge-reranker-v2-m3-GGUF/resolve/main/"
+            "bge-reranker-v2-m3-Q4_K_M.gguf?download=true"
+        ),
+        sha256="efee6434f8b888b414a3765d8a531e9513a9fee64a0cf51126620d11e7bc71b6",
+    ),
 )
 
 
