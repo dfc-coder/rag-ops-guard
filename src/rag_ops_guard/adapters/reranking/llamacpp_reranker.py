@@ -4,73 +4,118 @@ import math
 
 import httpx
 
+from rag_ops_guard.ports import RerankGrade
+
+_SYSTEM_PROMPT = (
+    'Judge whether the Document meets the requirements based on the Query and the Instruct '
+    'provided. Note that the answer can only be "yes" or "no".'
+)
+_DEFAULT_INSTRUCTION = (
+    "Determine whether the document directly answers the enterprise integration-operations "
+    "query. All explicit constraints in the query, including system, API, product, protocol, "
+    "environment, version, and requested operation, must be satisfied. A document about a "
+    "different target is not relevant merely because it describes a similar operation."
+)
+
 
 class LlamaCppRerankerAdapter:
-    """HTTP adapter for llama.cpp's /v1/rerank endpoint."""
+    """Qwen3 reranker adapter using its native yes/no relevance objective."""
 
-    def __init__(self, base_url: str, model: str, timeout_seconds: float = 30.0) -> None:
-        self._url = f"{base_url.rstrip('/')}/v1/rerank"
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 30.0,
+        instruction: str = _DEFAULT_INSTRUCTION,
+    ) -> None:
+        self._url = f"{base_url.rstrip('/')}/completion"
         self._model = model
         self._timeout_seconds = timeout_seconds
+        self._instruction = instruction
 
-    def score(self, query: str, documents: list[str]) -> list[float]:
+    def grade(self, query: str, documents: list[str]) -> list[RerankGrade]:
         if not documents:
             return []
 
+        prompts = [self._prompt(query, document) for document in documents]
         response = httpx.post(
             self._url,
             json={
-                "model": self._model,
-                "query": query,
-                "documents": documents,
-                "top_n": len(documents),
+                "prompt": prompts,
+                "n_predict": 1,
+                "temperature": -1.0,
+                "n_probs": 32,
+                "cache_prompt": True,
             },
             timeout=self._timeout_seconds,
         )
         response.raise_for_status()
         payload = response.json()
-        results = payload.get("results")
-        if not isinstance(results, list):
-            raise ValueError("reranker response must contain a results list")
+        items = payload if isinstance(payload, list) else [payload]
+        if len(items) != len(documents):
+            raise ValueError("reranker response did not grade every document")
 
-        scores: list[float | None] = [None] * len(documents)
-        for item in results:
+        grades: list[RerankGrade] = []
+        for item in items:
             if not isinstance(item, dict):
-                raise ValueError("reranker result entries must be objects")
-            index = item.get("index")
-            if not isinstance(index, int) or index < 0 or index >= len(documents):
-                raise ValueError("reranker result contains an invalid document index")
+                raise ValueError("reranker completion entries must be objects")
+            yes_logprob, no_logprob = _yes_no_logprobs(item)
+            yes_probability = _binary_probability(yes_logprob, no_logprob)
+            grades.append(
+                RerankGrade(
+                    relevant=yes_logprob > no_logprob,
+                    score=yes_probability,
+                )
+            )
+        return grades
 
-            if "relevance_score" in item:
-                raw = item["relevance_score"]
-                normalized = _normalized_score(raw)
-            elif "score" in item:
-                raw = item["score"]
-                normalized = _sigmoid_score(raw)
-            else:
-                raise ValueError("reranker result is missing relevance_score")
-            scores[index] = normalized
-
-        if any(score is None for score in scores):
-            raise ValueError("reranker response did not score every document")
-        return [score for score in scores if score is not None]
-
-
-def _normalized_score(value: object) -> float:
-    if not isinstance(value, int | float):
-        raise ValueError("reranker score must be numeric")
-    score = float(value)
-    if 0.0 <= score <= 1.0:
-        return score
-    return _sigmoid_score(score)
+    def _prompt(self, query: str, document: str) -> str:
+        pair = (
+            f"<Instruct>: {self._instruction}\n"
+            f"<Query>: {query.strip()}\n"
+            f"<Document>: {document.strip()}"
+        )
+        return (
+            f"<|im_start|>system\n{_SYSTEM_PROMPT}<|im_end|>\n"
+            f"<|im_start|>user\n{pair}<|im_end|>\n"
+            "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        )
 
 
-def _sigmoid_score(value: object) -> float:
-    if not isinstance(value, int | float):
-        raise ValueError("reranker score must be numeric")
-    number = float(value)
-    if number >= 0:
-        factor = math.exp(-number)
-        return 1.0 / (1.0 + factor)
-    factor = math.exp(number)
-    return factor / (1.0 + factor)
+def _yes_no_logprobs(item: dict[str, object]) -> tuple[float, float]:
+    probabilities = item.get("probs") or item.get("completion_probabilities")
+    if not isinstance(probabilities, list) or not probabilities:
+        raise ValueError("reranker completion is missing token probabilities")
+    first = probabilities[0]
+    if not isinstance(first, dict):
+        raise ValueError("reranker probability entry must be an object")
+
+    top = first.get("top_logprobs")
+    if not isinstance(top, list):
+        raise ValueError("reranker completion is missing top_logprobs")
+
+    values: dict[str, float] = {}
+    for candidate in top:
+        if not isinstance(candidate, dict):
+            continue
+        token = candidate.get("token")
+        logprob = candidate.get("logprob")
+        if not isinstance(token, str) or not isinstance(logprob, int | float):
+            continue
+        normalized = token.strip().casefold()
+        if normalized in {"yes", "no"}:
+            values[normalized] = float(logprob)
+
+    if "yes" not in values or "no" not in values:
+        raise ValueError("reranker completion did not expose both yes and no logits")
+    return values["yes"], values["no"]
+
+
+def _binary_probability(yes_logprob: float, no_logprob: float) -> float:
+    """Normalize the two class logits exactly as the Qwen reranker reference implementation."""
+    delta = no_logprob - yes_logprob
+    if delta >= 0:
+        factor = math.exp(-delta)
+        return factor / (1.0 + factor)
+    factor = math.exp(delta)
+    return 1.0 / (1.0 + factor)
