@@ -10,6 +10,7 @@ from rag_ops_guard.domain.models import (
     GroundedAnswer,
     QueryAnalysis,
 )
+from rag_ops_guard.ports import RerankGrade
 
 
 @dataclass
@@ -55,18 +56,29 @@ class FakeEmbeddingProvider:
 @dataclass
 class FakeReranker:
     default_score: float = 0.9
+    default_relevant: bool = True
     scores_by_document: dict[str, float] = field(default_factory=dict)
+    relevant_by_document: dict[str, bool] = field(default_factory=dict)
     calls: list[tuple[str, list[str]]] = field(default_factory=list)
 
-    def score(self, query: str, documents: list[str]) -> list[float]:
+    def grade(self, query: str, documents: list[str]) -> list[RerankGrade]:
         self.calls.append((query, documents))
-        return [
-            next(
+        grades: list[RerankGrade] = []
+        for document in documents:
+            score = next(
                 (score for marker, score in self.scores_by_document.items() if marker in document),
                 self.default_score,
             )
-            for document in documents
-        ]
+            relevant = next(
+                (
+                    value
+                    for marker, value in self.relevant_by_document.items()
+                    if marker in document
+                ),
+                self.default_relevant,
+            )
+            grades.append(RerankGrade(relevant=relevant, score=score))
+        return grades
 
 
 @dataclass
