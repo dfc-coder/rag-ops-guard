@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=60, ge=0, le=1000)
 
     llm_base_url: str = "http://localhost:8080/v1"
-    llm_model: str = "qwen35-0.8b-rag"
+    llm_model: str = "qwen35-2b-rag"
     llm_analysis_max_tokens: int = Field(default=128, ge=32, le=512)
     llm_answer_max_tokens: int = Field(default=512, ge=64, le=1024)
     llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
@@ -46,9 +46,8 @@ class Settings(BaseSettings):
     embedding_dimension: int = Field(default=1024, ge=1, le=4096)
 
     reranker_base_url: str = "http://localhost:8082"
-    reranker_model: str = "bge-reranker-v2-m3"
+    reranker_model: str = "qwen3-reranker-0.6b"
     reranker_timeout_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
-    reranker_calibration_path: str = ".local/reranker-calibration.json"
 
     langsmith_tracing: bool = False
     langsmith_project: str = "rag-ops-guard-local"
