@@ -11,7 +11,12 @@ from pathlib import Path
 MIN_CPU_THREADS = 8
 MIN_MEMORY_GIB = 8
 MIN_FREE_DISK_GIB = 8
-REQUIRED_PORTS = (4566, 8080, 8081)
+REQUIRED_PORTS = (
+    ("FLOCI_HOST_PORT", 4566),
+    ("LLAMA_GEN_HOST_PORT", 8080),
+    ("LLAMA_EMBED_HOST_PORT", 8081),
+    ("LLAMA_RERANK_HOST_PORT", 8082),
+)
 REQUIRED_COMMANDS = ("uv", "node", "npm", "podman", "git")
 
 
@@ -107,10 +112,18 @@ def main() -> None:
     if disk_gib < MIN_FREE_DISK_GIB:
         failures.append(f"at least {MIN_FREE_DISK_GIB} GiB free disk is required")
 
-    for port in REQUIRED_PORTS:
+    for env_name, default_port in REQUIRED_PORTS:
+        raw_port = os.environ.get(env_name, str(default_port))
+        try:
+            port = int(raw_port)
+            if not 1 <= port <= 65535:
+                raise ValueError
+        except ValueError:
+            failures.append(f"{env_name} must be a valid TCP port; found {raw_port!r}")
+            continue
         try:
             assert_port_available(port)
-            print(f"port_{port}: available")
+            print(f"port_{port}: available ({env_name})")
         except RuntimeError as exc:
             failures.append(str(exc))
 
