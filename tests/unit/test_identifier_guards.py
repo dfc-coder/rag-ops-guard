@@ -37,6 +37,11 @@ def test_explicit_identifier_extraction_is_generic_not_entity_allowlisted() -> N
     assert explicit_identifiers("Y despues del tercero?") == set()
 
 
+def test_sentence_initial_title_case_is_not_treated_as_an_entity() -> None:
+    assert explicit_identifiers("Se puede hacer bulk replay del payment DLQ?") == {"dlq"}
+    assert explicit_identifiers("What happens when SendGrid fails?") == {"sendgrid"}
+
+
 def test_trusted_focus_allows_elliptical_followup_but_blocks_named_topic_switch() -> None:
     previous = "Cuantos reintentos permite Calypso?"
     titles = ["Payment Retry Policy"]
@@ -107,3 +112,32 @@ def test_known_identifier_keeps_matching_cross_language_candidate() -> None:
 
     assert result.supported is True
     assert result.admitted[0].chunk.title == "Payment Retry Policy"
+
+
+def test_generic_dlq_anchor_keeps_matching_runbook_candidate() -> None:
+    runbook = _named_evidence(
+        "Payment DLQ Replay Runbook",
+        "Bulk replay of the payment DLQ requires an approved replay window.",
+        logical_id="payment-dlq-replay",
+    )
+    objects = FakeObjectStore()
+    _store(objects, runbook)
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[runbook]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=FakeReranker(default_score=0.9),
+        candidate_k=5,
+        context_k=4,
+        min_reranker_score=0.1,
+    )
+
+    result = search.search(
+        "Se puede hacer bulk replay del payment DLQ?",
+        QueryContext(),
+        query_mode="probe",
+    )
+
+    assert result.supported is True
+    assert result.admitted[0].chunk.title == "Payment DLQ Replay Runbook"
