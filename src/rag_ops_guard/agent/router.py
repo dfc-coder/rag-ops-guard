@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -15,6 +17,11 @@ Route = Literal[
     "uncertain",
     "safety",
 ]
+
+_CONTROL_ROUTES: frozenset[Route] = frozenset(
+    {"chat", "capabilities", "catalog", "out_of_scope"}
+)
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 DEFAULT_ROUTE_EXAMPLES: dict[Route, list[str]] = {
     "chat": [
@@ -72,7 +79,7 @@ class RouteDecision:
 
 
 class SemanticRouter:
-    """Embedding router with robust per-route prototype scoring and abstention."""
+    """Embedding router with exact control intents, semantic scoring and abstention."""
 
     def __init__(
         self,
@@ -81,16 +88,13 @@ class SemanticRouter:
         route_examples: dict[Route, list[str]] | None = None,
         min_score: float = 0.35,
         min_margin: float = 0.015,
-        prototype_k: int = 2,
     ) -> None:
-        if prototype_k < 1:
-            raise ValueError("prototype_k must be at least 1")
         self._embeddings = embeddings
         self._min_score = min_score
         self._min_margin = min_margin
-        self._prototype_k = prototype_k
         examples = route_examples or DEFAULT_ROUTE_EXAMPLES
         self._vectors: dict[Route, list[list[float]]] = {}
+        self._exact_control_routes: dict[str, Route] = {}
         for route, utterances in examples.items():
             if route in {"uncertain", "safety"} or not utterances:
                 continue
@@ -98,11 +102,30 @@ class SemanticRouter:
             if not vectors:
                 raise ValueError(f"semantic router requires examples for route {route}")
             self._vectors[route] = vectors
+            if route in _CONTROL_ROUTES:
+                for utterance in utterances:
+                    normalized = _normalize_control_text(utterance)
+                    existing = self._exact_control_routes.get(normalized)
+                    if existing is not None and existing != route:
+                        raise ValueError(
+                            f"normalized control example is ambiguous: {utterance!r}"
+                        )
+                    self._exact_control_routes[normalized] = route
 
     def route(self, text: str) -> RouteDecision:
+        normalized = _normalize_control_text(text)
+        exact_route = self._exact_control_routes.get(normalized)
+        if exact_route is not None:
+            return RouteDecision(
+                route=exact_route,
+                score=1.0,
+                margin=1.0,
+                scores={exact_route: 1.0},
+            )
+
         vector = self._embeddings.embed_query(text.strip())
         scores = {
-            route: _prototype_score(vector, examples, self._prototype_k)
+            route: max(_cosine(vector, example) for example in examples)
             for route, examples in self._vectors.items()
         }
         ordered = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
@@ -123,10 +146,10 @@ class SemanticRouter:
         )
 
 
-def _prototype_score(query: list[float], examples: list[list[float]], k: int) -> float:
-    similarities = sorted((_cosine(query, example) for example in examples), reverse=True)
-    selected = similarities[: min(k, len(similarities))]
-    return sum(selected) / len(selected)
+def _normalize_control_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return " ".join(match.group(0) for match in _TOKEN_RE.finditer(without_marks))
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
