@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     vector_dimension: int = Field(default=1024, ge=1, le=4096)
     vector_distance_metric: Literal["cosine", "euclidean"] = "cosine"
     retrieval_top_k: int = Field(default=8, ge=1, le=100)
-    retrieval_context_k: int = Field(default=5, ge=1, le=20)
+    retrieval_context_k: int = Field(default=3, ge=1, le=20)
 
     chunk_tokens: int = Field(default=400, ge=50, le=4000)
     chunk_overlap: int = Field(default=60, ge=0, le=1000)
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8080/v1"
     llm_model: str = "qwen35-0.8b-rag"
     llm_analysis_max_tokens: int = Field(default=128, ge=32, le=512)
-    llm_answer_max_tokens: int = Field(default=320, ge=64, le=1024)
+    llm_answer_max_tokens: int = Field(default=256, ge=64, le=1024)
     llm_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
     llm_top_p: float = Field(default=0.8, ge=0, le=1)
@@ -45,7 +45,9 @@ class Settings(BaseSettings):
 
     langsmith_tracing: bool = False
     langsmith_project: str = "rag-ops-guard-local"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
     langsmith_api_key: str | None = None
+    langsmith_workspace_id: str | None = None
     rag_debug: bool = False
 
 
