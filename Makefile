@@ -19,7 +19,7 @@ LLM_PRESENCE_PENALTY ?= 1.5
 LLM_REPEAT_PENALTY ?= 1.0
 export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K ROUTER_MIN_SCORE ROUTER_MIN_MARGIN LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
 
-.PHONY: doctor setup models package-lambda local-up local-down local-data retrieval-calibrate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -47,10 +47,10 @@ local-down:
 local-data:
 	uv run python scripts/local/ensure_data.py
 
-# Data-driven admission calibration. Recomputed on every invocation against the
-# current corpus, labeled dataset, and local reranker runtime.
-retrieval-calibrate:
-	uv run python scripts/calibrate_retrieval.py
+# Behavioral retrieval validation. The learned relevance grader must admit expected
+# documents for positives and reject all documents for hard negatives.
+retrieval-validate:
+	uv run python scripts/validate_retrieval.py
 
 local-provision: package-lambda
 	uv run python scripts/local/provision.py
@@ -75,16 +75,15 @@ demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
 
-# Developer UI. It still requires a valid retrieval calibration so developers
-# exercise the same admission contract used by the client demo.
-ui: models local-up local-data retrieval-calibrate
+# Developer UI uses the same learned relevance validation contract as the client path.
+ui: models local-up local-data retrieval-validate
 	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
-ui-init: models local-up local-data retrieval-calibrate
+ui-init: models local-up local-data retrieval-validate
 	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
-# Client gate: real Floci + embeddings + calibrated multilingual reranker + Qwen + multi-turn assertions.
-demo-ready: models local-up local-data retrieval-calibrate
+# Client gate: real Floci + embeddings + Qwen relevance grader + Qwen 2B + multi-turn assertions.
+demo-ready: models local-up local-data retrieval-validate
 	uv run python scripts/demo_ready.py
 
 # Client-facing entrypoint. Gradio is not launched if demo-ready fails.
@@ -92,12 +91,12 @@ demo-client: demo-ready
 	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
 # Benchmarks the same in-process workflow used by Gradio. It is safe to run
-# standalone: containers, local vector data, and retrieval calibration are ensured first.
-benchmark: models local-up local-data retrieval-calibrate
+# standalone: containers, local vector data, and retrieval validation are ensured first.
+benchmark: models local-up local-data retrieval-validate
 	uv run python scripts/benchmark_runtime.py --transport direct --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 # Optional full local API benchmark. Provisioning is required only for this path.
-benchmark-api: models local-up local-data retrieval-calibrate local-provision
+benchmark-api: models local-up local-data retrieval-validate local-provision
 	uv run python scripts/benchmark_runtime.py --transport api --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 lint:
@@ -136,5 +135,5 @@ release-check: lint types test test-integration test-e2e eval
 reset:
 	-uv run python scripts/local/reset.py
 	-$(COMPOSE) down -v
-	rm -rf .local/floci .local/lambda-package .local/api-url .local/reranker-calibration.json artifacts/*
+	rm -rf .local/floci .local/lambda-package .local/api-url artifacts/*
 	touch artifacts/.gitkeep
