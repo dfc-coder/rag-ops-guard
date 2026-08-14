@@ -5,12 +5,14 @@ from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
+from rag_ops_guard.agent.router import SemanticRouter
 from rag_ops_guard.config import get_settings
-from rag_ops_guard.graph.prompts import GROUNDING_SYSTEM_PROMPT
-from rag_ops_guard.graph.timed_workflow import TimedRagWorkflow
+from rag_ops_guard.graph.conversational_agent import ConversationalAgent
+from rag_ops_guard.graph.prompts import CONVERSATIONAL_SYSTEM_PROMPT, GROUNDING_SYSTEM_PROMPT
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.observability.langsmith import configure_langsmith
+from rag_ops_guard.retrieval.hybrid import KnowledgeSearch
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 
@@ -67,6 +69,7 @@ def chat_model() -> LlamaCppChatAdapter:
         presence_penalty=settings.llm_presence_penalty,
         repeat_penalty=settings.llm_repeat_penalty,
         answer_system_prompt=GROUNDING_SYSTEM_PROMPT,
+        chat_system_prompt=CONVERSATIONAL_SYSTEM_PROMPT,
     )
 
 
@@ -86,14 +89,24 @@ def ingestion_service() -> IngestionService:
 
 
 @lru_cache(maxsize=1)
-def query_workflow() -> TimedRagWorkflow:
+def knowledge_search() -> KnowledgeSearch:
     settings = get_settings()
-    configure_langsmith(settings)
-    return TimedRagWorkflow(
-        chat=chat_model(),
+    return KnowledgeSearch(
         embeddings=embeddings(),
         vectors=vector_store(),
+        objects=object_store(),
         resolver=EvidenceResolver(),
-        retrieval_top_k=settings.retrieval_top_k,
-        retrieval_context_k=settings.retrieval_context_k,
+        candidate_k=settings.retrieval_top_k,
+        context_k=settings.retrieval_context_k,
+    )
+
+
+@lru_cache(maxsize=1)
+def query_workflow() -> ConversationalAgent:
+    settings = get_settings()
+    configure_langsmith(settings)
+    return ConversationalAgent(
+        chat=chat_model(),
+        router=SemanticRouter(embeddings()),
+        knowledge=knowledge_search(),
     )
