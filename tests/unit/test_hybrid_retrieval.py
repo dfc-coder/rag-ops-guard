@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from rag_ops_guard.domain.models import DocumentType, Evidence, QueryContext
 from rag_ops_guard.retrieval.bm25 import BM25Index
-from rag_ops_guard.retrieval.hybrid import KnowledgeSearch, reciprocal_rank_fusion
+from rag_ops_guard.retrieval.hybrid import (
+    KnowledgeSearch,
+    reciprocal_rank_fusion,
+    retrieval_relevance,
+)
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 from tests.fixtures.builders import evidence, metadata
 from tests.fixtures.fakes import FakeEmbeddingProvider, FakeObjectStore, FakeVectorStore
@@ -116,3 +120,37 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     assert (
         search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id == "sendgrid-failure"
     )
+
+
+def test_relevance_accepts_strong_lexical_support_even_when_dense_is_weak() -> None:
+    calypso = _named_evidence(
+        "Calypso Integration API",
+        "The Calypso adapter accepts payment instructions from Payments API.",
+        logical_id="calypso-api",
+        distance=0.8,
+    )
+
+    score = retrieval_relevance(
+        "¿Cuál es el objetivo de Calypso Payments API?",
+        dense=[calypso],
+        admitted=[calypso],
+    )
+
+    assert score >= 0.4
+
+
+def test_relevance_rejects_weak_dense_result_without_lexical_support() -> None:
+    payments = _named_evidence(
+        "Payment Retry Policy",
+        "Transient payment timeouts may be retried.",
+        logical_id="payment-retry-policy",
+        distance=0.8,
+    )
+
+    score = retrieval_relevance(
+        "¿Cuál es la capital de Francia?",
+        dense=[payments],
+        admitted=[payments],
+    )
+
+    assert score < 0.4
