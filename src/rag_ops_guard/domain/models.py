@@ -169,9 +169,7 @@ class GroundedAnswer(BaseModel):
     @model_validator(mode="after")
     def validate_grounding_contract(self) -> GroundedAnswer:
         normalized = self.answer.strip().lower()
-        looks_like_backend_timeout = (
-            "timed out" in normalized and "shorter message" in normalized
-        )
+        looks_like_backend_timeout = "timed out" in normalized and "shorter message" in normalized
 
         if self.status == "answered" and (not self.citation_ids or looks_like_backend_timeout):
             self.status = "insufficient_evidence"
