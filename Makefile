@@ -81,8 +81,8 @@ ui-init: models local-up local-data
 benchmark: models local-up local-data
 	uv run python scripts/benchmark_runtime.py --transport direct --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
-# Optional end-to-end benchmark through the locally provisioned API Gateway/Lambda route.
-benchmark-api:
+# Optional full local API benchmark. Provisioning is required only for this path.
+benchmark-api: models local-up local-data local-provision
 	uv run python scripts/benchmark_runtime.py --transport api --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 lint:
