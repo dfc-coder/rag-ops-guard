@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
 from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, VectorStore
@@ -23,6 +24,8 @@ _STOPWORDS = {
     "does",
     "with",
     "from",
+    "tell",
+    "me",
     "para",
     "por",
     "que",
@@ -40,7 +43,18 @@ _STOPWORDS = {
     "una",
     "uno",
     "entonces",
+    "con",
+    "sobre",
+    "pasa",
+    "sucede",
+    "hace",
+    "sabes",
+    "dime",
+    "decime",
+    "contame",
 }
+
+QueryMode = Literal["knowledge", "probe"]
 
 
 @dataclass(frozen=True)
@@ -73,8 +87,15 @@ class KnowledgeSearch:
         self._context_k = context_k
         self._bm25: BM25Index | None = None
 
-    def search(self, query: str, context: QueryContext) -> KnowledgeSearchResult:
-        dense_vector = self._embeddings.embed_query(embedding_query(query))
+    def search(
+        self,
+        query: str,
+        context: QueryContext,
+        *,
+        query_mode: QueryMode = "knowledge",
+    ) -> KnowledgeSearchResult:
+        dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
+        dense_vector = self._embeddings.embed_query(dense_query)
         dense = self._vectors.query(dense_vector, self._candidate_k)
         lexical = self._lexical_index().search(query, limit=self._candidate_k)
         fused = reciprocal_rank_fusion(dense=dense, lexical=lexical)
@@ -90,7 +111,7 @@ class KnowledgeSearch:
             lexical=lexical,
             fused=fused,
             admitted=admitted,
-            relevance=retrieval_relevance(query, dense, admitted),
+            relevance=retrieval_relevance(query, admitted=admitted),
         )
 
     def refresh(self) -> None:
@@ -132,9 +153,10 @@ def reciprocal_rank_fusion(
     return [items[chunk_id] for chunk_id in ordered_ids]
 
 
-def retrieval_relevance(query: str, dense: list[Evidence], admitted: list[Evidence]) -> float:
+def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
+    """Estimate support from evidence that survived deterministic admission only."""
     semantic = 0.0
-    distances = [item.distance for item in dense if item.distance is not None]
+    distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
         semantic = max(0.0, min(1.0, 1.0 - min(distances)))
 
@@ -147,7 +169,13 @@ def retrieval_relevance(query: str, dense: list[Evidence], admitted: list[Eviden
                 lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens)
             )
 
-    return round(max(semantic, lexical), 6)
+    if semantic > 0.0 and lexical > 0.0:
+        score = 0.6 * semantic + 0.4 * lexical
+    elif lexical > 0.0:
+        score = 0.75 * lexical
+    else:
+        score = semantic
+    return round(max(0.0, min(1.0, score)), 6)
 
 
 def _informative_tokens(text: str) -> set[str]:
