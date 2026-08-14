@@ -97,14 +97,24 @@ def test_router_sends_operational_question_to_knowledge() -> None:
 
 
 def test_router_can_abstain_when_routes_are_too_close() -> None:
+    embeddings = MappingEmbeddings(
+        {
+            "query": [1.0, 0.0],
+            "control-example": [1.0, 0.0],
+            "knowledge-example": [1.0, 0.0],
+        }
+    )
     router = SemanticRouter(
-        FakeEmbeddings(),
-        route_examples=_examples(),
+        embeddings,  # type: ignore[arg-type]
+        route_examples={
+            "capabilities": ["control-example"],
+            "knowledge": ["knowledge-example"],
+        },
         min_score=0.0,
         min_margin=0.1,
     )
 
-    decision = router.route("ambiguous question")
+    decision = router.route("query")
 
     assert decision.route == "uncertain"
     assert decision.margin == 0.0
