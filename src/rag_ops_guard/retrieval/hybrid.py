@@ -64,6 +64,7 @@ class KnowledgeSearchResult:
     fused: list[Evidence]
     admitted: list[Evidence]
     relevance: float = 0.0
+    lexical_relevance: float = 0.0
 
 
 class KnowledgeSearch:
@@ -112,6 +113,7 @@ class KnowledgeSearch:
             fused=fused,
             admitted=admitted,
             relevance=retrieval_relevance(query, admitted=admitted),
+            lexical_relevance=retrieval_lexical_relevance(query, admitted=admitted),
         )
 
     def refresh(self) -> None:
@@ -160,15 +162,7 @@ def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
     if distances:
         semantic = max(0.0, min(1.0, 1.0 - min(distances)))
 
-    query_tokens = _informative_tokens(query)
-    lexical = 0.0
-    if query_tokens:
-        for item in admitted:
-            document_tokens = _informative_tokens(f"{item.chunk.title}\n{item.chunk.text}")
-            lexical = max(
-                lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens)
-            )
-
+    lexical = retrieval_lexical_relevance(query, admitted=admitted)
     if semantic > 0.0 and lexical > 0.0:
         score = 0.6 * semantic + 0.4 * lexical
     elif lexical > 0.0:
@@ -176,6 +170,19 @@ def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
     else:
         score = semantic
     return round(max(0.0, min(1.0, score)), 6)
+
+
+def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> float:
+    """Measure informative token overlap against admitted evidence only."""
+    query_tokens = _informative_tokens(query)
+    if not query_tokens:
+        return 0.0
+
+    lexical = 0.0
+    for item in admitted:
+        document_tokens = _informative_tokens(f"{item.chunk.title}\n{item.chunk.text}")
+        lexical = max(lexical, len(query_tokens.intersection(document_tokens)) / len(query_tokens))
+    return round(max(0.0, min(1.0, lexical)), 6)
 
 
 def _informative_tokens(text: str) -> set[str]:
