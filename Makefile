@@ -45,7 +45,7 @@ package-lambda:
 	./scripts/package_lambda.sh
 
 local-up:
-	mkdir -p .local/floci "$(MODEL_DIR)"
+	mkdir -p "$(MODEL_DIR)"
 	$(COMPOSE) up -d
 	uv run python scripts/wait_local.py
 
@@ -145,5 +145,5 @@ release-check: lint types test test-integration test-e2e eval
 reset:
 	-uv run python scripts/local/reset.py
 	-$(COMPOSE) down -v
-	rm -rf .local/floci .local/lambda-package .local/api-url artifacts/*
+	rm -rf .local/lambda-package .local/api-url artifacts/*
 	touch artifacts/.gitkeep
