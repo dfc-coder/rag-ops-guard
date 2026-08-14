@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 
-from rag_ops_guard.domain.models import Chunk, IngestResponse, Manifest
+from rag_ops_guard.domain.models import IngestResponse, Manifest
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.manifest import document_sha256, load_manifest, save_manifest
 from rag_ops_guard.ingestion.metadata import parse_document
 from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, VectorStore
+from rag_ops_guard.retrieval.text import retrieval_text
 
 
 class IngestionService:
@@ -38,7 +39,7 @@ class IngestionService:
             )
 
         chunks = self._chunker.split(metadata, body)
-        texts = [self._embedding_text(chunk) for chunk in chunks]
+        texts = [retrieval_text(chunk) for chunk in chunks]
         vectors = self._embeddings.embed_documents(texts)
 
         if previous:
@@ -67,14 +68,4 @@ class IngestionService:
             logical_id=metadata.logical_id,
             version=metadata.version,
             chunks=len(chunks),
-        )
-
-    @staticmethod
-    def _embedding_text(chunk: Chunk) -> str:
-        section = " / ".join(chunk.header_path) or "Document"
-        return (
-            f"Title: {chunk.title}\n"
-            f"System: {chunk.metadata.system}\n"
-            f"Document type: {chunk.metadata.document_type.value}\n"
-            f"Section: {section}\n\n{chunk.text}"
         )
