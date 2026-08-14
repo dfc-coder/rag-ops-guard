@@ -5,6 +5,8 @@ import time
 
 import httpx
 
+from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
+
 SERVICES = {
     "floci": ("http://127.0.0.1:4566/", "rag-ops-floci"),
     "llama-gen": ("http://127.0.0.1:8080/health", "rag-ops-llama-gen"),
@@ -54,32 +56,25 @@ def wait_for(name: str, url: str, container: str, timeout_seconds: int = 180) ->
 
 
 def verify_reranker() -> None:
+    adapter = LlamaCppRerankerAdapter(
+        "http://127.0.0.1:8082",
+        "qwen3-reranker-0.6b",
+        timeout_seconds=30.0,
+    )
     try:
-        response = httpx.post(
-            "http://127.0.0.1:8082/v1/rerank",
-            json={
-                "model": "bge-reranker-v2-m3",
-                "query": "payment retry policy",
-                "documents": [
-                    "Payment Retry Policy: transient payment failures may be retried.",
-                    "Weather forecast for tomorrow.",
-                ],
-                "top_n": 2,
-            },
-            timeout=30.0,
+        grades = adapter.grade(
+            "How many retries does Calypso allow?",
+            [
+                "Calypso retry policy: automated processing stops after three retries.",
+                "Kafka consumer groups may retry message delivery.",
+            ],
         )
-        response.raise_for_status()
-        payload = response.json()
-        results = payload.get("results")
-        if not isinstance(results, list) or len(results) != 2:
-            raise ValueError("reranker probe did not return two scored documents")
-        indexes = {item.get("index") for item in results if isinstance(item, dict)}
-        if indexes != {0, 1}:
-            raise ValueError("reranker probe returned invalid document indexes")
+        if len(grades) != 2 or not grades[0].relevant or grades[1].relevant:
+            raise ValueError(f"unexpected relevance grades: {grades}")
     except (httpx.HTTPError, ValueError) as exc:
         logs = container_logs("rag-ops-llama-rerank")
         raise SystemExit(f"llama-rerank capability probe failed: {exc}\n{logs}") from exc
-    print("llama-rerank: functional")
+    print("llama-rerank: functional yes/no grading")
 
 
 def main() -> None:
