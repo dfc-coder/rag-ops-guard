@@ -10,14 +10,14 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.retrieval_context_k == 4
     assert settings.llm_model == "qwen35-0.8b-rag"
     assert settings.llm_analysis_max_tokens == 128
-    assert settings.llm_answer_max_tokens == 320
+    assert settings.llm_answer_max_tokens == 512
     assert settings.llm_analysis_max_tokens < settings.llm_answer_max_tokens
     assert settings.llm_timeout_seconds == 60.0
-    assert settings.llm_temperature == 0.2
+    assert settings.llm_temperature == 0.7
     assert settings.llm_top_p == 0.8
     assert settings.llm_top_k == 20
     assert settings.llm_min_p == 0.0
-    assert settings.llm_presence_penalty == 0.0
+    assert settings.llm_presence_penalty == 1.5
     assert settings.llm_repeat_penalty == 1.0
     assert settings.embedding_model == "qwen3-embedding-0.6b"
     assert settings.langsmith_endpoint == "https://api.smith.langchain.com"
