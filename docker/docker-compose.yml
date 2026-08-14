@@ -37,12 +37,12 @@ services:
       - --threads-batch
       - "8"
       - --ctx-size
-      - "16384"
+      - "${LLAMA_CTX_SIZE:-8192}"
       - --parallel
-      - "1"
+      - "${LLAMA_PARALLEL:-1}"
       - --cache-prompt
       - --temp
-      - "0.7"
+      - "0.2"
       - --top-p
       - "0.8"
       - --top-k
@@ -50,7 +50,7 @@ services:
       - --min-p
       - "0.0"
       - --presence-penalty
-      - "1.5"
+      - "0.0"
       - --repeat-penalty
       - "1.0"
       - --reasoning
