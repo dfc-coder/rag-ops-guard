@@ -114,6 +114,5 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     search.refresh()
 
     assert (
-        search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id
-        == "sendgrid-failure"
+        search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id == "sendgrid-failure"
     )
