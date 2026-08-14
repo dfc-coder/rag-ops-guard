@@ -9,6 +9,8 @@ services:
     environment:
       FLOCI_HOSTNAME: floci
       FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_STORAGE_MODE: hybrid
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
       FLOCI_SERVICES_DOCKER_NETWORK: rag-ops-net
       FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: rag-ops-net
       FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci
