@@ -43,6 +43,7 @@ class FakeKnowledge:
     ) -> None:
         self.queries: list[str] = []
         self.query_modes: list[str] = []
+        self.ranking_queries: list[str | None] = []
         self.refreshed = False
         self._relevance_by_query = relevance_by_query or {}
         self._supported_by_query = supported_by_query or {}
@@ -53,10 +54,12 @@ class FakeKnowledge:
         context: object,
         *,
         query_mode: str = "knowledge",
+        ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
         del context
         self.queries.append(query)
         self.query_modes.append(query_mode)
+        self.ranking_queries.append(ranking_query)
         item = evidence(text="After the third retry, escalate to Treasury Integrations.")
         relevance = self._relevance_by_query.get(query, 0.9)
         supported = self._supported_by_query.get(query, relevance >= 0.4)
@@ -314,6 +317,7 @@ def test_unsupported_followup_rewrites_from_trusted_grounded_focus() -> None:
 
     assert response.status == QueryStatus.ANSWERED
     assert knowledge.queries == [first_query, followup, rewritten]
+    assert knowledge.ranking_queries == [None, None, followup]
     assert response.retrieval_query == rewritten
     assert response.rewritten_query == rewritten
     assert chat.rewrite_calls == 1
@@ -350,6 +354,7 @@ def test_failed_knowledge_turn_clears_focus_before_later_followup() -> None:
     assert later_response.status == QueryStatus.INSUFFICIENT_EVIDENCE
     assert chat.rewrite_calls == 1
     assert knowledge.queries == [first_query, missing, missing_rewrite, later]
+    assert knowledge.ranking_queries == [None, None, missing, None]
 
 
 def test_focus_is_not_reused_when_query_context_changes() -> None:
