@@ -44,8 +44,6 @@ class FakeStructured:
                 "safety_category": "normal",
                 "fallback_message": "This request cannot be answered safely.",
             }
-        if "standalone_query" in fields:
-            return {"standalone_query": "Calypso retries after the third attempt"}
         if set(fields) == {"answer"}:
             return {"answer": "grounded draft"}
         return {
@@ -57,10 +55,12 @@ class FakeStructured:
 
 class FakeChat:
     instances: ClassVar[list[FakeChat]] = []
+    rewrite_response: ClassVar[str] = "Calypso retries after the third attempt"
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
         self.last_request: object | None = None
+        self.requests: list[object] = []
         self.structured: list[FakeStructured] = []
         self.instances.append(self)
 
@@ -72,6 +72,14 @@ class FakeChat:
 
     def invoke(self, request: object) -> AIMessage:
         self.last_request = request
+        self.requests.append(request)
+        if (
+            isinstance(request, list)
+            and request
+            and isinstance(request[0], SystemMessage)
+            and "Rewrite CURRENT_QUESTION" in str(request[0].content)
+        ):
+            return AIMessage(content=self.rewrite_response)
         return AIMessage(content="chat response")
 
 
@@ -85,6 +93,7 @@ class FakeHttpResponse:
 
 def _chat_adapter(monkeypatch: pytest.MonkeyPatch) -> LlamaCppChatAdapter:
     FakeChat.instances.clear()
+    FakeChat.rewrite_response = "Calypso retries after the third attempt"
     monkeypatch.setattr(llamacpp_chat, "ChatOpenAI", FakeChat)
     return LlamaCppChatAdapter(
         "http://localhost:8080/v1",
@@ -107,7 +116,9 @@ def test_embedding_adapter_normalizes_and_validates_dimension(
     assert adapter.embed_documents(["a", "b"])[1] == pytest.approx([0.6, 0.8])
 
 
-def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_adapter_uses_plain_contextual_rewrite_and_structured_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     adapter = _chat_adapter(monkeypatch)
     analysis = adapter.analyze_query("analyze")
     rewrite = adapter.rewrite_query(
@@ -115,6 +126,7 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         previous_query="reintentos de Calypso",
         source_titles=["Payment Retry Policy"],
     )
+    rewrite_request = FakeChat.instances[0].requests[-1]
     answer = adapter.generate_answer("answer")
     grounded_text = adapter.generate_grounded_text("grounded answer")
     chat = adapter.generate_chat([HumanMessage(content="hello")])
@@ -136,11 +148,6 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     assert FakeChat.instances[1].kwargs["max_completion_tokens"] == 256
     assert all(item.kwargs["timeout"] == 60.0 for item in FakeChat.instances)
     assert all(item.kwargs["max_retries"] == 0 for item in FakeChat.instances)
-    request = FakeChat.instances[0].last_request
-    assert isinstance(request, list)
-    assert isinstance(request[0], SystemMessage)
-
-    rewrite_request = FakeChat.instances[0].structured[1].last_request
     assert isinstance(rewrite_request, list)
     assert isinstance(rewrite_request[0], SystemMessage)
     assert isinstance(rewrite_request[1], HumanMessage)
@@ -151,20 +158,37 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     assert isinstance(grounded_request[1], HumanMessage)
 
 
-def test_rewrite_does_not_cross_explicit_named_topic_switch(
+def test_self_contained_topic_switch_is_decided_by_contextualizer_not_name_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     adapter = _chat_adapter(monkeypatch)
-    rewrite_structured = FakeChat.instances[0].structured[1]
+    question = "Cual es el timeout exacto de SAP en produccion?"
+    FakeChat.rewrite_response = question
 
     rewritten = adapter.rewrite_query(
-        current_question="Cual es el timeout exacto de SAP en produccion?",
+        current_question=question,
         previous_query="Cuantos reintentos permite Calypso?",
         source_titles=["Payment Retry Policy"],
     )
 
-    assert rewritten == "Cual es el timeout exacto de SAP en produccion?"
-    assert rewrite_structured.last_request is None
+    assert rewritten == question
+    assert len(FakeChat.instances[0].requests) == 1
+
+
+def test_empty_contextualizer_output_falls_back_to_current_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _chat_adapter(monkeypatch)
+    question = "Cual es el timeout exacto de SAP en produccion?"
+    FakeChat.rewrite_response = ""
+
+    rewritten = adapter.rewrite_query(
+        current_question=question,
+        previous_query="Cuantos reintentos permite Calypso?",
+        source_titles=["Payment Retry Policy"],
+    )
+
+    assert rewritten == question
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
