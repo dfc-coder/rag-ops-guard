@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import re
 
-_SPANISH_MARKERS = {
-    "que",
-    "qué",
-    "puedes",
-    "podés",
-    "tienes",
-    "tenés",
-    "documentacion",
-    "documentación",
-    "cual",
-    "cuál",
-    "gracias",
-    "hola",
+_ENGLISH_MARKERS = {
+    "what",
+    "which",
+    "who",
+    "where",
+    "when",
+    "why",
+    "how",
+    "can",
+    "could",
+    "would",
+    "should",
+    "do",
+    "does",
+    "are",
+    "is",
+    "the",
+    "available",
+    "documentation",
+    "documents",
+    "help",
+    "hello",
+    "thanks",
 }
 
 
@@ -52,6 +62,26 @@ def insufficient_evidence_response(question: str) -> str:
     return "I could not find sufficiently relevant evidence in the available documentation."
 
 
+def safety_blocked_response(question: str) -> str:
+    if _is_spanish(question):
+        return "No puedo ayudar a extraer secretos ni a omitir controles operativos o de seguridad."
+    return "I cannot help extract secrets or bypass operational or security controls."
+
+
+def runtime_error_response(question: str) -> str:
+    if _is_spanish(question):
+        return "No pude completar esa consulta. El servicio sigue disponible; probá nuevamente."
+    return "I could not complete that request. The service is still available; please try again."
+
+
 def _is_spanish(text: str) -> bool:
+    """Prefer Spanish unless the user message contains a clear English signal.
+
+    Demo traffic is primarily Spanish and many valid Spanish turns contain no accents. A small
+    positive-English detector is safer for deterministic control messages than attempting to infer
+    Spanish from a narrow list of accented/functional words.
+    """
     tokens = {match.group(0).casefold() for match in re.finditer(r"\w+", text, re.UNICODE)}
-    return bool(tokens.intersection(_SPANISH_MARKERS)) or any(char in text for char in "¿¡áéíóúñ")
+    if any(char in text for char in "¿¡áéíóúñ"):
+        return True
+    return not bool(tokens.intersection(_ENGLISH_MARKERS))
