@@ -2,13 +2,13 @@
 
 ## Objective
 
-A client demo is considered ready only when the same local runtime used by Gradio passes a fail-closed behavioral gate with real Floci, the real embedding model and the real Qwen generation model.
+A client demo is considered ready only when the same local runtime used by Gradio passes a fail-closed behavioral gate with real Floci, the real embedding model, the real multilingual cross-encoder reranker, and the real Qwen generation model.
 
 A green deterministic CI gate is necessary but not sufficient for a client demo.
 
 ## Scope
 
-This specification hardens the bounded conversational agent and local demo path. It does not change the generation model, Floci, llama.cpp, retrieval topology or long-term persistence architecture.
+This specification hardens the bounded conversational agent and local demo path. The generation model, Floci, vector database, and long-term persistence architecture remain unchanged. Retrieval is upgraded from a hand-built relevance cutoff to the standard two-stage pattern: candidate retrieval followed by a dedicated cross-encoder reranker.
 
 ## Architectural invariants
 
@@ -23,30 +23,33 @@ This specification hardens the bounded conversational agent and local demo path.
 
 ### B. Routing and retrieval
 
-1. Registered narrow control utterances (`chat`, `capabilities`, `catalog`, `out_of_scope`) are normalized for case, accents, punctuation and whitespace and resolved exactly before semantic routing.
+1. Registered narrow control utterances (`chat`, `capabilities`, `catalog`, `out_of_scope`) are normalized for case, accents, punctuation and whitespace and resolved exactly before retrieval.
 2. The exact control fast-path is data-driven from the route-example set; it must not contain entity-specific conditions such as product or system names.
 3. Direct product-role questions such as `¿Qué haces?`, including normalized variants such as `QUE HACES!!!`, belong to `capabilities` and must not enter RAG.
-4. Free-form utterances that do not match a narrow control intent MUST enter `uncertain`; semantic similarity alone is advisory telemetry and MUST NOT directly choose `chat`, `capabilities`, `catalog`, `knowledge`, or `out_of_scope`.
+4. Free-form utterances that do not match a narrow control intent MUST enter `uncertain`; semantic route similarity is fallback telemetry only and MUST NOT prevent corpus retrieval.
 5. An `uncertain` turn probes the corpus with the raw user query, not with an instruction that presupposes an integration-operations intent.
 6. `uncertain` is not a user-facing terminal route.
-7. The post-retrieval resolver decides `knowledge` versus a control fallback using admitted evidence, lexical support, relevance, and semantic route scores.
-8. A semantic collision in which `capabilities` or another control class scores above `knowledge` MUST NOT prevent an entity/system query from reaching retrieval.
-9. If admitted evidence is relevant and has an informative lexical anchor, the turn may resolve to `knowledge` even when a control class had the highest embedding similarity.
-10. Dense-only nearest-neighbor similarity is not sufficient to convert a control/meta question into `knowledge`.
-11. Relevance and lexical support are computed only from evidence that survived deterministic admission/version/context rules.
-12. Rejected dense candidates must not increase the final relevance or lexical-support signal.
-13. A clear knowledge retrieval uses the operational retrieval instruction only after the agent has resolved the turn to the knowledge path; raw disambiguation probes remain instruction-free.
+7. Candidate retrieval is `dense + BM25 -> RRF -> EvidenceResolver`.
+8. `EvidenceResolver` remains authoritative for active status, context, version, authority, and supersedes before relevance classification.
+9. Resolved candidates are scored by a dedicated multilingual cross-encoder reranker using the original user query and contextualized candidate text.
+10. The cross-encoder admission result is the single production evidence-support decision used by both routing and grounded generation.
+11. The legacy blended score derived from vector distance and lexical overlap is diagnostic only and MUST NOT decide `knowledge` versus fallback or `answered` versus `insufficient_evidence`.
+12. A Spanish question against an English document MUST be judged by the multilingual cross-encoder rather than by token-language overlap. `Cuantos reintentos permite Calypso?` must be able to admit the English `Payment Retry Policy` when the reranker identifies it as relevant.
+13. A free-form turn resolves to `knowledge` when the reranker admits at least one resolved candidate; otherwise it falls back to the best narrow control intent.
+14. Dense-only nearest-neighbor similarity is never sufficient evidence by itself.
+15. A clear knowledge retrieval may use the operational embedding instruction; raw disambiguation probes remain instruction-free.
+16. The reranker service is a required runtime dependency and local startup must execute a functional `/v1/rerank` probe, not only a health check.
 
 ### C. Grounding ownership
 
-1. Evidence sufficiency is a deterministic application decision made before grounded generation from admitted evidence and the configured relevance gate.
+1. Evidence sufficiency is an application decision made before grounded generation from cross-encoder-admitted evidence.
 2. Once a turn enters grounded generation, the generation model MUST NOT choose `answered` versus `insufficient_evidence`.
 3. The grounded generation schema contains answer text only; it does not contain status or citation identifiers.
 4. The generation model may synthesize only from `ADMITTED_EVIDENCE_JSON` and may not use external knowledge.
 5. Grounded citations are attached by the application from the admitted evidence bundle, not invented or selected as internal IDs by the generation model.
 6. Citation attachment preserves admitted ranking and emits at most one chunk citation per logical document/version.
-7. Low relevance or no admitted evidence produces `insufficient_evidence` before any grounded generation call.
-8. A generation transport/schema failure is not evidence insufficiency; the demo gate must still fail closed rather than silently treating a model veto as a valid abstention.
+7. No cross-encoder-admitted evidence produces `insufficient_evidence` before any grounded generation call.
+8. A generation transport/schema failure is not evidence insufficiency; the demo gate must fail closed rather than silently treating a model veto as a valid abstention.
 
 ### D. Trusted conversational memory
 
@@ -56,6 +59,7 @@ This specification hardens the bounded conversational agent and local demo path.
 4. Trusted focus is scoped to the QueryContext that produced it.
 5. A failed grounded knowledge turn clears trusted focus so a later follow-up cannot fall back to an unrelated older topic.
 6. Explicit out-of-scope, catalog, and capabilities turns clear trusted operational focus. Lightweight greetings/thanks may preserve it.
+7. A follow-up is rewritten only when the first retrieval/reranking pass has no admitted support and trusted focus exists; the rewritten query is then evaluated by the same complete retrieval/reranking path.
 
 ### E. Knowledge-base integrity
 
@@ -87,7 +91,7 @@ This specification hardens the bounded conversational agent and local demo path.
 3. `Que documentacion tienes disponible?` -> catalog containing real active KB entries.
 4. `que pasa con sendgrid?` -> grounded answer with SendGrid evidence even if a control intent has a higher raw embedding similarity.
 5. `Cual es el objetivo de Calypso Payments API?` -> grounded answer with Calypso/Payments API evidence.
-6. `Cuantos reintentos permite Calypso?` -> three retries and active Payment Retry Policy evidence.
+6. `Cuantos reintentos permite Calypso?` -> three retries and active Payment Retry Policy evidence, without relying on Spanish/English token overlap.
 7. `Y despues del tercero?` in the same thread -> Treasury Integrations, using trusted follow-up context.
 8. Topic switch to SendGrid followed by `Y si falla?` -> resolves against SendGrid, not the prior Calypso topic.
 9. After a failed/missing SAP fact, a follow-up must not resurrect an older Calypso focus.
@@ -104,13 +108,15 @@ This specification hardens the bounded conversational agent and local demo path.
 - QueryRequest normalization and short inputs.
 - Normalized exact-match control routing without embedding the query.
 - Free-form semantic control collisions always enter the retrieval-first `uncertain` path.
-- Semantic scores remain available for post-retrieval fallback but cannot short-circuit retrieval.
+- Semantic route scores remain fallback telemetry and cannot short-circuit retrieval.
 - Direct capabilities intent coverage.
-- Relevance uses only admitted evidence.
 - Raw-query uncertain probe.
-- Dense-only probe cannot override a leading control intent.
-- Admitted lexical anchor may confirm knowledge when the router is uncertain.
-- Admitted evidence above the gate cannot be vetoed by a model-owned `insufficient_evidence` status.
+- Dense + BM25 fusion and resolver behavior.
+- Cross-encoder response parsing preserves original candidate indexes.
+- Cross-encoder score normalization and malformed-response rejection.
+- Spanish `Cuantos reintentos permite Calypso?` can admit English `Payment Retry Policy` based on reranker output even when the former handcrafted relevance diagnostic is below `0.4`.
+- Unsupported cross-encoder candidates produce abstention regardless of a high vector/legacy diagnostic score.
+- Cross-encoder support cannot be vetoed by a model-owned `insufficient_evidence` status.
 - Grounded drafting uses an answer-only structured schema.
 - Grounded source IDs are deterministic and valid for the admitted evidence bundle.
 - Focus context compatibility and focus invalidation.
@@ -124,10 +130,11 @@ This specification hardens the bounded conversational agent and local demo path.
 
 - Floci `GetVectors` supports corpus completeness checks.
 - Existing S3/S3 Vectors integration remains green.
+- llama.cpp reranker service must accept a real `/v1/rerank` request with the configured BGE reranker and score every supplied document.
 
 ### Real local behavioral gate
 
-`scripts/demo_ready.py` uses `query_workflow()` directly after `models + local-up + local-data`. It uses fresh unique thread IDs and asserts the client-demo behavioral contract. Any assertion or runtime error exits non-zero.
+`scripts/demo_ready.py` uses `query_workflow()` directly after `models + local-up + local-data`. It uses real Floci, Qwen embeddings, the multilingual cross-encoder reranker, and Qwen generation. It uses fresh unique thread IDs and asserts the client-demo behavioral contract. Any assertion or runtime error exits non-zero.
 
 The gate prints turn observations as `CHECK`, never as `PASS` before validation. Only the final `DEMO READY` line represents complete success.
 
@@ -143,7 +150,7 @@ The deterministic CI suite must also be green for the exact commit used by that 
 
 - Postgres/Redis conversation persistence.
 - Multi-agent orchestration.
-- Model upgrade.
+- Generation-model upgrade.
 - New vector database.
 - Entity-specific routing rules.
-- Arbitrary threshold tuning without measured evidence.
+- Using the legacy handmade semantic/lexical relevance blend as a production admission gate.
