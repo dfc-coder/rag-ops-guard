@@ -14,7 +14,7 @@ _DEFAULT_BATCH_SIZE = 8
 
 
 class LlamaCppRerankerAdapter:
-    """Qwen3 reranker adapter backed by llama.cpp's native yes/no classifier."""
+    """HTTP reranker adapter compatible with llama.cpp v1 and OpenVINO Model Server v3."""
 
     def __init__(
         self,
@@ -26,18 +26,31 @@ class LlamaCppRerankerAdapter:
     ) -> None:
         if batch_size < 1:
             raise ValueError("reranker batch_size must be at least 1")
-        self._url = f"{base_url.rstrip('/')}/v1/rerank"
+        normalized = base_url.rstrip("/")
+        self._openvino = normalized.endswith("/v3")
+        self._url = (
+            f"{normalized}/rerank"
+            if normalized.endswith(("/v1", "/v3"))
+            else f"{normalized}/v1/rerank"
+        )
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._instruction = instruction
         self._batch_size = batch_size
+
+    def _query(self, query: str) -> str:
+        # OVMS prepares the Qwen sequence-classification reranker with its own task template.
+        # llama.cpp's native classifier still benefits from the explicit relevance instruction.
+        if self._openvino:
+            return query.strip()
+        return f"Instruct: {self._instruction}\nQuery: {query.strip()}"
 
     def _grade_batch(self, query: str, documents: list[str]) -> list[float]:
         response = httpx.post(
             self._url,
             json={
                 "model": self._model,
-                "query": f"Instruct: {self._instruction}\nQuery: {query.strip()}",
+                "query": self._query(query),
                 "documents": documents,
                 "top_n": len(documents),
             },
@@ -77,7 +90,4 @@ class LlamaCppRerankerAdapter:
             batch = documents[start : start + self._batch_size]
             scores.extend(self._grade_batch(query, batch))
 
-        # Qwen3-Reranker GGUF exposes classifier.output_labels=[yes,no]. The returned
-        # relevance_score is the model-native yes probability; 0.5 is therefore the
-        # yes-vs-no decision boundary, not a corpus-tuned admission threshold.
         return [RerankGrade(relevant=score >= 0.5, score=score) for score in scores]
