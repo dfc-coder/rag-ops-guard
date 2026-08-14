@@ -124,10 +124,11 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     assert len(FakeChat.instances) == 2
     assert FakeChat.instances[0].kwargs["temperature"] == 0.0
     assert FakeChat.instances[0].kwargs["max_completion_tokens"] == 128
+    assert FakeChat.instances[1].kwargs["temperature"] == 0.7
     assert FakeChat.instances[1].kwargs["max_completion_tokens"] == 256
     assert all(item.kwargs["timeout"] == 60.0 for item in FakeChat.instances)
     assert all(item.kwargs["max_retries"] == 0 for item in FakeChat.instances)
-    request = FakeChat.instances[1].last_request
+    request = FakeChat.instances[0].last_request
     assert isinstance(request, list)
     assert isinstance(request[0], SystemMessage)
 
