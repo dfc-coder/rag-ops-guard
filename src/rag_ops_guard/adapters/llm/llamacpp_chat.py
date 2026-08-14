@@ -151,7 +151,7 @@ class LlamaCppChatAdapter:
                 return current_question
             return rewritten
         except (APITimeoutError, LengthFinishReasonError, ValidationError):
-            # A failed contextualizer must never contaminate retrieval with stale conversation state.
+            # Failed contextualization must not contaminate retrieval with stale state.
             return current_question
 
     def generate_chat(self, messages: list[BaseMessage]) -> str:
