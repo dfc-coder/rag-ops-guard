@@ -1,6 +1,5 @@
 SHELL := /bin/bash
 COMPOSE := podman compose -f docker/docker-compose.yml
-COMPOSE_SYCL := podman compose -f docker/docker-compose.yml -f docker/docker-compose.sycl.yml
 PODMAN_SOCKET ?= /run/user/$(shell id -u)/podman/podman.sock
 CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
@@ -17,12 +16,10 @@ LLAMA_GEN_HOST_PORT ?= 8080
 LLAMA_EMBED_HOST_PORT ?= 8081
 LLAMA_RERANK_HOST_PORT ?= 8082
 OVMS_HOST_PORT ?= 8083
-OVMS_IMAGE ?= docker.io/openvino/model_server:2026.2-gpu
+OVMS_IMAGE ?= docker.io/openvino/model_server:latest-gpu
 OVMS_EMBEDDING_MODEL ?= OpenVINO/Qwen3-Embedding-0.6B-int8-ov
 OVMS_RERANKER_MODEL ?= OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
 OPENVINO_VECTOR_INDEX ?= ops-knowledge-openvino-v1
-RENDER_GROUP_ID ?= $(shell stat -c '%g' /dev/dri/render* 2>/dev/null | head -n 1)
-SYCL_GPU_LAYERS ?= 99
 UI_GRADIO_VERSION ?= 6.20.0
 BENCH_REQUESTS ?= 5
 BENCH_CONCURRENCY ?= 1
@@ -39,11 +36,11 @@ LLM_TOP_K ?= 20
 LLM_MIN_P ?= 0.0
 LLM_PRESENCE_PENALTY ?= 1.5
 LLM_REPEAT_PENALTY ?= 1.0
-export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL RENDER_GROUP_ID SYCL_GPU_LAYERS LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K ROUTER_MIN_SCORE ROUTER_MIN_MARGIN LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
+export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K ROUTER_MIN_SCORE ROUTER_MIN_MARGIN LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY
 
 OPENVINO_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 
-.PHONY: doctor setup models package-lambda local-up local-core-up local-core-sycl-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke react-smoke beta-openvino beta-react beta-react-sycl demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke react-smoke beta-openvino beta-react demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -55,6 +52,9 @@ setup:
 models:
 	uv run python scripts/download_models.py
 
+generation-model:
+	MODEL_FILES=Qwen3.5-2B-Q4_K_M.gguf uv run python scripts/download_models.py
+
 package-lambda:
 	./scripts/package_lambda.sh
 
@@ -63,21 +63,13 @@ local-up:
 	$(COMPOSE) up -d
 	uv run python scripts/wait_local.py
 
-# CPU hosts orchestration + Floci + Qwen generation. Embedding/reranking are intentionally
-# stopped here because the OpenVINO beta moves those workloads to the Intel iGPU.
+# CPU owns Python/LangGraph orchestration, Floci, BM25/RRF and Qwen generation.
+# The legacy llama.cpp embedding/reranking services are stopped because OpenVINO owns those
+# workloads in the hardware-split beta.
 local-core-up:
 	mkdir -p "$(MODEL_DIR)"
 	-$(COMPOSE) stop llama-embed llama-rerank
 	$(COMPOSE) up -d floci llama-gen
-	uv run python scripts/wait_core.py
-
-# Optional comparison path: llama.cpp SYCL offloads Qwen generation to the Intel GPU while
-# OpenVINO still owns embeddings/reranking. Use only after beta-react works on CPU generation.
-local-core-sycl-up:
-	@test -n "$(RENDER_GROUP_ID)" || { echo 'No /dev/dri/render* device found'; exit 2; }
-	mkdir -p "$(MODEL_DIR)"
-	-$(COMPOSE) stop llama-embed llama-rerank
-	$(COMPOSE_SYCL) up -d floci llama-gen
 	uv run python scripts/wait_core.py
 
 local-down:
@@ -128,12 +120,12 @@ ui: models local-up local-data retrieval-validate
 ui-init: models local-up local-data retrieval-validate
 	uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
-# Fast CPU-only beta path.
+# Fast legacy CPU-only beta path.
 beta: models local-up local-data
 	RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
-# Prepare the OpenVINO embedding/reranking model repository once. The models are cached under
-# ~/.cache/rag-ops-guard/openvino-models and compiled for the Intel GPU by OVMS.
+# Prepare the OpenVINO embedding/reranking model repository once. Models are cached under
+# ~/.cache/rag-ops-guard/openvino-models and configured for the Intel GPU by OVMS.
 openvino-models:
 	uv run python scripts/openvino_prepare.py
 
@@ -149,25 +141,22 @@ openvino-status:
 openvino-smoke:
 	uv run python scripts/openvino_smoke.py
 
-react-smoke: models local-core-up openvino-up
+# Headless acceptance test for conversation + RAG tool + follow-up memory.
+react-smoke: generation-model local-core-up openvino-up
 	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "langchain>=1.3,<2" python scripts/react_smoke.py
+	$(OPENVINO_ENV) uv run python scripts/react_smoke.py
 
-# Hardware-split beta: CPU = generation/Floci/Python; Intel iGPU = embeddings + reranking.
-# A separate vector index avoids mixing vectors produced by different embedding backends.
-beta-openvino: models local-core-up openvino-up
+# Hardware-split legacy UI: CPU generation/Floci/Python; Intel iGPU embeddings/reranking.
+beta-openvino: generation-model local-core-up openvino-up
 	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
 	$(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
-# Conversational ReAct beta. RAG is a tool and conversation state is kept by thread id.
-beta-react: models local-core-up openvino-up
+# Primary beta: conversational LangGraph ReAct loop, RAG exposed as a tool.
+# CPU: Python/LangGraph + BM25/RRF + Floci + Qwen 3.5 2B generation.
+# Intel Iris Xe/OpenVINO: Qwen3 embeddings + Qwen3 reranker.
+beta-react: generation-model local-core-up openvino-up
 	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "langchain>=1.3,<2" --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
-
-# Optional SYCL comparison. It uses the same ReAct + OpenVINO stack, changing only generation.
-beta-react-sycl: models local-core-sycl-up openvino-up
-	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "langchain>=1.3,<2" --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
+	$(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
 
 # Client gate: real Floci + embeddings + Qwen relevance grader + Qwen 2B + multi-turn assertions.
 demo-ready: models local-up local-data retrieval-validate
