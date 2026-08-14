@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     embedding_model: str = "qwen3-embedding-0.6b"
     embedding_dimension: int = Field(default=1024, ge=1, le=4096)
 
+    reranker_base_url: str = "http://localhost:8082"
+    reranker_model: str = "bge-reranker-v2-m3"
+    reranker_timeout_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
+    reranker_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
+
     langsmith_tracing: bool = False
     langsmith_project: str = "rag-ops-guard-local"
     langsmith_endpoint: str = "https://api.smith.langchain.com"
