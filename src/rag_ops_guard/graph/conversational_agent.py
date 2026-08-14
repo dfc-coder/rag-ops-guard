@@ -259,7 +259,11 @@ class ConversationalAgent:
 
         resolved_route = original_route
         if original_route == "uncertain":
-            if result.relevance >= self._relevance_threshold and result.admitted:
+            if _uncertain_prefers_knowledge(
+                state.get("route_scores", {}),
+                result,
+                self._relevance_threshold,
+            ):
                 resolved_route = "knowledge"
             else:
                 resolved_route = _best_control_route(state.get("route_scores", {}))
@@ -276,6 +280,7 @@ class ConversationalAgent:
                 "rewritten_query": rewritten_query or "",
                 "query_mode": initial_mode,
                 "relevance": result.relevance,
+                "lexical_relevance": result.lexical_relevance,
                 "dense_titles": [item.chunk.title for item in result.dense[:5]],
                 "lexical_titles": [item.chunk.title for item in result.lexical[:5]],
                 "admitted_titles": [item.chunk.title for item in result.admitted],
@@ -483,6 +488,22 @@ def _best_control_route(scores: dict[str, float]) -> Route:
     if best_score == float("-inf"):
         return "out_of_scope"
     return best_route
+
+
+def _uncertain_prefers_knowledge(
+    scores: dict[str, float],
+    result: KnowledgeSearchResult,
+    relevance_threshold: float,
+) -> bool:
+    if not result.admitted or result.relevance < relevance_threshold:
+        return False
+
+    best_control = _best_control_route(scores)
+    knowledge_score = scores.get("knowledge", float("-inf"))
+    control_score = scores.get(best_control, float("-inf"))
+    semantic_prefers_knowledge = knowledge_score >= control_score
+    admitted_has_lexical_anchor = result.lexical_relevance > 0.0
+    return semantic_prefers_knowledge or admitted_has_lexical_anchor
 
 
 def _expand_citation_refs(citation_ids: list[str], evidence: list[Evidence]) -> list[str]:
