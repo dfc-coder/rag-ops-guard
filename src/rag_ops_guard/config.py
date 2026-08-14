@@ -21,8 +21,8 @@ class Settings(BaseSettings):
 
     vector_dimension: int = Field(default=1024, ge=1, le=4096)
     vector_distance_metric: Literal["cosine", "euclidean"] = "cosine"
-    retrieval_top_k: int = Field(default=8, ge=1, le=100)
-    retrieval_context_k: int = Field(default=3, ge=1, le=20)
+    retrieval_top_k: int = Field(default=20, ge=1, le=100)
+    retrieval_context_k: int = Field(default=4, ge=1, le=20)
 
     chunk_tokens: int = Field(default=400, ge=50, le=4000)
     chunk_overlap: int = Field(default=60, ge=0, le=1000)
