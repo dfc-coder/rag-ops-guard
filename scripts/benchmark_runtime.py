@@ -63,8 +63,7 @@ def main() -> None:
     latencies = [elapsed for elapsed, _ in results]
     statuses = Counter(str(payload.get("status")) for _, payload in results)
     generation = [
-        float(payload.get("timings_ms", {}).get("generation", 0.0))
-        for _, payload in results
+        float(payload.get("timings_ms", {}).get("generation", 0.0)) for _, payload in results
     ]
 
     print(f"requests={args.requests} concurrency={args.concurrency}")
