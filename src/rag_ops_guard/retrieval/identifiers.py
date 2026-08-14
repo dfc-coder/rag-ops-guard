@@ -46,9 +46,15 @@ _GENERIC_TECHNICAL_IDENTIFIERS = {
 
 
 def explicit_identifiers(text: str) -> set[str]:
-    """Extract explicit named/technical identifiers without an entity allowlist."""
+    """Extract explicit named/technical identifiers without an entity allowlist.
+
+    Plain Title Case at the beginning of a sentence is not a reliable entity signal
+    (for example ``Se`` or ``What``). Acronyms, CamelCase and digit-bearing tokens
+    remain strong signals anywhere; Title Case becomes an identifier only after the
+    first token.
+    """
     identifiers: set[str] = set()
-    for match in _TOKEN_RE.finditer(text):
+    for token_index, match in enumerate(_TOKEN_RE.finditer(text)):
         token = match.group(0)
         normalized = token.casefold()
         if normalized in _NON_IDENTIFIER_WORDS or len(token) < 2:
@@ -58,7 +64,7 @@ def explicit_identifiers(text: str) -> set[str]:
         has_lower = any(char.islower() for char in token)
         is_acronym = token.isupper() and any(char.isalpha() for char in token)
         is_camel_case = has_upper and has_lower and any(char.isupper() for char in token[1:])
-        is_title_case = token[:1].isupper() and token[1:].islower()
+        is_title_case = token_index > 0 and token[:1].isupper() and token[1:].islower()
         has_digit = any(char.isdigit() for char in token)
 
         if is_acronym or is_camel_case or is_title_case or has_digit:
