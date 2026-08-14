@@ -19,9 +19,7 @@ def rerank_evidence(question: str, evidence: list[Evidence]) -> list[Evidence]:
     if not query_tokens:
         return evidence
 
-    document_tokens = [
-        set(_tokens(f"{item.chunk.title}\n{item.chunk.text}")) for item in evidence
-    ]
+    document_tokens = [set(_tokens(f"{item.chunk.title}\n{item.chunk.text}")) for item in evidence]
     document_frequency = Counter(
         token for tokens in document_tokens for token in query_tokens.intersection(tokens)
     )
