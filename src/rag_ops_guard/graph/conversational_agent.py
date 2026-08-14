@@ -259,10 +259,7 @@ class ConversationalAgent:
 
         resolved_route = original_route
         if original_route == "uncertain":
-            if result.supported or focus:
-                resolved_route = "knowledge"
-            else:
-                resolved_route = "out_of_scope"
+            resolved_route = "knowledge" if result.supported or focus else "out_of_scope"
 
         search_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
