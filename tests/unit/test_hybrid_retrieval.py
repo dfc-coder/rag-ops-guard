@@ -9,7 +9,12 @@ from rag_ops_guard.retrieval.hybrid import (
 )
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 from tests.fixtures.builders import evidence, metadata
-from tests.fixtures.fakes import FakeEmbeddingProvider, FakeObjectStore, FakeVectorStore
+from tests.fixtures.fakes import (
+    FakeEmbeddingProvider,
+    FakeObjectStore,
+    FakeReranker,
+    FakeVectorStore,
+)
 
 
 def _named_evidence(title: str, text: str, *, logical_id: str, distance: float = 0.4) -> Evidence:
@@ -19,6 +24,15 @@ def _named_evidence(title: str, text: str, *, logical_id: str, distance: float =
     item = evidence(meta=meta, text=text, distance=distance)
     item.chunk.title = title
     return item
+
+
+def _store_documents(objects: FakeObjectStore, items: list[Evidence]) -> None:
+    for item in items:
+        key = (
+            f"chunks/{item.chunk.logical_id}/{item.chunk.version}/"
+            f"chunk-{item.chunk.chunk_index:03d}.json"
+        )
+        objects.put_text(key, item.chunk.model_dump_json())
 
 
 def test_bm25_recovers_exact_entity_document() -> None:
@@ -76,18 +90,14 @@ def test_hybrid_search_includes_lexical_document_missing_from_dense_results() ->
         distance=0.1,
     )
     objects = FakeObjectStore()
-    for item in (sendgrid, payments):
-        key = (
-            f"chunks/{item.chunk.logical_id}/{item.chunk.version}/"
-            f"chunk-{item.chunk.chunk_index:03d}.json"
-        )
-        objects.put_text(key, item.chunk.model_dump_json())
+    _store_documents(objects, [sendgrid, payments])
 
     search = KnowledgeSearch(
         embeddings=FakeEmbeddingProvider(),
         vectors=FakeVectorStore(evidence=[payments]),
         objects=objects,
         resolver=EvidenceResolver(),
+        reranker=FakeReranker(),
         candidate_k=5,
         context_k=2,
     )
@@ -96,6 +106,7 @@ def test_hybrid_search_includes_lexical_document_missing_from_dense_results() ->
     assert "sendgrid-failure" in {item.chunk.logical_id for item in result.admitted}
     assert result.dense == [payments]
     assert result.lexical[0].chunk.logical_id == "sendgrid-failure"
+    assert result.supported is True
 
 
 def test_probe_mode_embeds_raw_query_without_operational_instruction() -> None:
@@ -114,6 +125,7 @@ def test_probe_mode_embeds_raw_query_without_operational_instruction() -> None:
         vectors=FakeVectorStore(),
         objects=FakeObjectStore(),
         resolver=EvidenceResolver(),
+        reranker=FakeReranker(),
     )
 
     search.search("¿Qué haces?", QueryContext(), query_mode="probe")
@@ -137,6 +149,7 @@ def test_knowledge_mode_keeps_operational_embedding_instruction() -> None:
         vectors=FakeVectorStore(),
         objects=FakeObjectStore(),
         resolver=EvidenceResolver(),
+        reranker=FakeReranker(),
     )
 
     search.search("¿Qué pasa con SendGrid?", QueryContext(), query_mode="knowledge")
@@ -157,6 +170,7 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
         vectors=FakeVectorStore(),
         objects=objects,
         resolver=EvidenceResolver(),
+        reranker=FakeReranker(),
     )
     assert search.search("SendGrid", QueryContext()).lexical == []
 
@@ -167,6 +181,72 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     assert (
         search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id == "sendgrid-failure"
     )
+
+
+def test_cross_encoder_admits_cross_language_retry_policy() -> None:
+    calypso = _named_evidence(
+        "Calypso Integration API",
+        "The Calypso adapter accepts payment instructions from Payments API.",
+        logical_id="calypso-api",
+        distance=0.35,
+    )
+    retries = _named_evidence(
+        "Payment Retry Policy",
+        "Calypso timeout failures allow a maximum of three automated retries.",
+        logical_id="payment-retry-policy",
+        distance=0.45,
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [calypso, retries])
+    reranker = FakeReranker(
+        default_score=0.2,
+        scores_by_document={
+            "Payment Retry Policy": 0.94,
+            "Calypso Integration API": 0.58,
+        },
+    )
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[calypso, retries]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=reranker,
+        candidate_k=5,
+        context_k=4,
+        min_reranker_score=0.5,
+    )
+
+    result = search.search("Cuantos reintentos permite Calypso?", QueryContext(), query_mode="probe")
+
+    assert result.supported is True
+    assert result.relevance == 0.94
+    assert result.admitted[0].chunk.title == "Payment Retry Policy"
+    assert "reintentos" in reranker.calls[0][0].casefold()
+
+
+def test_cross_encoder_rejects_candidates_below_support_threshold() -> None:
+    payments = _named_evidence(
+        "Payment Retry Policy",
+        "Transient payment timeouts may be retried.",
+        logical_id="payment-retry-policy",
+        distance=0.1,
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [payments])
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[payments]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=FakeReranker(default_score=0.1),
+        min_reranker_score=0.5,
+    )
+
+    result = search.search("Cual es la capital de Francia?", QueryContext(), query_mode="probe")
+
+    assert result.supported is False
+    assert result.relevance == 0.1
+    assert result.admitted == []
 
 
 def test_relevance_accepts_strong_admitted_support() -> None:
