@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -51,7 +51,7 @@ class FakeStructured:
 
 
 class FakeChat:
-    instances: list[FakeChat] = []
+    instances: ClassVar[list[FakeChat]] = []
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
