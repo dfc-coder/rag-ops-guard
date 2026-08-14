@@ -3,9 +3,11 @@ COMPOSE := podman compose -f docker/docker-compose.yml
 PODMAN_SOCKET ?= /run/user/$(shell id -u)/podman/podman.sock
 CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
-export PODMAN_SOCKET MODEL_DIR
+BENCH_REQUESTS ?= 5
+BENCH_CONCURRENCY ?= 1
+export PODMAN_SOCKET MODEL_DIR LLAMA_CTX_SIZE LLAMA_PARALLEL
 
-.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models package-lambda local-up local-down local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui benchmark test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -53,6 +55,10 @@ demo-query:
 
 ui: models local-up demo-prepare
 	uv run --with "gradio>=6,<7" python scripts/gradio_ui.py
+
+# Usage: make benchmark BENCH_REQUESTS=6 BENCH_CONCURRENCY=2
+benchmark:
+	uv run python scripts/benchmark_runtime.py --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
 
 lint:
 	uv run ruff format --check .
