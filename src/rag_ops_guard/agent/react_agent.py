@@ -118,14 +118,13 @@ class ReactAgent:
             max_completion_tokens=min(settings.llm_answer_max_tokens, 384),
             timeout=settings.llm_timeout_seconds,
             max_retries=0,
-            model_kwargs={"parallel_tool_calls": False},
             extra_body={
                 "top_k": settings.llm_top_k,
                 "min_p": settings.llm_min_p,
                 "repeat_penalty": settings.llm_repeat_penalty,
                 "chat_template_kwargs": {"enable_thinking": False},
             },
-        ).bind_tools(tools)
+        ).bind_tools(tools, parallel_tool_calls=False)
 
         def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
             response = model.invoke([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]])
