@@ -13,6 +13,7 @@ Route = Literal[
     "knowledge",
     "out_of_scope",
     "uncertain",
+    "safety",
 ]
 
 DEFAULT_ROUTE_EXAMPLES: dict[Route, list[str]] = {
@@ -57,6 +58,7 @@ DEFAULT_ROUTE_EXAMPLES: dict[Route, list[str]] = {
         "What is the weather today?",
     ],
     "uncertain": [],
+    "safety": [],
 }
 
 
@@ -85,7 +87,7 @@ class SemanticRouter:
         examples = route_examples or DEFAULT_ROUTE_EXAMPLES
         self._vectors: dict[Route, list[list[float]]] = {}
         for route, utterances in examples.items():
-            if route == "uncertain" or not utterances:
+            if route in {"uncertain", "safety"} or not utterances:
                 continue
             vectors = embeddings.embed_documents(utterances)
             if not vectors:
