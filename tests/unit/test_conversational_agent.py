@@ -240,26 +240,25 @@ def test_clear_knowledge_route_uses_instructed_knowledge_search() -> None:
     assert knowledge.query_modes == ["knowledge"]
 
 
-def test_uncertain_route_with_unsupported_evidence_falls_back_to_best_control_intent() -> None:
-    question = "¿Qué haces?"
+def test_uncertain_unsupported_probe_does_not_invent_a_control_intent() -> None:
+    question = "Explicame algo que no esta documentado"
     knowledge = FakeKnowledge(
         relevance_by_query={question: 0.9},
         supported_by_query={question: False},
     )
-    agent, _, chat, _ = _agent(
+    agent, _, chat, catalog = _agent(
         "uncertain",
         knowledge=knowledge,
-        scores={"capabilities": 0.62, "knowledge": 0.615, "chat": 0.4, "out_of_scope": 0.2},
+        scores={"catalog": 0.8, "capabilities": 0.7, "knowledge": 0.6, "out_of_scope": 0.2},
     )
 
-    response = agent.invoke(QueryRequest(question=question, thread_id="thread-what-do-you-do"))
+    response = agent.invoke(QueryRequest(question=question, thread_id="thread-unsupported"))
 
-    assert response.route == "capabilities"
+    assert response.route == "out_of_scope"
     assert response.status == QueryStatus.ANSWERED
-    assert response.relevance_score == 0.9
-    assert "knowledge base" in (response.answer or "")
     assert knowledge.queries == [question]
     assert knowledge.query_modes == ["probe"]
+    assert catalog.calls == 0
     assert chat.chat_calls == 0
     assert chat.answer_calls == 0
 
