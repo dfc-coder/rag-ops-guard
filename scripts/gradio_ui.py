@@ -191,10 +191,7 @@ def chat(
     if response.citations:
         sources = "\n".join(f"- **{item.title}** · v{item.version}" for item in response.citations)
         source_summary = f"Fuentes ({len(response.citations)})"
-        parts.append(
-            f"<details><summary>{source_summary}</summary>\n\n"
-            f"{sources}\n\n</details>"
-        )
+        parts.append(f"<details><summary>{source_summary}</summary>\n\n{sources}\n\n</details>")
 
     route = response.route or "unknown"
     parts.append(
