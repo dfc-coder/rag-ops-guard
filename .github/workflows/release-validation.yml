@@ -62,7 +62,7 @@ jobs:
           name: beta1-evaluation
           path: artifacts/
       - if: always()
-        run: make local-down || true
+        run: make local-clean || true
 
   reproducibility:
     name: release/reproducibility
@@ -107,7 +107,7 @@ jobs:
       - run: make ingest-corpus
       - run: make smoke
       - if: always()
-        run: make local-down || true
+        run: make local-clean || true
 
   gate:
     name: release/gate
