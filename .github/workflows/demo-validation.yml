@@ -31,9 +31,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: client-demo-readiness
-          path: |
-            artifacts/
-            .local/reranker-calibration.json
+          path: artifacts/
           if-no-files-found: warn
       - if: always()
         run: make local-down || true
