@@ -53,6 +53,27 @@ class FakeEmbeddingProvider:
 
 
 @dataclass
+class FakeReranker:
+    default_score: float = 0.9
+    scores_by_document: dict[str, float] = field(default_factory=dict)
+    calls: list[tuple[str, list[str]]] = field(default_factory=list)
+
+    def score(self, query: str, documents: list[str]) -> list[float]:
+        self.calls.append((query, documents))
+        return [
+            next(
+                (
+                    score
+                    for marker, score in self.scores_by_document.items()
+                    if marker in document
+                ),
+                self.default_score,
+            )
+            for document in documents
+        ]
+
+
+@dataclass
 class FakeVectorStore:
     evidence: list[Evidence] = field(default_factory=list)
     stored: dict[str, tuple[Chunk, list[float]]] = field(default_factory=dict)
@@ -109,6 +130,11 @@ class FakeChatModel:
         del prompt, history
         self.generation_calls += 1
         return self.answer
+
+    def generate_grounded_text(self, prompt: str) -> str:
+        del prompt
+        self.generation_calls += 1
+        return self.answer.answer
 
     def generate_chat(self, messages: list[BaseMessage]) -> str:
         del messages
