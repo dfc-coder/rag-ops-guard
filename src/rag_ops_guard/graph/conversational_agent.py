@@ -16,8 +16,10 @@ from rag_ops_guard.agent.responses import (
     capabilities_response,
     insufficient_evidence_response,
     out_of_scope_response,
+    safety_blocked_response,
 )
 from rag_ops_guard.agent.router import Route, RouteDecision, SemanticRouter
+from rag_ops_guard.agent.safety import SafetyGuard
 from rag_ops_guard.domain.errors import CitationValidationError, EvidenceConflictError
 from rag_ops_guard.domain.models import (
     Citation,
@@ -31,12 +33,13 @@ from rag_ops_guard.graph.prompts import answer_prompt
 from rag_ops_guard.observability.runtime import QUERY_LOGGER
 from rag_ops_guard.ports import ChatModel
 from rag_ops_guard.retrieval.citations import validate_citations
-from rag_ops_guard.retrieval.hybrid import KnowledgeSearch, KnowledgeSearchResult
+from rag_ops_guard.retrieval.hybrid import KnowledgeSearch, KnowledgeSearchResult, QueryMode
 
 
 class ConversationFocus(TypedDict):
     query: str
     source_titles: list[str]
+    context: dict[str, str | None]
 
 
 class AgentState(MessagesState, total=False):
@@ -54,7 +57,7 @@ class AgentState(MessagesState, total=False):
     retrieval_query: str
     rewritten_query: str | None
     relevance_score: float
-    focus: ConversationFocus
+    focus: ConversationFocus | None
 
 
 class ConversationalAgent:
@@ -69,13 +72,16 @@ class ConversationalAgent:
         catalog: KnowledgeCatalog,
         relevance_threshold: float = 0.4,
         checkpointer: InMemorySaver | None = None,
+        safety: SafetyGuard | None = None,
     ) -> None:
         self._chat = chat
         self._router = router
         self._knowledge = knowledge
         self._catalog = catalog
         self._relevance_threshold = relevance_threshold
-        self._graph = self._build_graph(checkpointer or InMemorySaver())
+        self._checkpointer = checkpointer or InMemorySaver()
+        self._safety = safety or SafetyGuard()
+        self._graph = self._build_graph(self._checkpointer)
 
     def _build_graph(self, checkpointer: InMemorySaver) -> Any:
         builder = StateGraph(AgentState)
@@ -84,6 +90,7 @@ class ConversationalAgent:
         builder.add_node("capabilities", self._capabilities)
         builder.add_node("catalog", self._catalog_response)
         builder.add_node("out_of_scope", self._out_of_scope)
+        builder.add_node("safety", self._safety_blocked)
         builder.add_node("search_knowledge", self._search_knowledge)
         builder.add_node("grounded_answer", self._generate_grounded_answer)
 
@@ -98,6 +105,7 @@ class ConversationalAgent:
                 "knowledge": "search_knowledge",
                 "out_of_scope": "out_of_scope",
                 "uncertain": "search_knowledge",
+                "safety": "safety",
             },
         )
         builder.add_conditional_edges(
@@ -109,9 +117,10 @@ class ConversationalAgent:
                 "catalog": "catalog",
                 "knowledge": "grounded_answer",
                 "out_of_scope": "out_of_scope",
+                "safety": "safety",
             },
         )
-        for node in ("chat", "capabilities", "catalog", "out_of_scope"):
+        for node in ("chat", "capabilities", "catalog", "out_of_scope", "safety"):
             builder.add_edge(node, END)
         builder.add_edge("grounded_answer", END)
         return builder.compile(checkpointer=checkpointer)
@@ -121,7 +130,7 @@ class ConversationalAgent:
         request_id = str(uuid4())
         thread_id = request.thread_id or request_id
         state: AgentState = {
-            "messages": [HumanMessage(content=request.question.strip())],
+            "messages": [HumanMessage(content=request.question)],
             "request_id": request_id,
             "context": request.context,
             "citations": [],
@@ -167,9 +176,22 @@ class ConversationalAgent:
     def refresh_knowledge(self) -> None:
         self._knowledge.refresh()
 
+    def clear_thread(self, thread_id: str) -> None:
+        self._checkpointer.delete_thread(thread_id)
+
     def _route(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         question = _latest_user_message(state["messages"])
+        if self._safety.blocked(question):
+            route_ms = round((perf_counter() - started) * 1000, 2)
+            return {
+                "route": "safety",
+                "route_confidence": 1.0,
+                "route_margin": 1.0,
+                "route_scores": {},
+                "timings_ms": _timings(state, route=route_ms),
+            }
+
         decision: RouteDecision = self._router.route(question)
         route_ms = round((perf_counter() - started) * 1000, 2)
         QUERY_LOGGER.info(
@@ -196,12 +218,18 @@ class ConversationalAgent:
         started = perf_counter()
         original_route = state["route"]
         question = _latest_user_message(state["messages"])
-        result = self._safe_search(question, state)
+        initial_mode: QueryMode = "probe" if original_route == "uncertain" else "knowledge"
+        result = self._safe_search(question, state, query_mode=initial_mode)
         retrieval_query = question
         rewritten_query: str | None = None
         rewrite_ms = 0.0
 
-        focus = state.get("focus")
+        stored_focus = state.get("focus")
+        focus = (
+            stored_focus
+            if stored_focus and _focus_compatible(stored_focus, state["context"])
+            else None
+        )
         if result.relevance < self._relevance_threshold and focus:
             rewrite_started = perf_counter()
             try:
@@ -220,7 +248,11 @@ class ConversationalAgent:
             rewrite_ms = round((perf_counter() - rewrite_started) * 1000, 2)
 
             if rewritten_query and rewritten_query != question:
-                rewritten_result = self._safe_search(rewritten_query, state)
+                rewritten_result = self._safe_search(
+                    rewritten_query,
+                    state,
+                    query_mode="knowledge",
+                )
                 if rewritten_result.relevance > result.relevance:
                     result = rewritten_result
                     retrieval_query = rewritten_query
@@ -242,6 +274,7 @@ class ConversationalAgent:
                 "resolved_route": resolved_route,
                 "retrieval_query": retrieval_query,
                 "rewritten_query": rewritten_query or "",
+                "query_mode": initial_mode,
                 "relevance": result.relevance,
                 "dense_titles": [item.chunk.title for item in result.dense[:5]],
                 "lexical_titles": [item.chunk.title for item in result.lexical[:5]],
@@ -262,9 +295,15 @@ class ConversationalAgent:
             "timings_ms": _timings(state, **updates),
         }
 
-    def _safe_search(self, query: str, state: AgentState) -> KnowledgeSearchResult:
+    def _safe_search(
+        self,
+        query: str,
+        state: AgentState,
+        *,
+        query_mode: QueryMode,
+    ) -> KnowledgeSearchResult:
         try:
-            return self._knowledge.search(query, state["context"])
+            return self._knowledge.search(query, state["context"], query_mode=query_mode)
         except EvidenceConflictError as exc:
             QUERY_LOGGER.warning(
                 "evidence_conflict",
@@ -280,18 +319,28 @@ class ConversationalAgent:
 
     def _capabilities(self, state: AgentState) -> dict[str, Any]:
         answer = capabilities_response(_latest_user_message(state["messages"]))
-        return self._answered_update(state, answer)
+        return self._answered_update(state, answer, clear_focus=True)
 
     def _catalog_response(self, state: AgentState) -> dict[str, Any]:
         started = perf_counter()
         question = _latest_user_message(state["messages"])
         answer = self._catalog.render(question, state["context"])
         catalog_ms = round((perf_counter() - started) * 1000, 2)
-        return self._answered_update(state, answer, catalog_ms=catalog_ms)
+        return self._answered_update(state, answer, catalog_ms=catalog_ms, clear_focus=True)
 
     def _out_of_scope(self, state: AgentState) -> dict[str, Any]:
         answer = out_of_scope_response(_latest_user_message(state["messages"]))
-        return self._answered_update(state, answer)
+        return self._answered_update(state, answer, clear_focus=True)
+
+    def _safety_blocked(self, state: AgentState) -> dict[str, Any]:
+        answer = safety_blocked_response(_latest_user_message(state["messages"]))
+        return {
+            "messages": [AIMessage(content=answer)],
+            "status": QueryStatus.SAFETY_BLOCKED,
+            "answer": answer,
+            "citations": [],
+            "focus": None,
+        }
 
     def _answered_update(
         self,
@@ -300,19 +349,23 @@ class ConversationalAgent:
         *,
         generation_ms: float | None = None,
         catalog_ms: float | None = None,
+        clear_focus: bool = False,
     ) -> dict[str, Any]:
         timing_updates: dict[str, float] = {}
         if generation_ms is not None:
             timing_updates["generation"] = generation_ms
         if catalog_ms is not None:
             timing_updates["catalog"] = catalog_ms
-        return {
+        result: dict[str, Any] = {
             "messages": [AIMessage(content=answer)],
             "status": QueryStatus.ANSWERED,
             "answer": answer,
             "citations": [],
             "timings_ms": _timings(state, **timing_updates),
         }
+        if clear_focus:
+            result["focus"] = None
+        return result
 
     def _generate_grounded_answer(self, state: AgentState) -> dict[str, Any]:
         evidence = state.get("evidence", [])
@@ -325,6 +378,7 @@ class ConversationalAgent:
                 "status": QueryStatus.INSUFFICIENT_EVIDENCE,
                 "answer": answer,
                 "citations": [],
+                "focus": None,
             }
 
         started = perf_counter()
@@ -346,6 +400,7 @@ class ConversationalAgent:
                 "status": QueryStatus.INSUFFICIENT_EVIDENCE,
                 "answer": answer,
                 "citations": [],
+                "focus": None,
                 "timings_ms": _timings(state, generation=generation_ms),
             }
 
@@ -356,6 +411,7 @@ class ConversationalAgent:
                 "status": QueryStatus.INSUFFICIENT_EVIDENCE,
                 "answer": grounded.answer,
                 "citations": [],
+                "focus": None,
                 "timings_ms": _timings(state, generation=generation_ms),
             }
 
@@ -373,6 +429,7 @@ class ConversationalAgent:
                 "status": QueryStatus.INSUFFICIENT_EVIDENCE,
                 "answer": answer,
                 "citations": [],
+                "focus": None,
                 "timings_ms": _timings(state, generation=generation_ms),
             }
 
@@ -380,6 +437,7 @@ class ConversationalAgent:
         focus: ConversationFocus = {
             "query": trusted_query,
             "source_titles": [citation.title for citation in citations],
+            "context": _context_snapshot(state["context"]),
         }
         return {
             "messages": [AIMessage(content=grounded.answer)],
@@ -404,6 +462,18 @@ def _latest_user_message(messages: Sequence[BaseMessage]) -> str:
         if isinstance(message, HumanMessage):
             return str(message.content)
     raise ValueError("conversation has no user message")
+
+
+def _context_snapshot(context: QueryContext) -> dict[str, str | None]:
+    return {
+        "system": context.system,
+        "environment": context.environment,
+        "api_version": context.api_version,
+    }
+
+
+def _focus_compatible(focus: ConversationFocus, context: QueryContext) -> bool:
+    return focus["context"] == _context_snapshot(context)
 
 
 def _best_control_route(scores: dict[str, float]) -> Route:
