@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from scripts.local import ensure_data
 
 
@@ -15,7 +17,7 @@ class FakeVectorsClient:
         return {"vectors": self._vectors}
 
 
-def test_has_vectors_uses_query_vectors_probe(monkeypatch) -> None:
+def test_has_vectors_uses_query_vectors_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeVectorsClient([{"key": "chunk-1"}])
     monkeypatch.setattr(ensure_data, "client", lambda service, **kwargs: fake)
 
@@ -27,12 +29,13 @@ def test_has_vectors_uses_query_vectors_probe(monkeypatch) -> None:
     query_vector = fake.kwargs["queryVector"]
     assert isinstance(query_vector, dict)
     probe = query_vector["float32"]
+    assert isinstance(probe, list)
     assert len(probe) == ensure_data.VECTOR_DIMENSION
     assert probe[0] == 1.0
     assert all(value == 0.0 for value in probe[1:])
 
 
-def test_has_vectors_returns_false_for_empty_index(monkeypatch) -> None:
+def test_has_vectors_returns_false_for_empty_index(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeVectorsClient([])
     monkeypatch.setattr(ensure_data, "client", lambda service, **kwargs: fake)
 
