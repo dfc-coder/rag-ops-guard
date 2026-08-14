@@ -28,9 +28,10 @@ class FakeEmbeddings:
 class FakeStructured:
     def __init__(self, schema: type[object]) -> None:
         self.schema = schema
+        self.last_request: object | None = None
 
     def invoke(self, prompt: object) -> object:
-        del prompt
+        self.last_request = prompt
         fields = getattr(self.schema, "model_fields", {})
         if "normalized_question" in fields:
             return {
@@ -43,6 +44,8 @@ class FakeStructured:
                 "safety_category": "normal",
                 "fallback_message": "This request cannot be answered safely.",
             }
+        if "standalone_query" in fields:
+            return {"standalone_query": "Calypso retries after the third attempt"}
         return {
             "status": "answered",
             "answer": "grounded",
@@ -56,11 +59,14 @@ class FakeChat:
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
         self.last_request: object | None = None
+        self.structured: list[FakeStructured] = []
         self.instances.append(self)
 
     def with_structured_output(self, schema: type[object], method: str) -> FakeStructured:
         assert method == "json_schema"
-        return FakeStructured(schema)
+        structured = FakeStructured(schema)
+        self.structured.append(structured)
+        return structured
 
     def invoke(self, request: object) -> AIMessage:
         self.last_request = request
@@ -98,11 +104,17 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         chat_system_prompt="chat rules",
     )
     analysis = adapter.analyze_query("analyze")
+    rewrite = adapter.rewrite_query(
+        current_question="¿Y después del tercero?",
+        previous_query="reintentos de Calypso",
+        source_titles=["Payment Retry Policy"],
+    )
     answer = adapter.generate_answer("answer")
     chat = adapter.generate_chat([HumanMessage(content="hello")])
 
     assert analysis.normalized_question == "normalized"
     assert analysis.insufficient_evidence_message == "This request cannot be answered safely."
+    assert rewrite == "Calypso retries after the third attempt"
     assert answer == GroundedAnswer(
         status="answered",
         answer="grounded",
@@ -118,6 +130,11 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
     request = FakeChat.instances[1].last_request
     assert isinstance(request, list)
     assert isinstance(request[0], SystemMessage)
+
+    rewrite_request = FakeChat.instances[0].structured[1].last_request
+    assert isinstance(rewrite_request, list)
+    assert isinstance(rewrite_request[0], SystemMessage)
+    assert isinstance(rewrite_request[1], HumanMessage)
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
