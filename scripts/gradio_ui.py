@@ -18,9 +18,8 @@ STATUS_LABELS = {
 }
 
 TIMING_LABELS = {
-    "embedding": "embedding",
-    "retrieval": "retrieval",
-    "resolver": "resolver",
+    "route": "route",
+    "search": "search",
     "generation": "generación",
 }
 
@@ -155,13 +154,21 @@ def _timing_line(timings: dict[str, float], elapsed_ms: int) -> str:
     return f"{total} · {stages}" if stages else total
 
 
-def chat(message: str, _history: list, system: str, environment: str) -> str:
+def chat(
+    message: str,
+    _history: list,
+    system: str,
+    environment: str,
+    request: gr.Request | None = None,
+) -> str:
     env = environment if environment in {"production", "staging"} else None
     started = time.perf_counter()
+    thread_id = request.session_hash if request and request.session_hash else None
 
     response = query_workflow().invoke(
         QueryRequest(
             question=message,
+            thread_id=thread_id,
             context=QueryContext(
                 system=system.strip() or None,
                 environment=env,
@@ -187,8 +194,10 @@ def chat(message: str, _history: list, system: str, environment: str) -> str:
             f"<details><summary>Fuentes ({len(response.citations)})</summary>\n\n{sources}\n\n</details>"
         )
 
+    route = response.route or "unknown"
     parts.append(
-        f"<details><summary>Detalles</summary>\n\n<small>{timing_line}</small>\n\n</details>"
+        f"<details><summary>Detalles</summary>\n\n"
+        f"<small>route {route} · {timing_line}</small>\n\n</details>"
     )
     return "\n\n".join(part for part in parts if part)
 
@@ -211,6 +220,7 @@ def ingest_file(
 
     progress(0.7, desc="Generando embeddings")
     result = ingestion_service().ingest(key)
+    query_workflow().refresh_knowledge()
     progress(1.0, desc="Listo")
 
     return f"**{metadata.title}** · {result.chunks} chunks · v{metadata.version}"
@@ -232,7 +242,7 @@ with gr.Blocks(
         with gr.Row(elem_id="rag-header"):
             with gr.Column(scale=5, min_width=320):
                 gr.Markdown(
-                    "# RAG Ops Guard\nConsultá la knowledge base operativa con respuestas fundamentadas."
+                    "# RAG Ops Guard\nAgente conversacional para operaciones con respuestas fundamentadas."
                 )
             with gr.Column(scale=1, min_width=180):
                 gr.HTML(_observability_label())
@@ -274,8 +284,8 @@ with gr.Blocks(
             with gr.Column(scale=5, min_width=500, elem_id="chat-panel"):
                 chatbot = gr.Chatbot(
                     placeholder=(
-                        "<strong>Preguntá sobre runbooks, APIs, incidentes o SLAs.</strong><br>"
-                        "Las respuestas se limitan a la evidencia disponible."
+                        "<strong>Preguntá o conversá sobre operaciones.</strong><br>"
+                        "El agente consulta la knowledge base cuando necesita evidencia."
                     ),
                     height="calc(100vh - 190px)",
                     show_label=False,
