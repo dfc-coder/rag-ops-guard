@@ -59,4 +59,4 @@ jobs:
           path: artifacts/
           if-no-files-found: warn
       - if: always()
-        run: make local-down || true
+        run: make local-clean || true
