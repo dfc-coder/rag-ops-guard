@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from langchain_core.messages import BaseMessage
+
 from rag_ops_guard.domain.models import Chunk, Evidence, GroundedAnswer, QueryAnalysis
 
 
@@ -9,6 +11,8 @@ class ChatModel(Protocol):
     def analyze_query(self, prompt: str) -> QueryAnalysis: ...
 
     def generate_answer(self, prompt: str) -> GroundedAnswer: ...
+
+    def generate_chat(self, messages: list[BaseMessage]) -> str: ...
 
 
 class EmbeddingProvider(Protocol):
@@ -36,3 +40,5 @@ class ObjectStore(Protocol):
     def put_text(self, key: str, content: str, content_type: str = "text/plain") -> None: ...
 
     def exists(self, key: str) -> bool: ...
+
+    def list_keys(self, prefix: str) -> list[str]: ...
