@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from rag_ops_guard.agent.router import DEFAULT_ROUTE_EXAMPLES, Route, SemanticRouter
 
 
@@ -63,6 +65,18 @@ def test_router_normalizes_exact_control_intent_before_embeddings() -> None:
     assert decision.route == "capabilities"
     assert decision.score == 1.0
     assert decision.margin == 1.0
+
+
+def test_router_rejects_control_examples_that_collide_after_normalization() -> None:
+    with pytest.raises(ValueError, match="normalized control example is ambiguous"):
+        SemanticRouter(
+            FakeEmbeddings(),
+            route_examples={
+                "chat": ["Qué haces"],
+                "capabilities": ["¿QUE HACES?"],
+                "knowledge": ["api"],
+            },
+        )
 
 
 def test_router_routes_clear_catalog_question() -> None:
