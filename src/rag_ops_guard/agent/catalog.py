@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rag_ops_guard.agent.responses import _is_spanish
 from rag_ops_guard.domain.models import Chunk, DocumentStatus, QueryContext
 from rag_ops_guard.ports import ObjectStore
-from rag_ops_guard.agent.responses import _is_spanish
 
 
 @dataclass(frozen=True)
