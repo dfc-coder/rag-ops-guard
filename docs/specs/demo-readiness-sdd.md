@@ -23,18 +23,19 @@ This specification hardens the bounded conversational agent and local demo path.
 
 ### B. Routing and retrieval
 
-1. A clear `knowledge` route uses the operational retrieval instruction.
-2. An `uncertain` route probes the corpus with the raw user query, not with an instruction that presupposes an integration-operations intent.
-3. `uncertain` is not a user-facing terminal route.
-4. Registered narrow control utterances (`chat`, `capabilities`, `catalog`, `out_of_scope`) are normalized for case, accents, punctuation and whitespace and resolved exactly before semantic routing.
-5. The exact control fast-path is data-driven from the route-example set; it must not contain entity-specific conditions such as product or system names.
-6. Non-exact utterances use closest-example semantic scoring with confidence/margin abstention. Semantic ambiguity must enter `uncertain` rather than force a control or knowledge route.
-7. Direct product-role questions such as `¿Qué haces?`, including normalized variants such as `QUE HACES!!!`, belong to `capabilities` and must not enter RAG.
-8. If `knowledge` is already the strongest semantic hypothesis, admitted evidence above the normal relevance threshold may confirm it.
-9. If a non-knowledge control intent leads semantically, a raw retrieval probe may override it only when admitted evidence also has an informative lexical anchor to the question.
+1. Registered narrow control utterances (`chat`, `capabilities`, `catalog`, `out_of_scope`) are normalized for case, accents, punctuation and whitespace and resolved exactly before semantic routing.
+2. The exact control fast-path is data-driven from the route-example set; it must not contain entity-specific conditions such as product or system names.
+3. Direct product-role questions such as `¿Qué haces?`, including normalized variants such as `QUE HACES!!!`, belong to `capabilities` and must not enter RAG.
+4. Free-form utterances that do not match a narrow control intent MUST enter `uncertain`; semantic similarity alone is advisory telemetry and MUST NOT directly choose `chat`, `capabilities`, `catalog`, `knowledge`, or `out_of_scope`.
+5. An `uncertain` turn probes the corpus with the raw user query, not with an instruction that presupposes an integration-operations intent.
+6. `uncertain` is not a user-facing terminal route.
+7. The post-retrieval resolver decides `knowledge` versus a control fallback using admitted evidence, lexical support, relevance, and semantic route scores.
+8. A semantic collision in which `capabilities` or another control class scores above `knowledge` MUST NOT prevent an entity/system query from reaching retrieval.
+9. If admitted evidence is relevant and has an informative lexical anchor, the turn may resolve to `knowledge` even when a control class had the highest embedding similarity.
 10. Dense-only nearest-neighbor similarity is not sufficient to convert a control/meta question into `knowledge`.
 11. Relevance and lexical support are computed only from evidence that survived deterministic admission/version/context rules.
 12. Rejected dense candidates must not increase the final relevance or lexical-support signal.
+13. A clear knowledge retrieval uses the operational retrieval instruction only after the agent has resolved the turn to the knowledge path; raw disambiguation probes remain instruction-free.
 
 ### C. Trusted conversational memory
 
@@ -60,6 +61,12 @@ This specification hardens the bounded conversational agent and local demo path.
 3. The current `ConversationalAgent`, not a legacy workflow, is the subject of adversarial tests.
 4. The real-model demo gate includes an indirect prompt-injection scenario from the repository corpus.
 
+### F. Demo gate truthfulness
+
+1. A turn is never labeled `PASS` before its scenario-specific assertions have succeeded.
+2. Runtime observations may be printed as `CHECK`/diagnostic output before assertions.
+3. The only global success signal is `DEMO READY: all real-runtime client scenarios passed` after every required assertion succeeds.
+
 ## Client-demo behavioral contract
 
 `make demo-client` MUST stop before launching Gradio if any of these fail:
@@ -67,7 +74,7 @@ This specification hardens the bounded conversational agent and local demo path.
 1. `Hola` -> conversational response; no raw error; language is not mixed with an English help sentence.
 2. `Que haces?` -> capabilities; no grounded citations required.
 3. `Que documentacion tienes disponible?` -> catalog containing real active KB entries.
-4. `que pasa con sendgrid?` -> grounded answer with SendGrid evidence.
+4. `que pasa con sendgrid?` -> grounded answer with SendGrid evidence even if a control intent has a higher raw embedding similarity.
 5. `Cual es el objetivo de Calypso Payments API?` -> grounded answer with Calypso/Payments API evidence.
 6. `Cuantos reintentos permite Calypso?` -> three retries and active Payment Retry Policy evidence.
 7. `Y despues del tercero?` in the same thread -> Treasury Integrations, using trusted follow-up context.
@@ -85,7 +92,8 @@ This specification hardens the bounded conversational agent and local demo path.
 
 - QueryRequest normalization and short inputs.
 - Normalized exact-match control routing without embedding the query.
-- Closest-example semantic fallback with abstention on collisions.
+- Free-form semantic control collisions always enter the retrieval-first `uncertain` path.
+- Semantic scores remain available for post-retrieval fallback but cannot short-circuit retrieval.
 - Direct capabilities intent coverage.
 - Relevance uses only admitted evidence.
 - Raw-query uncertain probe.
@@ -106,6 +114,8 @@ This specification hardens the bounded conversational agent and local demo path.
 ### Real local behavioral gate
 
 `scripts/demo_ready.py` uses `query_workflow()` directly after `models + local-up + local-data`. It uses fresh unique thread IDs and asserts the client-demo behavioral contract. Any assertion or runtime error exits non-zero.
+
+The gate prints turn observations as `CHECK`, never as `PASS` before validation. Only the final `DEMO READY` line represents complete success.
 
 `make demo-client` is the only recommended entry point for a client-facing demo. It runs the real behavioral gate first and launches Gradio only on success.
 
