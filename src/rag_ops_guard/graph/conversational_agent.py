@@ -260,7 +260,9 @@ class ConversationalAgent:
         resolved_route = original_route
         if original_route == "uncertain":
             resolved_route = (
-                "knowledge" if result.supported else _best_control_route(state.get("route_scores", {}))
+                "knowledge"
+                if result.supported
+                else _best_control_route(state.get("route_scores", {}))
             )
 
         search_ms = round((perf_counter() - started) * 1000, 2)
