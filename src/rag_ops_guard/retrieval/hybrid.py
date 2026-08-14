@@ -81,7 +81,7 @@ class KnowledgeSearch:
         reranker: Reranker,
         candidate_k: int = 20,
         context_k: int = 4,
-        min_reranker_score: float = 0.5,
+        min_reranker_score: float = 0.0,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
@@ -90,6 +90,8 @@ class KnowledgeSearch:
         self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
+        # Production supplies this value from the labeled calibration artifact.
+        # Zero is intentionally reserved for tests/calibration runs that need raw ranking.
         self._min_reranker_score = min_reranker_score
         self._bm25: BM25Index | None = None
 
@@ -177,7 +179,7 @@ def reciprocal_rank_fusion(
 
 
 def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Legacy diagnostic score; production admission is decided by the cross-encoder."""
+    """Legacy diagnostic score; production admission is decided by calibrated reranking."""
     semantic = 0.0
     distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
