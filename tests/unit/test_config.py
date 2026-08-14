@@ -7,10 +7,10 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.aws_endpoint_url == "http://localhost:4566"
     assert settings.vector_dimension == 1024
     assert settings.retrieval_top_k == 8
-    assert settings.retrieval_context_k == 5
+    assert settings.retrieval_context_k == 3
     assert settings.llm_model == "qwen35-0.8b-rag"
     assert settings.llm_analysis_max_tokens == 128
-    assert settings.llm_answer_max_tokens == 320
+    assert settings.llm_answer_max_tokens == 256
     assert settings.llm_analysis_max_tokens < settings.llm_answer_max_tokens
     assert settings.llm_timeout_seconds == 60.0
     assert settings.llm_temperature == 0.2
@@ -20,3 +20,4 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.llm_presence_penalty == 0.0
     assert settings.llm_repeat_penalty == 1.0
     assert settings.embedding_model == "qwen3-embedding-0.6b"
+    assert settings.langsmith_endpoint == "https://api.smith.langchain.com"
