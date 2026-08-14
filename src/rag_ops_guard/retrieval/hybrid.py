@@ -7,6 +7,7 @@ from typing import Literal
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
 from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, VectorStore
 from rag_ops_guard.retrieval.bm25 import BM25Index
+from rag_ops_guard.retrieval.identifiers import explicit_identifiers, identifiers_match_text
 from rag_ops_guard.retrieval.query_instruction import embedding_query
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
@@ -111,7 +112,13 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
-        candidates = resolved[: self._candidate_k]
+
+        query_identifiers = explicit_identifiers(query)
+        candidates = [
+            item
+            for item in resolved
+            if identifiers_match_text(query_identifiers, _reranker_document(item))
+        ][: self._candidate_k]
 
         scores = self._reranker.score(query, [_reranker_document(item) for item in candidates])
         if len(scores) != len(candidates):
