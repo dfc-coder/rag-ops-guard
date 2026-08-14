@@ -47,7 +47,9 @@ def _patch_clients(
     monkeypatch.setattr(ensure_data, "client", fake_client)
 
 
-def test_corpus_ready_requires_every_manifest_digest_and_vector(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_corpus_ready_requires_every_manifest_digest_and_vector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     docs = [
         ensure_data.LocalDocument("manifests/a/1.0.json", "digest-a"),
         ensure_data.LocalDocument("manifests/b/1.0.json", "digest-b"),
