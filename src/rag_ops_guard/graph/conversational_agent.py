@@ -27,7 +27,7 @@ from rag_ops_guard.retrieval.citations import validate_citations
 from rag_ops_guard.retrieval.hybrid import KnowledgeSearch, KnowledgeSearchResult
 
 
-class AgentState(MessagesState):
+class AgentState(MessagesState, total=False):
     request_id: str
     context: QueryContext
     route: Route
