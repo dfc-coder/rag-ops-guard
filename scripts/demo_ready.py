@@ -58,7 +58,7 @@ def main() -> None:
     sendgrid = _ask("que pasa con sendgrid?")
     _grounded(sendgrid)
     _require(
-        any("SendGrid Failure Runbook" == title for title in _titles(sendgrid)),
+        any(title == "SendGrid Failure Runbook" for title in _titles(sendgrid)),
         "SendGrid query did not cite the SendGrid runbook",
     )
 
