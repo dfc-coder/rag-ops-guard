@@ -5,11 +5,11 @@ from typing import Any
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
-from openai import APITimeoutError
+from openai import APITimeoutError, LengthFinishReasonError
 from pydantic import ValidationError
 
 from rag_ops_guard.domain.errors import CitationValidationError, EvidenceConflictError
-from rag_ops_guard.domain.models import QueryRequest, QueryResponse, QueryStatus
+from rag_ops_guard.domain.models import Evidence, QueryRequest, QueryResponse, QueryStatus
 from rag_ops_guard.graph.prompts import answer_prompt
 from rag_ops_guard.graph.state import RagState
 from rag_ops_guard.graph.workflow import RagWorkflow
@@ -20,7 +20,7 @@ from rag_ops_guard.retrieval.reranker import rerank_evidence
 
 
 class TimedRagWorkflow(RagWorkflow):
-    """Production hot path: retrieve, resolve, rerank, then make exactly one LLM call."""
+    """Production hot path: retrieve, resolve, then make exactly one LLM call."""
 
     @staticmethod
     def _timings(state: RagState, **updates: float) -> dict[str, float]:
@@ -107,12 +107,12 @@ class TimedRagWorkflow(RagWorkflow):
     def _resolve_evidence(self, state: RagState) -> RagState:
         started = perf_counter()
         try:
-            eligible = self._resolver.resolve(
+            candidates = self._resolver.resolve(
                 state.get("retrieved_evidence", []),
                 state["context"],
                 limit=self._top_k,
             )
-            resolved = rerank_evidence(state["question"], eligible)[: self._context_k]
+            resolved = rerank_evidence(state["question"], candidates)[: self._context_k]
         except EvidenceConflictError as exc:
             QUERY_LOGGER.warning(
                 "evidence_conflict",
@@ -142,7 +142,7 @@ class TimedRagWorkflow(RagWorkflow):
             grounded = self._chat.generate_answer(
                 answer_prompt(state["question"], state.get("resolved_evidence", []))
             )
-        except (APITimeoutError, ValidationError) as exc:
+        except (APITimeoutError, LengthFinishReasonError, ValidationError) as exc:
             generation_ms = round((perf_counter() - started) * 1000, 2)
             QUERY_LOGGER.warning(
                 "generation_failed",
@@ -195,8 +195,12 @@ class TimedRagWorkflow(RagWorkflow):
             }
 
         try:
-            citations = validate_citations(
+            citation_ids = self._expand_citation_refs(
                 grounded.citation_ids,
+                state.get("resolved_evidence", []),
+            )
+            citations = validate_citations(
+                citation_ids,
                 state.get("resolved_evidence", []),
             )
         except CitationValidationError as exc:
@@ -219,3 +223,9 @@ class TimedRagWorkflow(RagWorkflow):
             "clarification_question": None,
             "citations": citations,
         }
+
+    @staticmethod
+    def _expand_citation_refs(citation_ids: list[str], evidence: list[Evidence]) -> list[str]:
+        lookup = {f"E{index}": item.chunk.id for index, item in enumerate(evidence, start=1)}
+        lookup.update({item.chunk.id: item.chunk.id for item in evidence})
+        return [lookup.get(citation_id, citation_id) for citation_id in citation_ids]
