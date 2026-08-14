@@ -86,9 +86,7 @@ def main() -> None:
     latencies = [elapsed for elapsed, _ in results]
     statuses = Counter(str(payload.get("status")) for _, payload in results)
     errors = Counter(
-        str(payload.get("error"))
-        for _, payload in results
-        if payload.get("status") == "error"
+        str(payload.get("error")) for _, payload in results if payload.get("status") == "error"
     )
     generation = [
         float(payload.get("timings_ms", {}).get("generation", 0.0)) for _, payload in results
