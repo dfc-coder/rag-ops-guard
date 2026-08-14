@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
+import time
 
 import gradio as gr
 
@@ -190,8 +190,10 @@ def chat(
 
     if response.citations:
         sources = "\n".join(f"- **{item.title}** · v{item.version}" for item in response.citations)
+        source_summary = f"Fuentes ({len(response.citations)})"
         parts.append(
-            f"<details><summary>Fuentes ({len(response.citations)})</summary>\n\n{sources}\n\n</details>"
+            f"<details><summary>{source_summary}</summary>\n\n"
+            f"{sources}\n\n</details>"
         )
 
     route = response.route or "unknown"
@@ -233,70 +235,73 @@ def _observability_label() -> str:
     return f"<div class='rag-observability'>LangSmith · <strong>{state}</strong></div>"
 
 
-with gr.Blocks(
-    title="RAG Ops Guard",
-    fill_width=True,
-    fill_height=True,
-) as demo:
-    with gr.Column(elem_id="app-shell"):
-        with gr.Row(elem_id="rag-header"):
-            with gr.Column(scale=5, min_width=320):
-                gr.Markdown(
-                    "# RAG Ops Guard\nAgente conversacional para operaciones con respuestas fundamentadas."
+with (
+    gr.Blocks(
+        title="RAG Ops Guard",
+        fill_width=True,
+        fill_height=True,
+    ) as demo,
+    gr.Column(elem_id="app-shell"),
+):
+    with gr.Row(elem_id="rag-header"):
+        with gr.Column(scale=5, min_width=320):
+            gr.Markdown(
+                "# RAG Ops Guard\n"
+                "Agente conversacional para operaciones con respuestas fundamentadas."
+            )
+        with gr.Column(scale=1, min_width=180):
+            gr.HTML(_observability_label())
+
+    with gr.Row(equal_height=True, elem_id="workspace"):
+        with gr.Column(scale=1, min_width=280, elem_id="context-panel"):
+            with gr.Group():
+                gr.Markdown("### Contexto")
+                system = gr.Textbox(
+                    label="Sistema",
+                    placeholder="Opcional, ej. payments",
+                    value="",
                 )
-            with gr.Column(scale=1, min_width=180):
-                gr.HTML(_observability_label())
-
-        with gr.Row(equal_height=True, elem_id="workspace"):
-            with gr.Column(scale=1, min_width=280, elem_id="context-panel"):
-                with gr.Group():
-                    gr.Markdown("### Contexto")
-                    system = gr.Textbox(
-                        label="Sistema",
-                        placeholder="Opcional, ej. payments",
-                        value="",
-                    )
-                    environment = gr.Dropdown(
-                        choices=[
-                            ("Cualquiera", ""),
-                            ("Producción", "production"),
-                            ("Staging", "staging"),
-                        ],
-                        value="",
-                        label="Ambiente",
-                    )
-
-                with gr.Accordion("Knowledge base", open=False):
-                    document = gr.File(
-                        label="Agregar Markdown",
-                        file_types=[".md", ".markdown"],
-                        type="filepath",
-                    )
-                    ingest_button = gr.Button("Ingerir documento", variant="primary")
-                    ingest_status = gr.Markdown()
-                    ingest_button.click(
-                        ingest_file,
-                        inputs=document,
-                        outputs=ingest_status,
-                        show_progress="full",
-                    )
-
-            with gr.Column(scale=5, min_width=500, elem_id="chat-panel"):
-                chatbot = gr.Chatbot(
-                    placeholder=(
-                        "<strong>Preguntá o conversá sobre operaciones.</strong><br>"
-                        "El agente consulta la knowledge base cuando necesita evidencia."
-                    ),
-                    height="calc(100vh - 190px)",
-                    show_label=False,
-                    elem_id="rag-chatbot",
+                environment = gr.Dropdown(
+                    choices=[
+                        ("Cualquiera", ""),
+                        ("Producción", "production"),
+                        ("Staging", "staging"),
+                    ],
+                    value="",
+                    label="Ambiente",
                 )
 
-                gr.ChatInterface(
-                    fn=chat,
-                    chatbot=chatbot,
-                    additional_inputs=[system, environment],
+            with gr.Accordion("Knowledge base", open=False):
+                document = gr.File(
+                    label="Agregar Markdown",
+                    file_types=[".md", ".markdown"],
+                    type="filepath",
                 )
+                ingest_button = gr.Button("Ingerir documento", variant="primary")
+                ingest_status = gr.Markdown()
+                ingest_button.click(
+                    ingest_file,
+                    inputs=document,
+                    outputs=ingest_status,
+                    show_progress="full",
+                )
+
+        with gr.Column(scale=5, min_width=500, elem_id="chat-panel"):
+            chatbot = gr.Chatbot(
+                placeholder=(
+                    "<strong>Preguntá o conversá sobre operaciones.</strong><br>"
+                    "El agente consulta la knowledge base cuando necesita evidencia."
+                ),
+                height="calc(100vh - 190px)",
+                show_label=False,
+                elem_id="rag-chatbot",
+            )
+
+            gr.ChatInterface(
+                fn=chat,
+                chatbot=chatbot,
+                additional_inputs=[system, environment],
+            )
 
 
 if __name__ == "__main__":
