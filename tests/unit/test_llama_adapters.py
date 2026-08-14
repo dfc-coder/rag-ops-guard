@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from rag_ops_guard.adapters.embeddings import llamacpp_embeddings
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
@@ -28,7 +29,7 @@ class FakeStructured:
     def __init__(self, schema: type[object]) -> None:
         self.schema = schema
 
-    def invoke(self, prompt: str) -> object:
+    def invoke(self, prompt: object) -> object:
         del prompt
         fields = getattr(self.schema, "model_fields", {})
         if "normalized_question" in fields:
@@ -54,11 +55,16 @@ class FakeChat:
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        self.last_request: object | None = None
         self.instances.append(self)
 
     def with_structured_output(self, schema: type[object], method: str) -> FakeStructured:
         assert method == "json_schema"
         return FakeStructured(schema)
+
+    def invoke(self, request: object) -> AIMessage:
+        self.last_request = request
+        return AIMessage(content="chat response")
 
 
 class FakeHttpResponse:
@@ -88,9 +94,12 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         analysis_max_tokens=128,
         answer_max_tokens=256,
         timeout_seconds=60.0,
+        answer_system_prompt="grounding rules",
+        chat_system_prompt="chat rules",
     )
     analysis = adapter.analyze_query("analyze")
     answer = adapter.generate_answer("answer")
+    chat = adapter.generate_chat([HumanMessage(content="hello")])
 
     assert analysis.normalized_question == "normalized"
     assert analysis.insufficient_evidence_message == "This request cannot be answered safely."
@@ -99,12 +108,16 @@ def test_chat_adapter_uses_structured_schemas(monkeypatch: pytest.MonkeyPatch) -
         answer="grounded",
         citation_ids=["doc:1.0:000:deadbeef"],
     )
+    assert chat == "chat response"
     assert len(FakeChat.instances) == 2
     assert FakeChat.instances[0].kwargs["temperature"] == 0.0
     assert FakeChat.instances[0].kwargs["max_completion_tokens"] == 128
     assert FakeChat.instances[1].kwargs["max_completion_tokens"] == 256
     assert all(item.kwargs["timeout"] == 60.0 for item in FakeChat.instances)
     assert all(item.kwargs["max_retries"] == 0 for item in FakeChat.instances)
+    request = FakeChat.instances[1].last_request
+    assert isinstance(request, list)
+    assert isinstance(request[0], SystemMessage)
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
