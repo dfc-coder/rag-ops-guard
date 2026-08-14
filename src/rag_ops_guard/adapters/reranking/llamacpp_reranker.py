@@ -16,6 +16,7 @@ _DEFAULT_INSTRUCTION = (
     "environment, version, and requested operation, must be satisfied. A document about a "
     "different target is not relevant merely because it describes a similar operation."
 )
+_MISSING_CLASS_LOGPROB = -10.0
 
 
 class LlamaCppRerankerAdapter:
@@ -106,13 +107,16 @@ def _yes_no_logprobs(item: dict[str, object]) -> tuple[float, float]:
         if normalized in {"yes", "no"}:
             values[normalized] = float(logprob)
 
-    if "yes" not in values or "no" not in values:
-        raise ValueError("reranker completion did not expose both yes and no logits")
-    return values["yes"], values["no"]
+    if not values:
+        raise ValueError("reranker completion did not expose a yes/no logit")
+    return (
+        values.get("yes", _MISSING_CLASS_LOGPROB),
+        values.get("no", _MISSING_CLASS_LOGPROB),
+    )
 
 
 def _binary_probability(yes_logprob: float, no_logprob: float) -> float:
-    """Normalize the two class logits exactly as the Qwen reranker reference implementation."""
+    """Normalize the two class logits as in the Qwen reranker reference implementation."""
     delta = no_logprob - yes_logprob
     if delta >= 0:
         factor = math.exp(-delta)
