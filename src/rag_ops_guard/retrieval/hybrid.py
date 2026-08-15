@@ -5,12 +5,13 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
-from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, VectorStore
+from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, RerankGrade, VectorStore
 from rag_ops_guard.retrieval.bm25 import BM25Index
 from rag_ops_guard.retrieval.query_instruction import embedding_query
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 _RRF_K = 60
+_AUTHORITY_TIE_BAND = 0.05
 _TOKEN_RE = re.compile(r"\w{2,}", re.UNICODE)
 _STOPWORDS = {
     "the",
@@ -241,7 +242,7 @@ class KnowledgeSearch:
             zip(candidates, grades, strict=True),
             key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
         )
-        admitted_pairs = [pair for pair in ranked if pair[1].relevant][: self._context_k]
+        admitted_pairs = _select_admitted_pairs(ranked, limit=self._context_k)
         admitted = [item for item, _grade in admitted_pairs]
         top_score = ranked[0][1].score if ranked else 0.0
         reranker_scores = {item.chunk.id: round(grade.score, 6) for item, grade in ranked}
@@ -273,6 +274,40 @@ class KnowledgeSearch:
             chunk = Chunk.model_validate_json(self._objects.get_text(key))
             evidence.append(Evidence(chunk=chunk, distance=None))
         return BM25Index(evidence)
+
+
+def _select_admitted_pairs(
+    ranked: list[tuple[Evidence, RerankGrade]],
+    *,
+    limit: int,
+) -> list[tuple[Evidence, RerankGrade]]:
+    """Prefer authority only when reranker relevance is effectively tied.
+
+    Authority must not rescue irrelevant evidence. Among candidates the reranker already marked
+    relevant, sources within a small score band of the strongest hit are ordered by document
+    authority before filling the remaining context slots by pure reranker order. This prevents a
+    low-authority vendor note from crowding an authority-100 policy out of a small context window
+    when their learned relevance scores differ only marginally.
+    """
+    relevant = [pair for pair in ranked if pair[1].relevant]
+    if not relevant or limit <= 0:
+        return []
+
+    top_score = relevant[0][1].score
+    near_tied = [pair for pair in relevant if top_score - pair[1].score <= _AUTHORITY_TIE_BAND]
+    near_tied.sort(key=lambda pair: (-pair[0].chunk.metadata.authority, -pair[1].score))
+
+    selected = near_tied[:limit]
+    selected_ids = {item.chunk.id for item, _grade in selected}
+    if len(selected) < limit:
+        selected.extend(
+            pair
+            for pair in relevant
+            if pair[0].chunk.id not in selected_ids
+            for _ in [None]
+            if len(selected) < limit
+        )
+    return selected[:limit]
 
 
 def reciprocal_rank_fusion(
