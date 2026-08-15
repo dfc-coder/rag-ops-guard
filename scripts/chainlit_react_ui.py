@@ -5,7 +5,6 @@ import json
 import logging
 import threading
 from collections.abc import AsyncIterator
-from typing import Any
 from uuid import uuid4
 
 import chainlit as cl
@@ -67,22 +66,23 @@ async def _agent_events(
         cancel_event.set()
         if not worker_task.done():
             # Do not make the UI wait for a local inference that the user explicitly stopped.
-            worker_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+            worker_task.add_done_callback(
+                lambda task: task.exception() if not task.cancelled() else None
+            )
         else:
             await worker_task
 
 
 def _query_context() -> QueryContext:
     environment = cl.user_session.get("environment")
-    return QueryContext(environment=environment if environment in {"production", "staging"} else None)
+    return QueryContext(
+        environment=environment if environment in {"production", "staging"} else None
+    )
 
 
 def _last_turn_sources(thread_id: str) -> list[dict[str, str]]:
-    """Read the exact search_knowledge evidence already committed for the successful turn.
-
-    This deliberately avoids a second embedding/rerank pass just to render source cards.
-    """
-    with AGENT._history_guard:  # noqa: SLF001 - adapter reads the agent's committed snapshot
+    """Read the exact search_knowledge evidence already committed for the successful turn."""
+    with AGENT._history_guard:  # noqa: SLF001 - UI adapter reads committed agent state
         messages = list(AGENT._histories.get(thread_id, []))  # noqa: SLF001
 
     last_user = -1
@@ -90,16 +90,12 @@ def _last_turn_sources(thread_id: str) -> list[dict[str, str]]:
         if isinstance(message, HumanMessage):
             last_user = index
 
-    sources: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
+    documents: dict[tuple[str, str, str, str], dict[str, str]] = {}
     for message in messages[last_user + 1 :]:
-        if not isinstance(message, ToolMessage):
-            continue
-        content = message.content
-        if not isinstance(content, str):
+        if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
             continue
         try:
-            payload = json.loads(content)
+            payload = json.loads(message.content)
         except json.JSONDecodeError:
             continue
         if not isinstance(payload, dict) or payload.get("supported") is not True:
@@ -107,22 +103,32 @@ def _last_turn_sources(thread_id: str) -> list[dict[str, str]]:
         raw_sources = payload.get("sources")
         if not isinstance(raw_sources, list):
             continue
+
         for raw in raw_sources:
             if not isinstance(raw, dict):
                 continue
-            source = {
-                "title": str(raw.get("title", "Fuente")),
-                "version": str(raw.get("version", "")),
-                "system": str(raw.get("system", "")),
-                "environment": str(raw.get("environment", "")),
-                "section": str(raw.get("section", "")),
-                "text": str(raw.get("text", "")),
-            }
-            key = (source["title"], source["version"], source["section"])
-            if key not in seen:
-                seen.add(key)
-                sources.append(source)
-    return sources
+            title = str(raw.get("title", "Fuente"))
+            version = str(raw.get("version", ""))
+            system = str(raw.get("system", ""))
+            environment = str(raw.get("environment", ""))
+            key = (title, version, system, environment)
+            section = str(raw.get("section", ""))
+            text = str(raw.get("text", ""))
+            excerpt = f"### {section}\n{text}" if section else text
+
+            current = documents.get(key)
+            if current is None:
+                documents[key] = {
+                    "title": title,
+                    "version": version,
+                    "system": system,
+                    "environment": environment,
+                    "text": excerpt,
+                }
+            elif excerpt and excerpt not in current["text"]:
+                current["text"] += f"\n\n{excerpt}"
+
+    return list(documents.values())
 
 
 def _source_elements(sources: list[dict[str, str]]) -> tuple[list[cl.Text], str]:
@@ -139,8 +145,7 @@ def _source_elements(sources: list[dict[str, str]]) -> tuple[list[cl.Text], str]
             )
             if value
         )
-        section = f"\nSección: {source['section']}" if source["section"] else ""
-        content = f"{meta}{section}\n\n{source['text']}".strip()
+        content = f"{meta}\n\n{source['text']}".strip()
         elements.append(cl.Text(name=title, content=content, display="side"))
         labels.append(title)
     return elements, " · ".join(labels)
@@ -158,7 +163,7 @@ async def _run_turn(message: str) -> None:
     streamed_text = ""
     has_visible_output = False
 
-    async with cl.Step(name="RAG Ops Guard", type="run") as activity:
+    async with cl.Step(name="Actividad", type="tool", show_input=False) as activity:
         activity.output = "Preparando respuesta…"
         await activity.update()
 
@@ -211,7 +216,9 @@ async def _run_turn(message: str) -> None:
                         f"{event.tool_calls} tool call{'s' if event.tool_calls != 1 else ''}"
                     )
                     if sources:
-                        activity.output += f" · {len(sources)} fuente{'s' if len(sources) != 1 else ''}"
+                        activity.output += (
+                            f" · {len(sources)} fuente{'s' if len(sources) != 1 else ''}"
+                        )
                     await activity.update()
                     return
 
@@ -234,7 +241,9 @@ async def _run_turn(message: str) -> None:
                     return
 
             if cancel_event.is_set():
-                activity.output = "Generación detenida · el turno no se incorporó a la conversación"
+                activity.output = (
+                    "Generación detenida · el turno no se incorporó a la conversación"
+                )
                 await activity.update()
                 if has_visible_output:
                     answer.content = f"{answer.content}\n\n---\n\n_Generación detenida._"
@@ -251,27 +260,56 @@ async def _run_turn(message: str) -> None:
             activity.output = "La interfaz perdió el turno, pero la sesión sigue disponible"
             await activity.update()
             notice = "No pude cerrar este turno. La conversación anterior sigue intacta."
-            answer.content = f"{answer.content}\n\n---\n\n{notice}" if has_visible_output else notice
+            answer.content = (
+                f"{answer.content}\n\n---\n\n{notice}" if has_visible_output else notice
+            )
             await answer.update()
         finally:
             cl.user_session.set("cancel_event", None)
 
 
 async def _diagnostics() -> str:
-    checks = [
-        ("Generación", "http://127.0.0.1:8080/health"),
-        ("Knowledge / Floci", "http://127.0.0.1:4566/"),
-        ("OpenVINO", "http://127.0.0.1:8083/v2/health/ready"),
-    ]
-    lines: list[str] = []
-    async with httpx.AsyncClient(timeout=2.5) as client:
-        for label, url in checks:
-            try:
-                response = await client.get(url)
-                state = "Ready" if response.status_code < 500 else f"HTTP {response.status_code}"
-            except httpx.HTTPError:
-                state = "No disponible"
-            lines.append(f"- **{label}:** {state}")
+    states: list[tuple[str, str]] = []
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            response = await client.get("http://127.0.0.1:8080/health")
+            states.append(("Generación", "Ready" if response.is_success else f"HTTP {response.status_code}"))
+        except httpx.HTTPError:
+            states.append(("Generación", "No disponible"))
+
+        try:
+            response = await client.get("http://127.0.0.1:4566/")
+            states.append(("Knowledge / Floci", "Ready" if response.status_code < 500 else f"HTTP {response.status_code}"))
+        except httpx.HTTPError:
+            states.append(("Knowledge / Floci", "No disponible"))
+
+        try:
+            embedding = await client.post(
+                "http://127.0.0.1:8083/v3/embeddings",
+                json={
+                    "model": "OpenVINO/Qwen3-Embedding-0.6B-int8-ov",
+                    "input": "health probe",
+                },
+            )
+            states.append(("Embeddings / OpenVINO", "Ready" if embedding.is_success else f"HTTP {embedding.status_code}"))
+        except httpx.HTTPError:
+            states.append(("Embeddings / OpenVINO", "No disponible"))
+
+        try:
+            rerank = await client.post(
+                "http://127.0.0.1:8083/v3/rerank",
+                json={
+                    "model": "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov",
+                    "query": "health",
+                    "documents": ["health"],
+                    "top_n": 1,
+                },
+            )
+            states.append(("Reranker / OpenVINO", "Ready" if rerank.is_success else f"HTTP {rerank.status_code}"))
+        except httpx.HTTPError:
+            states.append(("Reranker / OpenVINO", "No disponible"))
+
+    lines = [f"- **{label}:** {state}" for label, state in states]
     return "### Estado local\n" + "\n".join(lines)
 
 
@@ -281,7 +319,10 @@ async def starters() -> list[cl.Starter]:
         cl.Starter(label="Calypso retries", message="¿Cuántos reintentos permite Calypso?"),
         cl.Starter(label="Runbooks disponibles", message="¿Qué documentación tienes disponible?"),
         cl.Starter(label="Analizar incidente", message="¿Qué sabes del incidente INC-001?"),
-        cl.Starter(label="Generar código", message="Escribe una función corta en Python para merge sort."),
+        cl.Starter(
+            label="Generar código",
+            message="Escribe una función corta en Python para merge sort.",
+        ),
     ]
 
 
