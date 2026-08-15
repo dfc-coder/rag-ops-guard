@@ -8,3 +8,6 @@ alert_style = "modern"
 chat_settings_location = "sidebar"
 default_chat_settings_open = false
 custom_css = "/public/chainlit.css"
+
+[meta]
+generated_by = "2.11.1"
