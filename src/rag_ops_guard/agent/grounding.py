@@ -223,6 +223,25 @@ class GroundingController:
                 preserve_topic=has_topic,
             )
 
+        if decision.requires_grounding:
+            query = (decision.standalone_query or "").strip()
+            if not query:
+                query = _safe_contextual_query(message, state)
+            preserve_topic = same_context and has_topic
+            return TurnPlan(
+                TurnPolicy.RETRIEVE,
+                "semantic resolver requires grounded evidence",
+                retrieval_query=query,
+                ranking_query=message.strip(),
+                evidence_context=(
+                    reusable_evidence.render_prompt()
+                    if reusable_evidence is not None and preserve_topic
+                    else None
+                ),
+                preserve_evidence=evidence is not None and preserve_topic,
+                preserve_topic=preserve_topic,
+            )
+
         if decision.operation == TurnOperation.TRANSFORM and same_context:
             if reusable_evidence is not None:
                 return TurnPlan(
@@ -242,25 +261,6 @@ class GroundingController:
                     preserve_topic=True,
                 )
             return TurnPlan(TurnPolicy.DIRECT, "semantic transform of non-grounded context")
-
-        if decision.requires_grounding:
-            query = (decision.standalone_query or "").strip()
-            if not query:
-                query = _safe_contextual_query(message, state)
-            preserve_topic = same_context and has_topic
-            return TurnPlan(
-                TurnPolicy.RETRIEVE,
-                "semantic resolver requires grounded evidence",
-                retrieval_query=query,
-                ranking_query=message.strip(),
-                evidence_context=(
-                    reusable_evidence.render_prompt()
-                    if reusable_evidence is not None and preserve_topic
-                    else None
-                ),
-                preserve_evidence=evidence is not None and preserve_topic,
-                preserve_topic=preserve_topic,
-            )
 
         preserve_topic = same_context and has_topic
         return TurnPlan(
