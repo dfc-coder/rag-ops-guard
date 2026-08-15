@@ -146,7 +146,10 @@ class FollowupResolver:
         if _contains_explicit_internal_anchor(current) or not state.last_grounded_query:
             return current
         prior = state.last_grounded_query.strip().rstrip(".?!")
-        return f"{prior}. Follow-up: {current}"
+        # Keep the recall query as natural user text. Synthetic labels such as "Follow-up:" can
+        # look like proper-noun anchors to the retrieval safety guard and cause a valid candidate
+        # set to be rejected before the reranker ever runs.
+        return f"{prior}. {current}"
 
 
 class TurnPolicyEngine:
