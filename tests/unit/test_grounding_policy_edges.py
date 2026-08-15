@@ -59,12 +59,21 @@ def test_contextual_code_reuses_active_grounded_evidence() -> None:
     assert plan.evidence_context is not None
 
 
-def test_contextual_code_refreshes_when_evidence_expired() -> None:
+def test_contextual_code_refreshes_stable_root_when_evidence_expired() -> None:
     state = replace(_state(), turn_index=10, grounded=False)
     plan = TurnPolicyEngine().plan("Implementalo en Python usando eso.", state, PROD)
     assert plan.policy == TurnPolicy.RETRIEVE
-    assert plan.ranking_query == "Implementalo en Python usando eso."
-    assert "Calypso" in (plan.retrieval_query or "")
+    assert plan.retrieval_query == state.last_grounded_query
+    assert plan.ranking_query == state.last_grounded_query
+
+
+def test_contextual_code_new_fact_keeps_literal_ranking_intent() -> None:
+    state = replace(_state(), turn_index=10, grounded=False)
+    message = "Escribe codigo para lo que pasa despues del tercero."
+    plan = TurnPolicyEngine().plan(message, state, PROD)
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.ranking_query == message
+    assert "despues del tercero" in (plan.retrieval_query or "").casefold()
 
 
 def test_causal_followup_is_regrounded() -> None:
@@ -99,6 +108,15 @@ def test_explicit_internal_code_request_retrieves_new_evidence() -> None:
     )
     assert plan.policy == TurnPolicy.RETRIEVE
     assert plan.retrieval_query == "Escribe codigo que implemente los retries de Calypso."
+
+
+def test_unknown_named_internal_code_request_retrieves() -> None:
+    plan = TurnPolicyEngine().plan(
+        "Escribe codigo Python que respete los retries de Xarlatan.",
+        ConversationState(),
+        QueryContext(),
+    )
+    assert plan.policy == TurnPolicy.RETRIEVE
 
 
 def test_topic_root_is_not_prefixed_to_unknown_explicit_target() -> None:
