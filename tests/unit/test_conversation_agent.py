@@ -23,9 +23,7 @@ class ScriptedModel:
     def invoke(self, messages: list[BaseMessage]) -> AIMessage:
         self.calls += 1
         last_user = next(
-            message.content
-            for message in reversed(messages)
-            if isinstance(message, HumanMessage)
+            message.content for message in reversed(messages) if isinstance(message, HumanMessage)
         )
         current_has_tool_result = False
         for message in reversed(messages):
