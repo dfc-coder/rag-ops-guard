@@ -149,7 +149,11 @@ class ConversationState:
             evidence=existing if active else None,
             grounded=active,
             last_retrieval_supported=(
-                False if retrieval_failed else self.last_retrieval_supported if preserve_topic else None
+                False
+                if retrieval_failed
+                else self.last_retrieval_supported
+                if preserve_topic
+                else None
             ),
         )
 
@@ -252,7 +256,11 @@ class TurnPolicyEngine:
                     )
                 if state.last_retrieval_supported is not False:
                     query = _contextual_code_refresh_query(text, state, self._resolver)
-                    ranking_query = state.last_grounded_query if query == state.last_grounded_query else text
+                    ranking_query = (
+                        state.last_grounded_query
+                        if query == state.last_grounded_query
+                        else text
+                    )
                     return TurnPlan(
                         TurnPolicy.RETRIEVE,
                         "contextual coding request requires refreshed internal evidence",
@@ -260,7 +268,9 @@ class TurnPolicyEngine:
                         ranking_query=ranking_query,
                         preserve_topic=True,
                     )
-            named_internal_target = _has_named_operational_target(text) and _has_operational_token(folded)
+            named_internal_target = _has_named_operational_target(
+                text
+            ) and _has_operational_token(folded)
             if not _contains_internal_marker(folded) and not named_internal_target:
                 return TurnPlan(TurnPolicy.DIRECT, "general coding request")
 
@@ -289,81 +299,353 @@ class TurnPolicyEngine:
 
 _TOKEN_RE = re.compile(r"[\w-]+", re.UNICODE)
 _INTERNAL_ANCHORS = {
-    "calypso", "payments", "payment", "sendgrid", "treasury", "treasury integrations",
-    "inc-001", "inc-002", "inc-003",
+    "calypso",
+    "payments",
+    "payment",
+    "sendgrid",
+    "treasury",
+    "treasury integrations",
+    "inc-001",
+    "inc-002",
+    "inc-003",
 }
 _INTERNAL_MARKERS = {
-    "runbook", "runbooks", "sla", "dlq", "incident", "incidente", "incidentes",
-    "produccion", "production", "staging", "knowledge base", "base de conocimiento",
+    "runbook",
+    "runbooks",
+    "sla",
+    "dlq",
+    "incident",
+    "incidente",
+    "incidentes",
+    "produccion",
+    "production",
+    "staging",
+    "knowledge base",
+    "base de conocimiento",
     "documentacion interna",
 }
 _INTERNAL_CONTEXT_MARKERS = {"nuestro", "nuestra", "interno", "interna", "internal", "our"}
 _OPERATIONAL_TOKENS = {
-    "retry", "retries", "reintento", "reintentos", "attempt", "attempts", "intento",
-    "intentos", "timeout", "timeouts", "falla", "fallo", "fallan", "failed", "fails",
-    "escalacion", "escalar", "escalate", "idempotency", "idempotencia", "transaccion",
-    "transaction", "resubmit", "resubmission", "manual", "limit", "limite",
+    "retry",
+    "retries",
+    "reintento",
+    "reintentos",
+    "attempt",
+    "attempts",
+    "intento",
+    "intentos",
+    "timeout",
+    "timeouts",
+    "falla",
+    "fallo",
+    "fallan",
+    "failed",
+    "fails",
+    "escalacion",
+    "escalar",
+    "escalate",
+    "idempotency",
+    "idempotencia",
+    "transaccion",
+    "transaction",
+    "resubmit",
+    "resubmission",
+    "manual",
+    "limit",
+    "limite",
 }
 _FOLLOWUP_PREFIXES = (
-    "y ", "entonces", "despues", "luego", "que pasa", "que mas", "y si", "por que",
-    "porque", "como funciona", "quien ", "cuando ", "donde ", "cual ", "cuales ",
-    "and ", "then", "after", "what about", "what happens", "what else", "what should",
-    "what do", "why", "how come", "how does", "who ", "when ", "where ", "which ",
+    "y ",
+    "entonces",
+    "despues",
+    "luego",
+    "que pasa",
+    "que mas",
+    "y si",
+    "por que",
+    "porque",
+    "como funciona",
+    "quien ",
+    "cuando ",
+    "donde ",
+    "cual ",
+    "cuales ",
+    "and ",
+    "then",
+    "after",
+    "what about",
+    "what happens",
+    "what else",
+    "what should",
+    "what do",
+    "why",
+    "how come",
+    "how does",
+    "who ",
+    "when ",
+    "where ",
+    "which ",
 )
 _FOLLOWUP_REFERENCES = {
-    "eso", "esto", "ese", "esa", "esos", "esas", "mismo", "misma", "tercer", "tercero",
-    "tercera", "anterior", "siguiente", "ultimo", "ultima", "despues", "luego", "entonces",
-    "this", "these", "third", "next", "previous", "current", "above", "then", "after",
-    "that", "those", "it",
+    "eso",
+    "esto",
+    "ese",
+    "esa",
+    "esos",
+    "esas",
+    "mismo",
+    "misma",
+    "tercer",
+    "tercero",
+    "tercera",
+    "anterior",
+    "siguiente",
+    "ultimo",
+    "ultima",
+    "despues",
+    "luego",
+    "entonces",
+    "this",
+    "these",
+    "third",
+    "next",
+    "previous",
+    "current",
+    "above",
+    "then",
+    "after",
+    "that",
+    "those",
+    "it",
 }
-_SIMPLE_REFERENCE_TOKENS = {"eso", "esto", "ese", "esa", "mismo", "misma", "this", "that", "it", "those"}
+_SIMPLE_REFERENCE_TOKENS = {
+    "eso",
+    "esto",
+    "ese",
+    "esa",
+    "mismo",
+    "misma",
+    "this",
+    "that",
+    "it",
+    "those",
+}
 _REUSE_MARKERS = (
-    "resumi", "resume", "resumen", "mas corto", "explicalo", "explicame", "reformula",
-    "reescrib", "translate", "traduce", "traduci", "ejemplo", "example", "bullet", "tabla",
-    "table", "detalle", "details", "more detail", "tell me more", "amplia", "expand",
-    "elabora", "continue", "continua",
+    "resumi",
+    "resume",
+    "resumen",
+    "mas corto",
+    "explicalo",
+    "explicame",
+    "reformula",
+    "reescrib",
+    "translate",
+    "traduce",
+    "traduci",
+    "ejemplo",
+    "example",
+    "bullet",
+    "tabla",
+    "table",
+    "detalle",
+    "details",
+    "more detail",
+    "tell me more",
+    "amplia",
+    "expand",
+    "elabora",
+    "continue",
+    "continua",
 )
 _NEW_FACT_PHRASES = (
-    "que pasa", "que mas", "despues", "luego", "siguiente", "si falla", "por que", "porque",
-    "quien", "cuando", "donde", "como funciona", "what happens", "what else", "after", "next",
-    "if it fails", "why", "who", "when", "where", "how does",
+    "que pasa",
+    "que mas",
+    "despues",
+    "luego",
+    "siguiente",
+    "si falla",
+    "por que",
+    "porque",
+    "quien",
+    "cuando",
+    "donde",
+    "como funciona",
+    "what happens",
+    "what else",
+    "after",
+    "next",
+    "if it fails",
+    "why",
+    "who",
+    "when",
+    "where",
+    "how does",
 )
 _ELLIPTICAL_OPERATIONAL_TOKENS = {
-    "limite", "limit", "manual", "intento", "intentos", "attempt", "attempts", "procedimiento",
-    "procedure", "estado", "status", "responsable", "owner", "equipo", "team", "alerta", "alert",
+    "limite",
+    "limit",
+    "manual",
+    "intento",
+    "intentos",
+    "attempt",
+    "attempts",
+    "procedimiento",
+    "procedure",
+    "estado",
+    "status",
+    "responsable",
+    "owner",
+    "equipo",
+    "team",
+    "alerta",
+    "alert",
 }
-_SOCIAL_MESSAGES = {"hola", "hello", "hi", "gracias", "thanks", "thank you", "ok", "okay", "perfecto", "bien", "genial"}
+_SOCIAL_MESSAGES = {
+    "hola",
+    "hello",
+    "hi",
+    "gracias",
+    "thanks",
+    "thank you",
+    "ok",
+    "okay",
+    "perfecto",
+    "bien",
+    "genial",
+}
 _LIST_MARKERS = (
-    "que documentacion hay", "que documentos hay", "lista la documentacion", "list documentation",
-    "what documentation is available", "what documents are available",
+    "que documentacion hay",
+    "que documentos hay",
+    "lista la documentacion",
+    "list documentation",
+    "what documentation is available",
+    "what documents are available",
 )
 _DEFINITION_PREFIXES = ("que es ", "what is ", "define ", "explica que es ")
 _CODING_MARKERS = (
-    "codigo", "code", "funcion", "function", "script", "python", "perl", "javascript",
-    "typescript", "java ", " c ", "c++", "rust", "implementa", "implement ", "escribe una", "write a ",
+    "codigo",
+    "code",
+    "funcion",
+    "function",
+    "script",
+    "python",
+    "perl",
+    "javascript",
+    "typescript",
+    "java ",
+    " c ",
+    "c++",
+    "rust",
+    "implementa",
+    "implement ",
+    "escribe una",
+    "write a ",
 )
-_QUESTION_WORDS = {"cuantos", "cuantas", "que", "como", "cuando", "donde", "what", "how", "when", "where", "which"}
+_QUESTION_WORDS = {
+    "cuantos",
+    "cuantas",
+    "que",
+    "como",
+    "cuando",
+    "donde",
+    "what",
+    "how",
+    "when",
+    "where",
+    "which",
+}
 _NON_TARGET_TOKENS = {
-    *_QUESTION_WORDS, *_OPERATIONAL_TOKENS,
-    "who", "why", "is", "are", "does", "do", "has", "have", "there", "any", "hay", "existe",
-    "existen", "algun", "alguna", "puede", "puedo", "debe", "deben", "api", "sla", "dlq",
-    "retry", "retries", "python", "perl", "java", "javascript", "typescript", "rust", "code",
-    "codigo", "class", "function", "funcion", "implement", "implementa", "write", "escribe",
-    "client", "cliente", "system", "sistema", "service", "servicio", "maximum", "maximo", "maxima",
-    "automatic", "automated", "automatico", "automatica", "default", "allowed", "number", "cantidad",
-    "current", "production", "produccion", "staging", "the", "el", "la",
+    *_QUESTION_WORDS,
+    *_OPERATIONAL_TOKENS,
+    "who",
+    "why",
+    "is",
+    "are",
+    "does",
+    "do",
+    "has",
+    "have",
+    "there",
+    "any",
+    "hay",
+    "existe",
+    "existen",
+    "algun",
+    "alguna",
+    "puede",
+    "puedo",
+    "debe",
+    "deben",
+    "api",
+    "sla",
+    "dlq",
+    "retry",
+    "retries",
+    "python",
+    "perl",
+    "java",
+    "javascript",
+    "typescript",
+    "rust",
+    "code",
+    "codigo",
+    "class",
+    "function",
+    "funcion",
+    "implement",
+    "implementa",
+    "write",
+    "escribe",
+    "client",
+    "cliente",
+    "system",
+    "sistema",
+    "service",
+    "servicio",
+    "maximum",
+    "maximo",
+    "maxima",
+    "automatic",
+    "automated",
+    "automatico",
+    "automatica",
+    "default",
+    "allowed",
+    "number",
+    "cantidad",
+    "current",
+    "production",
+    "produccion",
+    "staging",
+    "the",
+    "el",
+    "la",
 }
 _LOWERCASE_TARGET_PATTERNS = (
     re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
     re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
-    re.compile(r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+(?:retry|retries|reintento|reintentos|timeout|timeouts)\b", re.IGNORECASE),
-    re.compile(r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+(?:de|del|for|of)\s+([a-z][\w-]+)\b", re.IGNORECASE),
+    re.compile(
+        r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+"
+        r"(?:retry|retries|reintento|reintentos|timeout|timeouts)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+"
+        r"(?:de|del|for|of)\s+([a-z][\w-]+)\b",
+        re.IGNORECASE,
+    ),
 )
 
 
 def _normalize(text: str) -> str:
     folded = text.strip().casefold().lstrip("¿¡")
-    return folded.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    return (
+        folded.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
 
 
 def _contains_explicit_internal_anchor(text: str) -> bool:
@@ -409,7 +691,10 @@ def _has_named_operational_target(text: str) -> bool:
         folded = _normalize(token)
         if folded in _NON_TARGET_TOKENS:
             continue
-        if has_operational_context and (token.isupper() or (token[:1].isupper() and any(char.isalpha() for char in token))):
+        if has_operational_context and (
+            token.isupper()
+            or (token[:1].isupper() and any(char.isalpha() for char in token))
+        ):
             return True
     for pattern in _LOWERCASE_TARGET_PATTERNS:
         match = pattern.search(folded_text)
@@ -422,18 +707,24 @@ def _looks_like_contextual_followup(folded: str) -> bool:
     tokens = _TOKEN_RE.findall(folded)
     if not tokens or len(tokens) > 64:
         return False
-    return any(folded.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES) or bool(set(tokens).intersection(_FOLLOWUP_REFERENCES))
+    return any(folded.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES) or bool(
+        set(tokens).intersection(_FOLLOWUP_REFERENCES)
+    )
 
 
 def _looks_like_operational_followup(folded: str) -> bool:
     tokens = set(_TOKEN_RE.findall(folded))
-    return bool(tokens.intersection(_OPERATIONAL_TOKENS)) and ("?" in folded or len(tokens) <= 24)
+    return bool(tokens.intersection(_OPERATIONAL_TOKENS)) and (
+        "?" in folded or len(tokens) <= 24
+    )
 
 
 def _looks_like_elliptical_operational_question(text: str, folded: str) -> bool:
     if "?" not in text or _is_explicit_target(text):
         return False
-    return bool(set(_TOKEN_RE.findall(folded)).intersection(_ELLIPTICAL_OPERATIONAL_TOKENS))
+    return bool(
+        set(_TOKEN_RE.findall(folded)).intersection(_ELLIPTICAL_OPERATIONAL_TOKENS)
+    )
 
 
 def _is_contextual_new_fact(text: str, folded: str) -> bool:
@@ -450,11 +741,18 @@ def _reuse_requires_new_fact(folded: str) -> bool:
     return any(marker in folded for marker in _NEW_FACT_PHRASES)
 
 
-def _contextual_code_refresh_query(text: str, state: ConversationState, resolver: FollowupResolver) -> str:
+def _contextual_code_refresh_query(
+    text: str,
+    state: ConversationState,
+    resolver: FollowupResolver,
+) -> str:
     folded = _normalize(text)
     tokens = set(_TOKEN_RE.findall(folded))
     only_reference = bool(tokens.intersection(_SIMPLE_REFERENCE_TOKENS)) and not bool(
-        tokens.intersection(_OPERATIONAL_TOKENS | {"despues", "luego", "after", "tercer", "tercero", "third"})
+        tokens.intersection(
+            _OPERATIONAL_TOKENS
+            | {"despues", "luego", "after", "tercer", "tercero", "third"}
+        )
     )
     if only_reference and state.last_grounded_query:
         return state.last_grounded_query
@@ -516,7 +814,11 @@ def _sources_from_payload(payload: dict[str, Any]) -> tuple[GroundedSource, ...]
                 title=str(raw.get("title") or "Untitled source").strip(),
                 version=str(raw.get("version") or ""),
                 system=str(raw.get("system")) if raw.get("system") is not None else None,
-                environment=str(raw.get("environment")) if raw.get("environment") is not None else None,
+                environment=(
+                    str(raw.get("environment"))
+                    if raw.get("environment") is not None
+                    else None
+                ),
                 section=str(raw.get("section") or ""),
                 text=text,
             )
