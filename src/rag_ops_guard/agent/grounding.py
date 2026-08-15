@@ -189,14 +189,20 @@ class TurnPolicyEngine:
                 preserve_evidence=True,
             )
 
+        # Generic coding stays direct unless the request explicitly depends on an internal target.
+        # This prevents words such as "retry" in a normal programming request from triggering RAG.
+        if _is_coding_request(folded) and not _contains_explicit_internal_anchor(text):
+            if not _contains_internal_marker(folded):
+                return TurnPlan(TurnPolicy.DIRECT, "general coding request")
+
         # Generic definition questions remain direct unless the user explicitly names an internal
         # system. A general topic shift deliberately clears stale internal evidence after success.
         if _is_definition_request(folded) and not _contains_explicit_internal_anchor(text):
             return TurnPlan(TurnPolicy.DIRECT, "general definition request")
 
         if _looks_like_internal_query(text):
-            explicit_target = _contains_explicit_internal_anchor(text) or _has_named_operational_target(
-                text
+            explicit_target = (
+                _contains_explicit_internal_anchor(text) or _has_named_operational_target(text)
             )
             query = self._resolver.resolve(text, state) if evidence is not None else text
             return TurnPlan(
@@ -355,6 +361,25 @@ _DEFINITION_PREFIXES = (
     "define ",
     "explica que es ",
 )
+_CODING_MARKERS = (
+    "codigo",
+    "code",
+    "funcion",
+    "function",
+    "script",
+    "python",
+    "perl",
+    "javascript",
+    "typescript",
+    "java ",
+    " c ",
+    "c++",
+    "rust",
+    "implementa",
+    "implement ",
+    "escribe una",
+    "write a ",
+)
 _QUESTION_WORDS = {
     "cuantos",
     "cuantas",
@@ -386,12 +411,16 @@ def _contains_explicit_internal_anchor(text: str) -> bool:
     return any(anchor in folded for anchor in _INTERNAL_ANCHORS)
 
 
+def _contains_internal_marker(folded: str) -> bool:
+    return any(marker in folded for marker in _INTERNAL_MARKERS)
+
+
 def _looks_like_internal_query(text: str) -> bool:
     folded = _normalize(text)
     tokens = set(_TOKEN_RE.findall(folded))
     if _contains_explicit_internal_anchor(text):
         return True
-    if any(marker in folded for marker in _INTERNAL_MARKERS):
+    if _contains_internal_marker(folded):
         return True
     operational = bool(tokens.intersection(_OPERATIONAL_TOKENS))
     if operational and tokens.intersection(_INTERNAL_CONTEXT_MARKERS):
@@ -441,6 +470,11 @@ def _is_list_knowledge_request(folded: str) -> bool:
 
 def _is_definition_request(folded: str) -> bool:
     return any(folded.startswith(prefix) for prefix in _DEFINITION_PREFIXES)
+
+
+def _is_coding_request(folded: str) -> bool:
+    padded = f" {folded} "
+    return any(marker in padded for marker in _CODING_MARKERS)
 
 
 def _latest_supported_search_payload(messages: list[BaseMessage]) -> dict[str, Any] | None:
