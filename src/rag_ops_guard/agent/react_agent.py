@@ -184,17 +184,22 @@ class ReactAgent:
         with thread_lock:
             history = self._history_snapshot(thread_id)
             turn_input = [*history, HumanMessage(content=message)]
-            token = _CURRENT_CONTEXT.set(context)
             visible_text = ""
             final_messages: list[BaseMessage] = []
             tool_calls = 0
+            graph_stream = self._agent.stream(
+                {"messages": turn_input},
+                stream_mode=["messages", "values"],
+                version="v2",
+            )
 
             try:
-                for part in self._agent.stream(
-                    {"messages": turn_input},
-                    stream_mode=["messages", "values"],
-                    version="v2",
-                ):
+                while True:
+                    try:
+                        part = _next_graph_part(graph_stream, context)
+                    except StopIteration:
+                        break
+
                     part_type = part.get("type")
                     data = part.get("data")
 
@@ -274,7 +279,9 @@ class ReactAgent:
                     tool_calls=tool_calls,
                 )
             finally:
-                _CURRENT_CONTEXT.reset(token)
+                close = getattr(graph_stream, "close", None)
+                if callable(close):
+                    close()
 
     def invoke(self, message: str, *, thread_id: str, context: QueryContext) -> ReactResponse:
         """Compatibility API for headless smoke tests and non-streaming callers."""
@@ -320,6 +327,21 @@ class ReactAgent:
     def _commit_history(self, thread_id: str, messages: list[BaseMessage]) -> None:
         with self._history_guard:
             self._histories[thread_id] = list(messages)
+
+
+def _next_graph_part(graph_stream: Iterator[Any], context: QueryContext) -> Any:
+    """Advance LangGraph with tool context scoped to this one synchronous step.
+
+    Gradio may resume a streaming generator in a different context between yields. Holding a
+    ContextVar token across those yields makes reset() fail at the end of the turn. Setting and
+    resetting around each next() keeps tool context available without leaking a token across UI
+    resumptions.
+    """
+    token = _CURRENT_CONTEXT.set(context)
+    try:
+        return next(graph_stream)
+    finally:
+        _CURRENT_CONTEXT.reset(token)
 
 
 def _streamed_agent_text(data: Any) -> str:
