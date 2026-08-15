@@ -17,7 +17,7 @@ def _citation() -> Citation:
 
 
 def test_grounded_answer_requires_citations() -> None:
-    with pytest.raises(ValidationError, match="grounded knowledge responses require citations"):
+    with pytest.raises(ValidationError, match="grounded answered responses require citations"):
         QueryResponse(
             request_id="r1",
             status=QueryStatus.ANSWERED,
