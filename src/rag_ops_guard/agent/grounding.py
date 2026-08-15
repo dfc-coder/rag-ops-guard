@@ -203,7 +203,12 @@ class TurnPolicyEngine:
         has_topic = bool(state.last_grounded_query)
 
         if _is_list_knowledge_request(folded):
-            return TurnPlan(TurnPolicy.LIST_KNOWLEDGE, "explicit knowledge catalog request")
+            return TurnPlan(
+                TurnPolicy.LIST_KNOWLEDGE,
+                "explicit knowledge catalog request",
+                preserve_evidence=evidence is not None,
+                preserve_topic=has_topic,
+            )
 
         if _is_social_message(folded):
             return TurnPlan(
@@ -213,7 +218,9 @@ class TurnPolicyEngine:
                 preserve_topic=has_topic,
             )
 
-        if _is_reuse_request(folded):
+        reuse_request = _is_reuse_request(folded)
+        reuse_asks_new_fact = reuse_request and _reuse_requires_new_fact(folded)
+        if reuse_request and not reuse_asks_new_fact:
             if evidence is not None and state.last_retrieval_supported is not False:
                 return TurnPlan(
                     TurnPolicy.REUSE_EVIDENCE,
@@ -245,14 +252,19 @@ class TurnPolicyEngine:
                     )
                 if state.last_retrieval_supported is not False:
                     query = _contextual_code_refresh_query(text, state, self._resolver)
+                    ranking_query = (
+                        state.last_grounded_query if query == state.last_grounded_query else text
+                    )
                     return TurnPlan(
                         TurnPolicy.RETRIEVE,
                         "contextual coding request requires refreshed internal evidence",
                         retrieval_query=query,
-                        ranking_query=(state.last_grounded_query if query == state.last_grounded_query else text),
+                        ranking_query=ranking_query,
                         preserve_topic=True,
                     )
-            named_internal_target = _has_named_operational_target(text) and _has_operational_token(folded)
+            named_internal_target = _has_named_operational_target(text) and _has_operational_token(
+                folded
+            )
             if not _contains_internal_marker(folded) and not named_internal_target:
                 return TurnPlan(TurnPolicy.DIRECT, "general coding request")
 
@@ -276,9 +288,13 @@ class TurnPolicyEngine:
                 preserve_topic=has_topic and not explicit_target,
             )
 
-        if has_topic and (
-            _looks_like_contextual_followup(folded) or _looks_like_operational_followup(folded)
-        ):
+        contextual = (
+            _looks_like_contextual_followup(folded)
+            or _looks_like_operational_followup(folded)
+            or _looks_like_elliptical_operational_question(text, folded)
+            or reuse_asks_new_fact
+        )
+        if has_topic and contextual:
             return TurnPlan(
                 TurnPolicy.RETRIEVE,
                 "contextual follow-up asks for a new internal fact",
@@ -326,6 +342,10 @@ _OPERATIONAL_TOKENS = {
     "retries",
     "reintento",
     "reintentos",
+    "attempt",
+    "attempts",
+    "intento",
+    "intentos",
     "timeout",
     "timeouts",
     "falla",
@@ -342,6 +362,9 @@ _OPERATIONAL_TOKENS = {
     "transaction",
     "resubmit",
     "resubmission",
+    "manual",
+    "limit",
+    "limite",
 }
 _FOLLOWUP_PREFIXES = (
     "y ",
@@ -373,6 +396,7 @@ _FOLLOWUP_REFERENCES = {
     "esa",
     "esos",
     "esas",
+    "tercer",
     "tercero",
     "tercera",
     "anterior",
@@ -380,6 +404,7 @@ _FOLLOWUP_REFERENCES = {
     "despues",
     "luego",
     "entonces",
+    "third",
     "then",
     "after",
     "that",
@@ -405,6 +430,39 @@ _REUSE_MARKERS = (
     "tabla",
     "table",
 )
+_NEW_FACT_PHRASES = (
+    "que pasa",
+    "despues",
+    "luego",
+    "si falla",
+    "por que",
+    "porque",
+    "quien",
+    "cuando",
+    "como funciona",
+    "what happens",
+    "after",
+    "if it fails",
+    "why",
+    "who",
+    "when",
+    "how does",
+)
+_ELLIPTICAL_OPERATIONAL_TOKENS = {
+    "limite",
+    "limit",
+    "manual",
+    "intento",
+    "intentos",
+    "attempt",
+    "attempts",
+    "procedimiento",
+    "procedure",
+    "estado",
+    "status",
+    "responsable",
+    "owner",
+}
 _SOCIAL_MESSAGES = {
     "hola",
     "hello",
@@ -561,7 +619,7 @@ def _has_named_operational_target(text: str) -> bool:
 
 def _looks_like_contextual_followup(folded: str) -> bool:
     tokens = _TOKEN_RE.findall(folded)
-    if not tokens or len(tokens) > 24:
+    if not tokens or len(tokens) > 64:
         return False
     if any(folded.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES):
         return True
@@ -572,7 +630,18 @@ def _looks_like_operational_followup(folded: str) -> bool:
     tokens = set(_TOKEN_RE.findall(folded))
     if not tokens.intersection(_OPERATIONAL_TOKENS):
         return False
-    return "?" in folded or len(tokens) <= 18
+    return "?" in folded or len(tokens) <= 24
+
+
+def _looks_like_elliptical_operational_question(text: str, folded: str) -> bool:
+    if "?" not in text or _is_explicit_target(text):
+        return False
+    tokens = set(_TOKEN_RE.findall(folded))
+    return bool(tokens.intersection(_ELLIPTICAL_OPERATIONAL_TOKENS))
+
+
+def _reuse_requires_new_fact(folded: str) -> bool:
+    return any(marker in folded for marker in _NEW_FACT_PHRASES)
 
 
 def _contextual_code_refresh_query(
@@ -583,7 +652,9 @@ def _contextual_code_refresh_query(
     folded = _normalize(text)
     tokens = set(_TOKEN_RE.findall(folded))
     only_reference = bool(tokens.intersection(_SIMPLE_REFERENCE_TOKENS)) and not bool(
-        tokens.intersection(_OPERATIONAL_TOKENS | {"despues", "luego", "after", "tercero", "third"})
+        tokens.intersection(
+            _OPERATIONAL_TOKENS | {"despues", "luego", "after", "tercer", "tercero", "third"}
+        )
     )
     if only_reference and state.last_grounded_query:
         return state.last_grounded_query
