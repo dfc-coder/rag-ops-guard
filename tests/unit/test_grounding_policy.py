@@ -89,6 +89,24 @@ def test_same_context_new_fact_retrieves_semantic_standalone_query() -> None:
     assert plan.evidence_context is not None
 
 
+def test_grounding_requirement_dominates_transform_reuse() -> None:
+    plan = GroundingController().plan(
+        "Explain a new internal fact while transforming it",
+        _decision(
+            grounding=True,
+            relation=ContextRelation.SAME,
+            operation=TurnOperation.TRANSFORM,
+            query="Self-contained internal fact query",
+        ),
+        _state(),
+        PROD,
+    )
+
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.retrieval_query == "Self-contained internal fact query"
+    assert plan.ranking_query == "Explain a new internal fact while transforming it"
+
+
 def test_new_grounded_subject_does_not_inherit_previous_topic() -> None:
     plan = GroundingController().plan(
         "Question about another system",
