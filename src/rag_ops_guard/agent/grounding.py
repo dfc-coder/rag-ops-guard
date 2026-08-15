@@ -112,9 +112,6 @@ class ConversationState:
             query = str(payload.get("query") or plan.retrieval_query or "").strip()
             systems = {source.system for source in sources if source.system}
             system = next(iter(systems)) if len(systems) == 1 else context.system or self.system
-
-            # Contextual follow-ups must not make the retrieval query grow forever. Keep a stable
-            # topic/root query while replacing the evidence window with the newest admitted facts.
             root_query = (
                 self.last_grounded_query
                 if plan.preserve_topic and self.last_grounded_query
@@ -169,6 +166,7 @@ class TurnPlan:
     policy: TurnPolicy
     reason: str
     retrieval_query: str | None = None
+    ranking_query: str | None = None
     evidence_context: str | None = None
     preserve_evidence: bool = False
     preserve_topic: bool = False
@@ -224,14 +222,12 @@ class TurnPolicyEngine:
                     preserve_evidence=True,
                     preserve_topic=True,
                 )
-            # Evidence expired or the user changed environment/API filters. Re-ground instead of
-            # silently reusing stale evidence. An immediately preceding unsupported retrieval is
-            # intentionally not reused because "resumilo" would otherwise summarize the wrong fact.
             if has_topic and state.last_retrieval_supported is not False:
                 return TurnPlan(
                     TurnPolicy.RETRIEVE,
                     "transformation requires refreshing expired or context-incompatible evidence",
                     retrieval_query=self._resolver.resolve(text, state),
+                    ranking_query=text,
                     preserve_topic=True,
                 )
 
@@ -249,13 +245,12 @@ class TurnPolicyEngine:
                 TurnPolicy.RETRIEVE,
                 "internal operational fact requires grounded evidence",
                 retrieval_query=query,
+                ranking_query=text,
                 evidence_context=evidence.render_prompt() if evidence is not None and not explicit_target else None,
                 preserve_evidence=evidence is not None and not explicit_target,
                 preserve_topic=has_topic and not explicit_target,
             )
 
-        # An elliptical internal follow-up must re-ground even if the evidence window expired. The
-        # topic/root query is retained independently from the short-lived evidence cache.
         if has_topic and (
             _looks_like_contextual_followup(folded) or _looks_like_operational_followup(folded)
         ):
@@ -263,6 +258,7 @@ class TurnPolicyEngine:
                 TurnPolicy.RETRIEVE,
                 "contextual follow-up asks for a new internal fact",
                 retrieval_query=self._resolver.resolve(text, state),
+                ranking_query=text,
                 evidence_context=evidence.render_prompt() if evidence is not None else None,
                 preserve_evidence=evidence is not None,
                 preserve_topic=True,
@@ -441,7 +437,14 @@ def _normalize(text: str) -> str:
 
 def _contains_explicit_internal_anchor(text: str) -> bool:
     folded = _normalize(text)
-    return any(anchor in folded for anchor in _INTERNAL_ANCHORS)
+    tokens = set(_TOKEN_RE.findall(folded))
+    for anchor in _INTERNAL_ANCHORS:
+        if " " in anchor:
+            if anchor in folded:
+                return True
+        elif anchor in tokens:
+            return True
+    return False
 
 
 def _contains_internal_marker(folded: str) -> bool:
