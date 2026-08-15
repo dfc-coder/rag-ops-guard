@@ -77,6 +77,7 @@ def test_contextual_new_fact_retrieves_with_prior_grounded_query() -> None:
     )
 
     assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.preserve_evidence is True
     assert "Calypso" in (plan.retrieval_query or "")
     assert "Y despues del tercero?" in (plan.retrieval_query or "")
 
@@ -89,6 +90,7 @@ def test_explicit_new_internal_target_does_not_inherit_previous_query() -> None:
     )
 
     assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.preserve_evidence is False
     assert plan.retrieval_query == "Que incidentes tiene SendGrid?"
 
 
@@ -96,18 +98,20 @@ def test_transform_reuses_active_evidence_without_new_retrieval() -> None:
     plan = TurnPolicyEngine().plan("Resumilo en una línea", grounded_state(), QueryContext())
 
     assert plan.policy == TurnPolicy.REUSE_EVIDENCE
+    assert plan.preserve_evidence is True
     assert plan.retrieval_query is None
     assert "Payments API v2" in (plan.evidence_context or "")
     assert "untrusted data" in (plan.evidence_context or "")
 
 
-def test_social_message_after_grounding_stays_direct() -> None:
+def test_social_message_after_grounding_stays_direct_and_keeps_topic() -> None:
     plan = TurnPolicyEngine().plan("Gracias", grounded_state(), QueryContext())
 
     assert plan.policy == TurnPolicy.DIRECT
+    assert plan.preserve_evidence is True
 
 
-def test_general_definition_after_grounding_stays_direct() -> None:
+def test_general_definition_after_grounding_stays_direct_and_changes_topic() -> None:
     plan = TurnPolicyEngine().plan(
         "Que es exponential backoff?",
         grounded_state(),
@@ -115,6 +119,7 @@ def test_general_definition_after_grounding_stays_direct() -> None:
     )
 
     assert plan.policy == TurnPolicy.DIRECT
+    assert plan.preserve_evidence is False
 
 
 def test_explicit_catalog_request_uses_list_policy() -> None:
@@ -191,21 +196,30 @@ def test_successful_tool_payload_commits_explicit_grounding_state() -> None:
     assert updated.evidence.sources[0].title == "Payments API v2"
 
 
-def test_direct_success_keeps_recent_window_but_expires_it_by_turn_count() -> None:
+def test_social_success_keeps_window_but_general_topic_shift_clears_it() -> None:
+    engine = TurnPolicyEngine()
     state = grounded_state(turn_index=4)
-    updated = state.after_success(
-        plan=TurnPlan(TurnPolicy.DIRECT, "social"),
+
+    social_plan = engine.plan("Gracias", state, QueryContext())
+    after_social = state.after_success(
+        plan=social_plan,
         messages=[HumanMessage(content="Gracias"), AIMessage(content="De nada")],
         context=QueryContext(),
     )
-    assert updated.turn_index == 5
-    assert updated.evidence is not None
+    assert after_social.turn_index == 5
+    assert after_social.evidence is not None
+    assert after_social.grounded is True
 
-    expired = updated.after_success(
-        plan=TurnPlan(TurnPolicy.DIRECT, "general"),
-        messages=[HumanMessage(content="Hola"), AIMessage(content="Hola")],
+    general_plan = engine.plan("Que es exponential backoff?", after_social, QueryContext())
+    after_general = after_social.after_success(
+        plan=general_plan,
+        messages=[
+            HumanMessage(content="Que es exponential backoff?"),
+            AIMessage(content="Es una estrategia de espera incremental."),
+        ],
         context=QueryContext(),
     )
-    assert expired.turn_index == 6
-    assert expired.evidence is None
-    assert expired.grounded is False
+    assert after_general.turn_index == 6
+    assert after_general.evidence is None
+    assert after_general.grounded is False
+    assert after_general.topic is None
