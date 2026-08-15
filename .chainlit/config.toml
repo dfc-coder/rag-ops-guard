@@ -1,0 +1,45 @@
+[project]
+session_timeout = 3600
+user_session_timeout = 1296000
+cache = false
+allow_origins = ["*"]
+
+[features]
+unsafe_allow_html = false
+latex = false
+user_message_markdown = true
+user_message_autoscroll = true
+assistant_message_autoscroll = true
+edit_message = true
+allow_thread_sharing = false
+favorites = false
+
+[features.spontaneous_file_upload]
+enabled = false
+accept = ["text/plain", "text/markdown", "application/pdf"]
+max_files = 5
+max_size_mb = 20
+
+[features.audio]
+enabled = false
+sample_rate = 24000
+
+[features.mcp]
+enabled = false
+
+[UI]
+name = "RAG Ops Guard"
+description = "Local-first conversational assistant for integration operations."
+default_theme = "dark"
+layout = "wide"
+default_sidebar_state = "closed"
+chat_settings_location = "sidebar"
+default_chat_settings_open = false
+confirm_new_chat = false
+cot = "tool_call"
+alert_style = "modern"
+custom_css = "/public/chainlit.css"
+avatar_size = 22
+
+[meta]
+generated_by = "2.11.1"
