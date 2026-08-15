@@ -53,7 +53,8 @@ Behavior:
 - Answer ordinary conversation, general knowledge, and coding requests directly from the model.
 - For coding requests, return the complete runnable implementation first, keep it compact, omit
   unnecessary commentary, and finish the requested code before adding any explanation.
-- Internal operational facts must come from grounded evidence supplied in the conversation.
+- Internal operational facts must come from grounded evidence supplied in the current turn or from
+  an explicit active-evidence system block selected by the grounding policy.
 - If the current search_knowledge result reports supported=false, never invent the missing fact.
   A system block explicitly labelled as previously retrieved evidence may be used only when it
   directly and explicitly supports the current follow-up; otherwise say the documentation is
@@ -238,12 +239,14 @@ class ReactAgent:
                     else ""
                 )
                 prompt.append(SystemMessage(content=f"{prefix}{plan.evidence_context}"))
-            response = base_model.invoke([*prompt, *messages])
+
+            model_messages = _model_prompt_messages(messages)
+            response = base_model.invoke([*prompt, *model_messages])
             return {"messages": [response]}
 
         builder = StateGraph(MessagesState)
         builder.add_node("agent", call_model)
-        builder.add_node("tools", ToolNode(tools, handle_tool_errors=True))
+        builder.add_node("tools", ToolNode(tools, handle_tool_errors=False))
         builder.add_edge(START, "agent")
         builder.add_conditional_edges("agent", tools_condition)
         builder.add_edge("tools", "agent")
@@ -490,6 +493,7 @@ def _next_graph_part(
     context: QueryContext,
     plan: TurnPlan,
 ) -> Any:
+    """Advance LangGraph with request context scoped to this synchronous generator step."""
     context_token = _CURRENT_CONTEXT.set(context)
     plan_token = _CURRENT_TURN_PLAN.set(plan)
     try:
@@ -497,6 +501,35 @@ def _next_graph_part(
     finally:
         _CURRENT_TURN_PLAN.reset(plan_token)
         _CURRENT_CONTEXT.reset(context_token)
+
+
+def _model_prompt_messages(messages: list[BaseMessage] | list[Any]) -> list[BaseMessage]:
+    """Keep conversational history while removing stale tool evidence from older turns.
+
+    Grounding evidence has its own TTL/context rules. Raw historical ToolMessages must therefore not
+    remain permanently visible to the generation model, or an expired production source could leak
+    into a later staging/direct turn. Current-turn tool protocol is preserved unchanged.
+    """
+    base = [message for message in messages if isinstance(message, BaseMessage)]
+    last_user_index = -1
+    for index, message in enumerate(base):
+        if isinstance(message, HumanMessage):
+            last_user_index = index
+
+    if last_user_index < 0:
+        return base
+
+    filtered: list[BaseMessage] = []
+    for index, message in enumerate(base):
+        if index >= last_user_index:
+            filtered.append(message)
+            continue
+        if isinstance(message, ToolMessage):
+            continue
+        if isinstance(message, AIMessage) and message.tool_calls:
+            continue
+        filtered.append(message)
+    return filtered
 
 
 def _current_turn_has_tool_result(messages: list[BaseMessage] | list[Any]) -> bool:
