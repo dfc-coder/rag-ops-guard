@@ -1,0 +1,31 @@
+name: Format final grounding branch
+
+on:
+  push:
+    branches:
+      - agent/consolidate-grounding-correctness
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/consolidate-grounding-correctness
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --group dev
+      - name: Format repository
+        run: |
+          uv run ruff format .
+          rm .github/workflows/format-final-grounding.yml
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: finalize grounding formatting"
+          git push origin HEAD:agent/consolidate-grounding-correctness
