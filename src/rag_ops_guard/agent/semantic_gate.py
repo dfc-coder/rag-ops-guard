@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
+from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.config import get_settings
-from rag_ops_guard.ports import EmbeddingProvider
+from rag_ops_guard.ports import Reranker
 
 
 class GroundingAction(StrEnum):
@@ -17,20 +16,20 @@ class GroundingAction(StrEnum):
     UNCERTAIN = "uncertain"
 
 
-ROUTE_SEMANTICS: dict[GroundingAction, str] = {
+POLICY_HYPOTHESES: dict[GroundingAction, str] = {
     GroundingAction.DIRECT: (
-        "Handle the current request without new private or internal operational evidence. "
-        "This includes general knowledge, ordinary conversation, self-contained coding, and "
-        "transforming information already visible in the conversation."
+        "This turn can be completed without obtaining a new private or internal operational fact. "
+        "It is ordinary conversation, general knowledge, self-contained coding, or a "
+        "transformation of information already visible in the conversation."
     ),
     GroundingAction.RETRIEVE: (
-        "The current request needs a new private or internal operational fact, verification, "
-        "policy, configuration, incident detail, system behavior, or a factual follow-up that "
-        "depends on previously grounded operational context."
+        "This turn requires a new private or internal operational fact, verification, policy, "
+        "configuration, incident detail, system behavior, or factual continuation of a previously "
+        "grounded operational topic."
     ),
     GroundingAction.CATALOG: (
-        "The current request asks which internal documents, runbooks, APIs, policies, incidents, "
-        "or other knowledge sources are available to inspect."
+        "This turn asks which private or internal documentation, runbooks, APIs, policies, "
+        "incidents, or other knowledge sources are available to inspect."
     ),
 }
 
@@ -41,10 +40,13 @@ class SemanticGateContext:
     has_active_evidence: bool
 
     def render(self, message: str) -> str:
+        grounded = "yes" if self.has_grounded_context else "no"
+        active = "yes" if self.has_active_evidence else "no"
         return (
-            f"Current request:\n{message.strip()}\n\n"
-            f"Grounded conversational context available: {self.has_grounded_context}\n"
-            f"Active compatible evidence available: {self.has_active_evidence}"
+            "Classify the control action required by the current user turn.\n"
+            f"Current user turn: {message.strip()}\n"
+            f"A previously grounded internal topic exists: {grounded}.\n"
+            f"Compatible prior evidence is active: {active}."
         )
 
 
@@ -61,42 +63,42 @@ class TurnGate(Protocol):
 
 
 class SemanticGroundingGate:
-    """Fast embedding router for the small semantic control surface."""
+    """Cross-encoder semantic policy gate using the existing local reranker."""
 
     def __init__(
         self,
-        embeddings: EmbeddingProvider,
+        reranker: Reranker,
         *,
         min_score: float,
         min_margin: float,
     ) -> None:
-        self._embeddings = embeddings
+        self._reranker = reranker
         self._min_score = min_score
         self._min_margin = min_margin
-        actions = list(ROUTE_SEMANTICS)
-        vectors = embeddings.embed_documents([ROUTE_SEMANTICS[action] for action in actions])
-        if len(vectors) != len(actions):
-            raise ValueError("semantic gate did not receive one vector per action")
-        self._vectors = dict(zip(actions, vectors, strict=True))
+        self._actions = list(POLICY_HYPOTHESES)
+        self._hypotheses = [POLICY_HYPOTHESES[action] for action in self._actions]
 
     @classmethod
     def from_settings(cls) -> SemanticGroundingGate:
         settings = get_settings()
         return cls(
-            LlamaCppEmbeddingAdapter(
-                settings.embedding_base_url,
-                settings.embedding_model,
-                settings.embedding_dimension,
+            LlamaCppRerankerAdapter(
+                settings.reranker_base_url,
+                settings.reranker_model,
+                settings.reranker_timeout_seconds,
             ),
             min_score=settings.router_min_score,
             min_margin=settings.router_min_margin,
         )
 
     def decide(self, message: str, context: SemanticGateContext) -> GateDecision:
-        vector = self._embeddings.embed_query(context.render(message))
+        grades = self._reranker.grade(context.render(message), self._hypotheses)
+        if len(grades) != len(self._actions):
+            raise ValueError("semantic gate reranker returned an unexpected grade count")
+
         scores = {
-            action: _cosine(vector, prototype)
-            for action, prototype in self._vectors.items()
+            action: grade.score
+            for action, grade in zip(self._actions, grades, strict=True)
         }
         ordered = sorted(scores.items(), key=lambda item: (-item[1], item[0].value))
         if not ordered:
@@ -121,14 +123,3 @@ class SemanticGroundingGate:
             margin=margin,
             scores={key.value: round(value, 6) for key, value in scores.items()},
         )
-
-
-def _cosine(left: list[float], right: list[float]) -> float:
-    if len(left) != len(right):
-        raise ValueError("embedding dimensions do not match")
-    dot = sum(a * b for a, b in zip(left, right, strict=True))
-    left_norm = math.sqrt(sum(value * value for value in left))
-    right_norm = math.sqrt(sum(value * value for value in right))
-    if left_norm == 0 or right_norm == 0:
-        return 0.0
-    return dot / (left_norm * right_norm)
