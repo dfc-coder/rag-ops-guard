@@ -35,6 +35,20 @@ class SuccessGraph:
         yield {"type": "values", "data": {"messages": final_messages}}
 
 
+class TruncatedGraph:
+    def stream(self, inputs: dict[str, Any], **_: Any):
+        partial = "```perl\nsub encode {\n"
+        yield {
+            "type": "messages",
+            "data": (AIMessageChunk(content=partial), {"langgraph_node": "agent"}),
+        }
+        final_messages = [
+            *inputs["messages"],
+            AIMessage(content=partial, response_metadata={"finish_reason": "length"}),
+        ]
+        yield {"type": "values", "data": {"messages": final_messages}}
+
+
 class APITimeoutError(Exception):
     pass
 
@@ -99,6 +113,26 @@ def test_timeout_is_friendly_and_does_not_commit_failed_turn() -> None:
     assert terminal.kind == "error"
     assert "respuesta parcial" in terminal.text
     assert "conversación anterior sigue intacta" in terminal.text
+    assert text_content(agent._histories["thread-1"]) == text_content(previous)
+
+
+def test_truncated_turn_is_recoverable_and_not_committed() -> None:
+    agent = make_agent(TruncatedGraph())
+    previous = [HumanMessage(content="Antes"), AIMessage(content="Respuesta anterior")]
+    agent._histories["thread-1"] = list(previous)
+
+    events = list(
+        agent.stream(
+            "Genera código",
+            thread_id="thread-1",
+            context=QueryContext(),
+        )
+    )
+
+    terminal = events[-1]
+    assert terminal.kind == "error"
+    assert terminal.finish_reason == "length"
+    assert "alcanzó el límite de generación" in terminal.text
     assert text_content(agent._histories["thread-1"]) == text_content(previous)
 
 
