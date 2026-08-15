@@ -1,53 +1,50 @@
-# Chainlit migration
+# Chainlit migration / unified beta
 
 ## Decision
 
-Chainlit is the client-facing UI candidate for the ReAct beta. Gradio remains available as a developer/debug fallback during the migration window.
+Chainlit is the client-facing UI for the next beta, but it owns no agent policy.
 
-The agent and RAG architecture do not change:
+All clients resolve the same application core:
+
+```text
+Chainlit ---------\
+Gradio -----------+--> rag_ops_guard.app.conversation_agent()
+REST /v1/query ---/
+                         |
+                         v
+                  ConversationAgent
+                         |
+                 LangGraph ReAct loop
+                         |
+             search_documents / list_documents
+```
+
+The UI is an adapter: it renders status, streamed tokens, terminal response metadata and the exact
+sources returned by the canonical agent. It does not inspect private agent memory or run a second
+retrieval pass.
+
+## Runtime
 
 - Qwen 3.5 2B generation on CPU
-- LangGraph/ReAct orchestration
+- LangGraph orchestration on CPU
 - Floci + BM25/RRF
 - OpenVINO embeddings and reranking on Intel Iris Xe
-- transactional conversation memory in `ReactAgent`
+- transactional per-thread in-process conversation memory
+- deterministic safety before model/tool execution
+- deterministic post-retrieval evidence admission
 
-## Client UI contract
+## Grounding behavior
 
-The Chainlit surface provides:
+The model is bound to two document tools:
 
-- immediate activity feedback
-- token streaming
-- normal chat and direct-code responses without forced RAG
-- RAG activity shown as a compact tool step
-- exact evidence used by `search_knowledge` exposed as side-panel source cards
-- environment selection (`any`, `production`, `staging`)
-- recoverable errors with Retry
-- Stop support without committing an interrupted turn
-- current-chat history and multi-turn agent memory
-- New Chat through Chainlit's native UI
-- local runtime diagnostics on demand
-- dark/light theme and responsive layout
+- `search_documents(query)`
+- `list_documents()`
 
-### History scope
+Normal chat, public knowledge and self-contained code should use zero document tools. Corpus-specific
+questions use `search_documents`; unsupported corpus facts end as `insufficient_evidence` with no
+citations. Grounded answers expose the exact admitted chunks as source cards.
 
-The local beta intentionally keeps history at the active-session/application-memory level. Durable browsing/resume of conversations across application restarts is not enabled in this migration because Chainlit requires a persistence data layer plus authentication for that experience. That can be added independently without changing the ReAct/RAG core.
-
-## Retrieval regression fixed before migration
-
-The Spanish short query `¿Cuántos reintentos permite Calypso?` exposed a false abstention even though `Calypso Timeout Runbook` contains the answer.
-
-`ResilientKnowledgeSearch` now:
-
-1. runs the normal instruction-wrapped knowledge retrieval path;
-2. logs dense, lexical, fused, reranker and admitted stages;
-3. only when that path has no admitted support, retries recall once with the raw user query;
-4. still applies the same resolver and reranker admission rules;
-5. never lowers the relevance threshold or bypasses fail-closed named-target checks.
-
-This fallback is a recall repair, not a relaxation of grounding.
-
-## Migration gate
+## Freeze validation
 
 Run on the target Fedora/Tiger Lake machine:
 
@@ -55,50 +52,29 @@ Run on the target Fedora/Tiger Lake machine:
 make chainlit-gate
 ```
 
-The headless gate validates:
+`make chainlit-gate` delegates to `scripts/beta_freeze_gate.sh` and validates the single-pipeline
+architecture, response contract, local runtime, retrieval admission, direct/no-tool behavior, grounded
+Calypso behavior, unsupported corpus behavior, safety and Chainlit import.
 
-- corpus/vector integrity
-- streaming and transactional rollback regressions
-- short direct-code streaming with zero RAG tools
-- exact Calypso retrieval under the default `any environment` context
-- final answer contains the retry count
-- follow-up preserves the Treasury Integrations escalation
-- Chainlit application syntax/import configuration
-
-Then run the UI candidate:
+Then run:
 
 ```bash
 make chainlit-beta
 ```
 
-Open `http://127.0.0.1:8001` and manually confirm:
+Manual checks before freezing:
 
-1. direct code streams normally;
-2. Calypso returns three retries and displays source cards;
-3. `¿Y después del tercero?` returns Treasury Integrations;
-4. Stop interrupts a long generation without corrupting prior memory;
-5. a recoverable failure exposes Retry;
-6. environment settings work;
-7. Local Status reports the four local runtime components.
+1. a short Python coding request streams without document tools or citations;
+2. `¿Cuántos reintentos permite Calypso?` uses documents, answers three and shows source cards;
+3. `¿Y después del tercero?` re-queries documents and answers Treasury Integrations;
+4. a SAP-specific fact absent from the corpus returns insufficient evidence rather than Calypso data;
+5. Stop does not corrupt the previous successful conversation;
+6. Retry works after a recoverable model/backend failure;
+7. environment filtering still affects document retrieval.
 
-## Promotion
+## Scope boundary for this beta
 
-After the gate passes, the branch is already wired so:
-
-```bash
-make beta-react
-```
-
-launches Chainlit on `127.0.0.1:8000`.
-
-Gradio remains available during the transition with:
-
-```bash
-make gradio-react
-```
-
-Shutdown remains unchanged:
-
-```bash
-make local-down
-```
+This freeze unifies orchestration and tool/RAG behavior. It intentionally does **not** replace the
+existing Markdown/YAML ingestion contract with multi-format PDF/DOCX/HTML ingestion. Generic ingestion
+is the next isolated migration after this client beta is frozen; mixing it into the orchestration
+freeze would make failures harder to attribute.
