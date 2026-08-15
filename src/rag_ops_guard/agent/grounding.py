@@ -133,6 +133,7 @@ class ConversationState:
                 and system is not None
                 and system.casefold() != self.system.casefold()
             )
+            root_query: str | None
             if system_changed and ranking_query:
                 root_query = ranking_query
             elif plan.preserve_topic and self.last_grounded_query:
