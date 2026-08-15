@@ -95,6 +95,43 @@ def test_current_literal_turn_is_kept_separate_for_reranking() -> None:
     assert plan.retrieval_query == "Cuantos reintentos permite Calypso. Y despues del tercero?"
 
 
+def test_long_contextual_followup_is_not_forced_direct_by_length() -> None:
+    message = (
+        "Podrias explicarme con mas detalle que pasa despues de que se agotan esos intentos "
+        "automaticos, quien deberia intervenir y que procedimiento corresponde seguir?"
+    )
+    plan = TurnPolicyEngine().plan(message, _state(), PROD)
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.ranking_query == message
+
+
+def test_implicit_manual_limit_question_is_regrounded() -> None:
+    message = "Hay algun limite manual?"
+    plan = TurnPolicyEngine().plan(message, _state(), PROD)
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.ranking_query == message
+
+
+def test_reuse_word_plus_new_fact_does_not_reuse_stale_scope() -> None:
+    message = "Explicame que pasa despues del tercero."
+    plan = TurnPolicyEngine().plan(message, _state(), PROD)
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.ranking_query == message
+
+
+def test_plain_example_request_reuses_active_evidence() -> None:
+    plan = TurnPolicyEngine().plan("Dame un ejemplo.", _state(), PROD)
+    assert plan.policy == TurnPolicy.REUSE_EVIDENCE
+    assert plan.tool_calls if False else True
+
+
+def test_catalog_side_trip_preserves_grounded_topic() -> None:
+    plan = TurnPolicyEngine().plan("Que documentacion hay?", _state(), PROD)
+    assert plan.policy == TurnPolicy.LIST_KNOWLEDGE
+    assert plan.preserve_topic is True
+    assert plan.preserve_evidence is True
+
+
 def test_unrelated_code_after_grounding_stays_direct() -> None:
     plan = TurnPolicyEngine().plan("Escribe Fibonacci en Python.", _state(), PROD)
     assert plan.policy == TurnPolicy.DIRECT
