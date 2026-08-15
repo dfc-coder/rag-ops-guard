@@ -144,8 +144,12 @@ class QueryResponse(BaseModel):
         if self.route not in {"knowledge", None} and self.citations:
             raise ValueError("only knowledge responses may carry citations")
 
-        if self.status == QueryStatus.ANSWERED and self.route == "knowledge" and not self.citations:
-            raise ValueError("grounded knowledge responses require citations")
+        if (
+            self.status == QueryStatus.ANSWERED
+            and self.route in {"knowledge", None}
+            and not self.citations
+        ):
+            raise ValueError("grounded answered responses require citations")
 
         if self.status not in answered_statuses and self.citations:
             raise ValueError("non-answered responses cannot carry citations")
