@@ -8,9 +8,13 @@
     "src/rag_ops_guard/agent/grounding.py",
     "src/rag_ops_guard/agent/semantic_router.py"
   ],
+  "allowed_top_level_string_constants": [
+    "ROUTER_PROMPT"
+  ],
   "rules": [
     "Production routing code must not contain dialogue phrase catalogs or entity allowlists.",
     "Production routing code must not contain regex-based conversational intent or entity routing.",
+    "Production routing code must not hide dialogue rules in top-level phrase constants or string maps.",
     "Natural-language meaning must be emitted through a validated semantic structured resolver.",
     "Entities are retrieval data, not source-code routing rules.",
     "Deterministic code may enforce evidence, context, TTL, safety, rollback, abstention, and schema invariants only.",
