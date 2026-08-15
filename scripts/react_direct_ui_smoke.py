@@ -27,6 +27,8 @@ def main() -> None:
         raise SystemExit("Direct UI smoke failed: no immediate status event")
     if terminal is None or terminal.kind == "error":
         raise SystemExit(f"Direct UI smoke failed: terminal={terminal}")
+    if terminal.policy != "direct":
+        raise SystemExit(f"Direct UI smoke failed: expected direct policy, got {terminal.policy}")
     if token_events < 1:
         raise SystemExit("Direct UI smoke failed: no streamed tokens")
     if terminal.tool_calls != 0:
@@ -36,7 +38,7 @@ def main() -> None:
 
     print(
         "DIRECT UI READY: "
-        f"status={first_status!r} · tokens={token_events} · "
+        f"status={first_status!r} · policy={terminal.policy} · tokens={token_events} · "
         f"tools={terminal.tool_calls} · total={terminal.elapsed_ms / 1000:.2f}s"
     )
 
