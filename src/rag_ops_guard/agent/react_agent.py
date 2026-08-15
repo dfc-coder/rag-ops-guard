@@ -35,8 +35,8 @@ Behavior:
 - Maintain the conversation naturally across turns.
 - Answer ordinary conversation, general knowledge, and coding requests directly from the model.
 - For direct coding requests, do not call knowledge tools unless the requested code depends on
-  internal operational facts. Produce the requested implementation directly and keep it compact;
-  avoid long preambles or explanations unless the user asks for them.
+  internal operational facts. Return the complete runnable implementation first, keep it compact,
+  omit unnecessary commentary, and finish the requested code before adding any explanation.
 - Do not use tools for greetings, thanks, casual conversation, or questions about your role.
 - For factual questions about internal systems, incidents, APIs, runbooks, SLAs, retries,
   integrations, or operational procedures, use search_knowledge before answering.
@@ -111,6 +111,7 @@ class ReactResponse:
     elapsed_ms: int
     tool_calls: int
     failed: bool = False
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,14 +120,15 @@ class ReactStreamEvent:
     text: str
     elapsed_ms: int = 0
     tool_calls: int = 0
+    finish_reason: str | None = None
 
 
 class ReactAgent:
     """Small LangGraph ReAct loop with transactional thread-level conversational memory.
 
     A turn is committed to memory only after the graph finishes successfully. If generation,
-    transport, or a user-cancelled stream fails mid-turn, the previous successful conversation
-    remains intact and the next turn can continue from that point.
+    transport, truncation, or a user-cancelled stream fails mid-turn, the previous successful
+    conversation remains intact and the next turn can continue from that point.
     """
 
     def __init__(self) -> None:
@@ -142,7 +144,7 @@ class ReactAgent:
             temperature=0.2,
             top_p=settings.llm_top_p,
             presence_penalty=settings.llm_presence_penalty,
-            max_completion_tokens=min(settings.llm_answer_max_tokens, 384),
+            max_completion_tokens=settings.llm_answer_max_tokens,
             timeout=settings.llm_timeout_seconds,
             max_retries=0,
             extra_body={
@@ -164,7 +166,7 @@ class ReactAgent:
         builder.add_conditional_edges("agent", tools_condition)
         builder.add_edge("tools", "agent")
         # Conversation persistence is intentionally outside the graph. That makes a full ReAct
-        # turn transactional: a failed/cancelled turn never contaminates the next request.
+        # turn transactional: a failed/cancelled/truncated turn never contaminates the next request.
         self._agent = builder.compile()
 
     def stream(
@@ -232,12 +234,28 @@ class ReactAgent:
                     raise RuntimeError("ReAct graph completed without a final message state")
 
                 answer = _last_ai_text(final_messages)
+                finish_reason = _last_finish_reason(final_messages)
+                if finish_reason in {"length", "max_tokens"}:
+                    yield ReactStreamEvent(
+                        kind="error",
+                        text=(
+                            f"{answer.rstrip()}\n\n---\n\n"
+                            "La respuesta alcanzó el límite de generación antes de terminar. "
+                            "Este turno no se guardó en la conversación; podés reintentarlo."
+                        ),
+                        elapsed_ms=int((perf_counter() - started) * 1000),
+                        tool_calls=_last_turn_tool_calls(final_messages),
+                        finish_reason=finish_reason,
+                    )
+                    return
+
                 self._commit_history(thread_id, final_messages)
                 yield ReactStreamEvent(
                     kind="done",
                     text=answer,
                     elapsed_ms=int((perf_counter() - started) * 1000),
                     tool_calls=_last_turn_tool_calls(final_messages),
+                    finish_reason=finish_reason,
                 )
             except Exception as exc:
                 # The history snapshot is never modified until successful completion, so there is
@@ -277,6 +295,7 @@ class ReactAgent:
             elapsed_ms=terminal.elapsed_ms,
             tool_calls=terminal.tool_calls,
             failed=terminal.kind == "error",
+            finish_reason=terminal.finish_reason,
         )
 
     def clear_thread(self, thread_id: str) -> None:
@@ -374,6 +393,17 @@ def _last_turn_tool_calls(messages: list[BaseMessage] | list[Any]) -> int:
         for message in messages[last_user_index + 1 :]
         if isinstance(message, AIMessage) and message.tool_calls
     )
+
+
+def _last_finish_reason(messages: list[BaseMessage] | list[Any]) -> str | None:
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        metadata = message.response_metadata if isinstance(message.response_metadata, dict) else {}
+        reason = metadata.get("finish_reason") or metadata.get("stop_reason")
+        if reason is not None:
+            return str(reason)
+    return None
 
 
 def _last_ai_text(messages: list[BaseMessage] | list[Any]) -> str:
