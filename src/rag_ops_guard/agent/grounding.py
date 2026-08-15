@@ -113,15 +113,15 @@ class ConversationState:
                 grounded=bool(sources),
             )
 
-        existing = self.evidence
+        existing = self.evidence if plan.preserve_evidence else None
         active = existing is not None and existing.active(next_turn)
         return ConversationState(
             turn_index=next_turn,
-            topic=self.topic,
-            system=self.system,
-            environment=context.environment or self.environment,
+            topic=self.topic if active else None,
+            system=self.system if active else None,
+            environment=context.environment or (self.environment if active else None),
             last_intent=plan.policy.value,
-            last_grounded_query=self.last_grounded_query,
+            last_grounded_query=self.last_grounded_query if active else None,
             evidence=existing if active else None,
             grounded=active,
         )
@@ -133,6 +133,7 @@ class TurnPlan:
     reason: str
     retrieval_query: str | None = None
     evidence_context: str | None = None
+    preserve_evidence: bool = False
 
 
 class FollowupResolver:
@@ -174,26 +175,35 @@ class TurnPolicyEngine:
             return TurnPlan(TurnPolicy.LIST_KNOWLEDGE, "explicit knowledge catalog request")
 
         if _is_social_message(folded):
-            return TurnPlan(TurnPolicy.DIRECT, "social/conversational message")
+            return TurnPlan(
+                TurnPolicy.DIRECT,
+                "social/conversational message",
+                preserve_evidence=evidence is not None,
+            )
 
         if evidence is not None and _is_reuse_request(folded):
             return TurnPlan(
                 TurnPolicy.REUSE_EVIDENCE,
                 "requested transformation is covered by the active evidence window",
                 evidence_context=evidence.render_prompt(),
+                preserve_evidence=True,
             )
 
         # Generic definition questions remain direct unless the user explicitly names an internal
-        # system. This avoids turning questions like "what is exponential backoff?" into RAG calls.
+        # system. A general topic shift deliberately clears stale internal evidence after success.
         if _is_definition_request(folded) and not _contains_explicit_internal_anchor(text):
             return TurnPlan(TurnPolicy.DIRECT, "general definition request")
 
         if _looks_like_internal_query(text):
+            explicit_target = _contains_explicit_internal_anchor(text) or _has_named_operational_target(
+                text
+            )
             query = self._resolver.resolve(text, state) if evidence is not None else text
             return TurnPlan(
                 TurnPolicy.RETRIEVE,
                 "internal operational fact requires grounded evidence",
                 retrieval_query=query,
+                preserve_evidence=evidence is not None and not explicit_target,
             )
 
         if evidence is not None and (
@@ -203,8 +213,11 @@ class TurnPolicyEngine:
                 TurnPolicy.RETRIEVE,
                 "contextual follow-up asks for a new internal fact",
                 retrieval_query=self._resolver.resolve(text, state),
+                preserve_evidence=True,
             )
 
+        # Unrelated direct chat/code changes the active topic. Keeping the old evidence here would
+        # make a later pronoun/ellipsis incorrectly snap back to the previous internal system.
         return TurnPlan(TurnPolicy.DIRECT, "no internal grounding requirement detected")
 
 
