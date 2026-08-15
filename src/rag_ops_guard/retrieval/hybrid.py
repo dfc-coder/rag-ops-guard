@@ -120,7 +120,6 @@ _STOPWORDS = {
     "continúa",
     "amplia",
     "amplía",
-    "describe",
     "muestra",
     "este",
     "esta",
