@@ -4,9 +4,15 @@ import contextvars
 from threading import Lock
 from typing import Any
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 
-from rag_ops_guard.agent.react_agent import ReactAgent
+from rag_ops_guard.agent.react_agent import ReactAgent, _should_force_knowledge_followup
 from rag_ops_guard.domain.models import QueryContext
 
 
@@ -74,6 +80,18 @@ def make_agent(graph: Any) -> ReactAgent:
 
 def text_content(messages: list[BaseMessage]) -> list[str]:
     return [str(message.content) for message in messages]
+
+
+def grounded_history() -> list[BaseMessage]:
+    return [
+        HumanMessage(content="¿Cuántos reintentos permite Calypso?"),
+        ToolMessage(
+            content='{"supported": true, "sources": [{"title": "Payment Retry Policy"}]}',
+            tool_call_id="search-1",
+            name="search_knowledge",
+        ),
+        AIMessage(content="Calypso permite 3 reintentos automáticos."),
+    ]
 
 
 def test_stream_yields_immediate_status_tokens_and_terminal_response() -> None:
@@ -198,3 +216,29 @@ def test_invoke_reports_recoverable_failure_without_raising() -> None:
 
     assert response.failed is True
     assert "conversación anterior sigue intacta" in response.answer
+
+
+def test_short_operational_followup_after_grounded_turn_requires_new_search() -> None:
+    messages = [*grounded_history(), HumanMessage(content="¿Y después del tercero?")]
+
+    assert _should_force_knowledge_followup(messages) is True
+
+
+def test_social_message_after_grounded_turn_does_not_force_search() -> None:
+    messages = [*grounded_history(), HumanMessage(content="Gracias")]
+
+    assert _should_force_knowledge_followup(messages) is False
+
+
+def test_followup_stops_forcing_after_current_turn_tool_result() -> None:
+    messages = [
+        *grounded_history(),
+        HumanMessage(content="¿Y después del tercero?"),
+        ToolMessage(
+            content='{"supported": true}',
+            tool_call_id="search-2",
+            name="search_knowledge",
+        ),
+    ]
+
+    assert _should_force_knowledge_followup(messages) is False
