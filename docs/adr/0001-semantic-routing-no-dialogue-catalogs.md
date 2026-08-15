@@ -1,6 +1,6 @@
 # ADR-0001: Semantic routing; no dialogue catalogues in production policy
 
-Status: Accepted
+Status: Accepted / Implemented by Conversational Grounding v3
 
 Date: 2026-08-15
 
@@ -17,7 +17,7 @@ when a semantically equivalent user message is worded differently.
 Natural-language meaning MUST NOT be implemented as growing Python catalogues, prefix/suffix tables,
 entity allowlists, stopword exceptions or regex-based dialogue routing.
 
-The target architecture is:
+The architecture is:
 
 ```text
 user message + compact conversation state
@@ -43,16 +43,16 @@ user message + compact conversation state
 The semantic resolver owns language understanding and emits a small validated structured contract.
 The deterministic controller owns only system invariants.
 
-A representative contract is:
+The v3 contract is:
 
 ```text
 requires_grounding: bool
 relation_to_context: same | new | none
-operation: answer | transform
+operation: answer | transform | catalog
 standalone_query: string | null
 ```
 
-The exact schema may evolve, but its meaning must remain semantic and domain-independent.
+The schema may evolve, but its meaning must remain semantic and domain-independent.
 
 ## Deterministic code MAY enforce
 
@@ -77,43 +77,57 @@ The exact schema may evolve, but its meaning must remain semantic and domain-ind
 Entities are data, not code. If a user asks about a previously unseen system, retrieval determines
 whether evidence exists. The application does not need a source-code entry for that entity.
 
-## Migration / ratchet
+## V3 implementation / ratchet
 
-The current v2 implementation still contains legacy heuristic catalogues. They are frozen technical
-debt, not an approved extension point.
+Conversational Grounding v3 removes the legacy heuristic router from production code.
 
-`architecture/grounding-policy-guard.json` records the maximum legacy budget. The architecture test
-`tests/architecture/test_grounding_policy_guard.py` enforces a ratchet:
+`architecture/grounding-policy-guard.json` now declares a hard zero budget:
 
-- existing catalogues may shrink or disappear;
-- their literal/regex counts may never increase;
-- no new top-level dialogue/entity string catalogue may be introduced;
-- the declared target is zero language literals and zero regex dialogue patterns.
+- maximum dialogue/entity string catalogues: zero;
+- maximum regex dialogue patterns: zero.
 
-Conversational Grounding v3 must drive those budgets to zero as the semantic resolver replaces the
-legacy router.
+`tests/architecture/test_grounding_policy_guard.py` scans both production routing modules so the
+heuristic router cannot be reintroduced under a different file:
+
+- `src/rag_ops_guard/agent/semantic_router.py`;
+- `src/rag_ops_guard/agent/grounding.py`.
+
+Natural-language examples are stored in evaluation data and can grow without changing production
+routing rules.
 
 ## Regression policy
 
 Natural-language examples belong in evaluation/test datasets, not in production routing code.
 
-A newly discovered phrase may be added as an eval case to measure semantic routing quality, but fixing
-the eval must not require adding that phrase/entity to an application rule list.
+A newly discovered phrasing may be added as an eval case to measure semantic routing quality. Fixing a
+failed eval may change the semantic contract/prompt/model or improve contextual state, but MUST NOT add
+the phrase or entity as an application routing rule.
+
+## Safe failure policy
+
+The semantic resolver is probabilistic; the evidence controller is not. If structured routing fails
+because of timeout, malformed output or model/tool incompatibility, the application fails closed to a
+grounded retrieval attempt. With an existing grounded topic, the fallback query combines the stable
+root with the current request. Without one, the current request itself is retrieved. Unsupported
+retrieval then follows the normal abstention path.
+
+This fallback deliberately optimizes safety over latency.
 
 ## Consequences
 
 Positive:
 
 - routing behavior scales across phrasing, language and domain entities;
-- conversation policy becomes testable independently from natural-language interpretation;
+- conversation policy is testable independently from natural-language interpretation;
 - new systems do not require code changes;
-- regressions become router-quality/evidence-quality problems rather than endless heuristic patches;
-- application safety remains deterministic.
+- regressions become semantic-router/evidence-quality problems rather than endless heuristic patches;
+- application safety remains deterministic;
+- production language-heuristic budget is mechanically kept at zero.
 
 Trade-offs:
 
-- semantic routing is probabilistic and must use schema validation, confidence/fallback behavior and
-  evaluation datasets;
-- a small local model may require measurement or replacement if it cannot reliably satisfy the
-  structured routing contract;
-- the v2 heuristic layer must be removed incrementally rather than extended.
+- semantic routing adds one small structured model call per user turn;
+- routing quality must be measured with eval datasets instead of assumed from unit rules;
+- a small local model may need a better prompt or a dedicated router model if measured semantic
+  accuracy is insufficient;
+- resolver failure may cause a conservative extra retrieval before abstention.
