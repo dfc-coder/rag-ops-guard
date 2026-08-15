@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import ast
-import json
+from json import loads
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[2]
 GUARD_FILE = ROOT / "architecture/grounding-policy-guard.json"
 
 
 def _load_guard() -> dict[str, object]:
-    return json.loads(GUARD_FILE.read_text(encoding="utf-8"))
+    return loads(GUARD_FILE.read_text(encoding="utf-8"))
 
 
 def _top_level_assignments(tree: ast.Module) -> dict[str, ast.AST]:
