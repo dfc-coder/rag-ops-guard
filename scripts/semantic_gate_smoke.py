@@ -55,7 +55,8 @@ def main() -> None:
         uncertain += int(decision.action == GroundingAction.UNCERTAIN)
         print(
             f"{case['name']}: {elapsed_ms:.0f}ms action={decision.action.value} "
-            f"score={decision.score:.4f} margin={decision.margin:.4f}"
+            f"score={decision.score:.4f} margin={decision.margin:.4f} "
+            f"scores={decision.scores}"
         )
         if not _accepted(case["expected"], decision.action):
             failures.append(
@@ -67,7 +68,7 @@ def main() -> None:
     p95 = _percentile(latencies_ms, 0.95)
     maximum = max(latencies_ms, default=0.0)
     print(
-        "semantic-gate latency: "
+        "cross-encoder-gate latency: "
         f"avg={average:.0f}ms p50={p50:.0f}ms p95={p95:.0f}ms "
         f"max={maximum:.0f}ms uncertain={uncertain}"
     )
@@ -77,9 +78,9 @@ def main() -> None:
         failures.append(f"p95 latency {p95:.0f}ms exceeds {p95_limit:.0f}ms")
 
     if failures:
-        raise SystemExit("SEMANTIC GATE FAILED: " + ", ".join(failures))
+        raise SystemExit("CROSS-ENCODER GATE FAILED: " + ", ".join(failures))
 
-    print("SEMANTIC GATE V4 READY: safe action routing passed without a generative router")
+    print("CROSS-ENCODER GATE V5 READY: learned policy scoring passed")
 
 
 if __name__ == "__main__":
