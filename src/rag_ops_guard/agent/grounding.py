@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import json
-import re
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
+from rag_ops_guard.agent.semantic_router import (
+    ContextRelation,
+    SemanticConversationContext,
+    SemanticTurnResolver,
+    TurnDecision,
+    TurnOperation,
+)
 from rag_ops_guard.domain.models import QueryContext
+
+logger = logging.getLogger(__name__)
 
 
 class TurnPolicy(StrEnum):
@@ -85,6 +94,8 @@ class ConversationState:
     evidence: EvidenceWindow | None = None
     grounded: bool = False
     last_retrieval_supported: bool | None = None
+    last_user_message: str | None = None
+    last_assistant_message: str | None = None
 
     def active_evidence(self, context: QueryContext | None = None) -> EvidenceWindow | None:
         if self.evidence is None or not self.evidence.active(self.turn_index):
@@ -92,6 +103,19 @@ class ConversationState:
         if context is not None and not self.evidence.compatible_with(context):
             return None
         return self.evidence
+
+    def semantic_context(self, context: QueryContext) -> SemanticConversationContext:
+        return SemanticConversationContext(
+            has_grounded_topic=bool(self.last_grounded_query),
+            grounded_topic=self.topic,
+            last_grounded_query=self.last_grounded_query,
+            has_active_evidence=self.active_evidence(context) is not None,
+            last_user_message=self.last_user_message,
+            last_assistant_message=self.last_assistant_message,
+            system_filter=context.system,
+            environment_filter=context.environment,
+            api_version_filter=context.api_version,
+        )
 
     def after_success(
         self,
@@ -101,7 +125,10 @@ class ConversationState:
         context: QueryContext,
     ) -> ConversationState:
         next_turn = self.turn_index + 1
+        last_user = _last_human_text(messages) or self.last_user_message
+        last_assistant = _last_ai_text(messages) or self.last_assistant_message
         payload = _latest_search_payload(messages)
+
         if payload is not None and payload.get("supported") is True:
             sources = _sources_from_payload(payload)
             query = str(payload.get("query") or plan.retrieval_query or "").strip()
@@ -129,6 +156,8 @@ class ConversationState:
                 ),
                 grounded=bool(sources),
                 last_retrieval_supported=True,
+                last_user_message=last_user,
+                last_assistant_message=last_assistant,
             )
 
         retrieval_failed = payload is not None and payload.get("supported") is not True
@@ -155,6 +184,8 @@ class ConversationState:
                 if preserve_topic
                 else None
             ),
+            last_user_message=last_user,
+            last_assistant_message=last_assistant,
         )
 
 
@@ -169,615 +200,113 @@ class TurnPlan:
     preserve_topic: bool = False
 
 
-class FollowupResolver:
-    def resolve(self, message: str, state: ConversationState) -> str:
-        current = message.strip()
-        if not current:
-            return current
-        if _is_explicit_target(current) or not state.last_grounded_query:
-            return current
-        prior = state.last_grounded_query.strip().rstrip(".?!")
-        return f"{prior}. {current}"
+class GroundingController:
+    """Apply deterministic evidence/state invariants to a semantic turn decision."""
 
-
-class TurnPolicyEngine:
-    def __init__(self, resolver: FollowupResolver | None = None) -> None:
-        self._resolver = resolver or FollowupResolver()
-
-    def plan(self, message: str, state: ConversationState, context: QueryContext) -> TurnPlan:
-        text = message.strip()
-        folded = _normalize(text)
+    def plan(
+        self,
+        message: str,
+        decision: TurnDecision,
+        state: ConversationState,
+        context: QueryContext,
+    ) -> TurnPlan:
         evidence = state.active_evidence(context)
-        fallback_evidence = evidence if state.last_retrieval_supported is not False else None
+        same_context = decision.relation_to_context == ContextRelation.SAME
         has_topic = bool(state.last_grounded_query)
+        reusable_evidence = evidence if state.last_retrieval_supported is not False else None
 
-        if _is_list_knowledge_request(folded):
+        if decision.operation == TurnOperation.CATALOG:
             return TurnPlan(
                 TurnPolicy.LIST_KNOWLEDGE,
-                "explicit knowledge catalog request",
+                "semantic resolver requested knowledge catalog",
                 preserve_evidence=evidence is not None,
                 preserve_topic=has_topic,
             )
 
-        if _is_social_message(folded):
-            return TurnPlan(
-                TurnPolicy.DIRECT,
-                "social/conversational message",
-                preserve_evidence=evidence is not None,
-                preserve_topic=has_topic,
-            )
-
-        reuse_request = _is_reuse_request(folded)
-        contextual_new_fact = has_topic and _is_contextual_new_fact(text, folded)
-        reuse_asks_new_fact = reuse_request and _reuse_requires_new_fact(folded)
-
-        if contextual_new_fact or reuse_asks_new_fact:
-            return TurnPlan(
-                TurnPolicy.RETRIEVE,
-                "contextual follow-up asks for a new internal fact",
-                retrieval_query=self._resolver.resolve(text, state),
-                ranking_query=text,
-                evidence_context=(
-                    fallback_evidence.render_prompt() if fallback_evidence is not None else None
-                ),
-                preserve_evidence=evidence is not None,
-                preserve_topic=True,
-            )
-
-        if reuse_request:
-            if fallback_evidence is not None:
+        if decision.operation == TurnOperation.TRANSFORM and same_context:
+            if reusable_evidence is not None:
                 return TurnPlan(
                     TurnPolicy.REUSE_EVIDENCE,
-                    "requested transformation is covered by the active evidence window",
-                    evidence_context=fallback_evidence.render_prompt(),
+                    "semantic transform is covered by active evidence",
+                    evidence_context=reusable_evidence.render_prompt(),
                     preserve_evidence=True,
                     preserve_topic=True,
                 )
-            if has_topic and state.last_retrieval_supported is not False:
-                root = state.last_grounded_query or text
+            if has_topic:
+                root_query = state.last_grounded_query or message.strip()
                 return TurnPlan(
                     TurnPolicy.RETRIEVE,
-                    "transformation requires refreshing expired or context-incompatible evidence",
-                    retrieval_query=root,
-                    ranking_query=root,
+                    "semantic transform requires refreshing unavailable evidence",
+                    retrieval_query=root_query,
+                    ranking_query=root_query,
                     preserve_topic=True,
                 )
+            return TurnPlan(TurnPolicy.DIRECT, "semantic transform of non-grounded context")
 
-        if _is_coding_request(folded) and not _contains_explicit_internal_anchor(text):
-            contextual_code = has_topic and _looks_like_contextual_followup(folded)
-            if contextual_code:
-                if fallback_evidence is not None:
-                    return TurnPlan(
-                        TurnPolicy.REUSE_EVIDENCE,
-                        "coding request refers to the active grounded evidence",
-                        evidence_context=fallback_evidence.render_prompt(),
-                        preserve_evidence=True,
-                        preserve_topic=True,
-                    )
-                if state.last_retrieval_supported is not False:
-                    query = _contextual_code_refresh_query(text, state, self._resolver)
-                    ranking_query = (
-                        state.last_grounded_query
-                        if query == state.last_grounded_query
-                        else text
-                    )
-                    return TurnPlan(
-                        TurnPolicy.RETRIEVE,
-                        "contextual coding request requires refreshed internal evidence",
-                        retrieval_query=query,
-                        ranking_query=ranking_query,
-                        preserve_topic=True,
-                    )
-            named_internal_target = _has_named_operational_target(
-                text
-            ) and _has_operational_token(folded)
-            if not _contains_internal_marker(folded) and not named_internal_target:
-                return TurnPlan(TurnPolicy.DIRECT, "general coding request")
-
-        if _is_definition_request(folded) and not _contains_explicit_internal_anchor(text):
-            return TurnPlan(TurnPolicy.DIRECT, "general definition request")
-
-        if _looks_like_internal_query(text):
-            explicit_target = _is_explicit_target(text)
-            query = text if explicit_target else self._resolver.resolve(text, state)
+        if decision.requires_grounding:
+            query = (decision.standalone_query or "").strip()
+            if not query:
+                query = _safe_contextual_query(message, state)
+            preserve_topic = same_context and has_topic
             return TurnPlan(
                 TurnPolicy.RETRIEVE,
-                "internal operational fact requires grounded evidence",
+                "semantic resolver requires grounded evidence",
                 retrieval_query=query,
-                ranking_query=text,
+                ranking_query=message.strip(),
                 evidence_context=(
-                    fallback_evidence.render_prompt()
-                    if fallback_evidence is not None and not explicit_target
+                    reusable_evidence.render_prompt()
+                    if reusable_evidence is not None and preserve_topic
                     else None
                 ),
-                preserve_evidence=evidence is not None and not explicit_target,
-                preserve_topic=has_topic and not explicit_target,
+                preserve_evidence=evidence is not None and preserve_topic,
+                preserve_topic=preserve_topic,
             )
 
-        return TurnPlan(TurnPolicy.DIRECT, "no internal grounding requirement detected")
-
-
-_TOKEN_RE = re.compile(r"[\w-]+", re.UNICODE)
-_INTERNAL_ANCHORS = {
-    "calypso",
-    "payments",
-    "payment",
-    "sendgrid",
-    "treasury",
-    "treasury integrations",
-    "inc-001",
-    "inc-002",
-    "inc-003",
-}
-_INTERNAL_MARKERS = {
-    "runbook",
-    "runbooks",
-    "sla",
-    "dlq",
-    "incident",
-    "incidente",
-    "incidentes",
-    "produccion",
-    "production",
-    "staging",
-    "knowledge base",
-    "base de conocimiento",
-    "documentacion interna",
-}
-_INTERNAL_CONTEXT_MARKERS = {"nuestro", "nuestra", "interno", "interna", "internal", "our"}
-_OPERATIONAL_TOKENS = {
-    "retry",
-    "retries",
-    "reintento",
-    "reintentos",
-    "attempt",
-    "attempts",
-    "intento",
-    "intentos",
-    "timeout",
-    "timeouts",
-    "falla",
-    "fallo",
-    "fallan",
-    "failed",
-    "fails",
-    "escalacion",
-    "escalar",
-    "escalate",
-    "idempotency",
-    "idempotencia",
-    "transaccion",
-    "transaction",
-    "resubmit",
-    "resubmission",
-    "manual",
-    "limit",
-    "limite",
-}
-_FOLLOWUP_PREFIXES = (
-    "y ",
-    "entonces",
-    "despues",
-    "luego",
-    "que pasa",
-    "que mas",
-    "y si",
-    "por que",
-    "porque",
-    "como funciona",
-    "quien ",
-    "cuando ",
-    "donde ",
-    "cual ",
-    "cuales ",
-    "and ",
-    "then",
-    "after",
-    "what about",
-    "what happens",
-    "what else",
-    "what should",
-    "what do",
-    "why",
-    "how come",
-    "how does",
-    "who ",
-    "when ",
-    "where ",
-    "which ",
-)
-_FOLLOWUP_REFERENCES = {
-    "eso",
-    "esto",
-    "ese",
-    "esa",
-    "esos",
-    "esas",
-    "mismo",
-    "misma",
-    "tercer",
-    "tercero",
-    "tercera",
-    "anterior",
-    "siguiente",
-    "ultimo",
-    "ultima",
-    "despues",
-    "luego",
-    "entonces",
-    "this",
-    "these",
-    "third",
-    "next",
-    "previous",
-    "current",
-    "above",
-    "then",
-    "after",
-    "that",
-    "those",
-    "it",
-}
-_SIMPLE_REFERENCE_TOKENS = {
-    "eso",
-    "esto",
-    "ese",
-    "esa",
-    "mismo",
-    "misma",
-    "this",
-    "that",
-    "it",
-    "those",
-}
-_REUSE_MARKERS = (
-    "resumi",
-    "resume",
-    "resumen",
-    "mas corto",
-    "explicalo",
-    "explicame",
-    "reformula",
-    "reescrib",
-    "translate",
-    "traduce",
-    "traduci",
-    "ejemplo",
-    "example",
-    "bullet",
-    "tabla",
-    "table",
-    "detalle",
-    "details",
-    "more detail",
-    "tell me more",
-    "amplia",
-    "expand",
-    "elabora",
-    "continue",
-    "continua",
-)
-_NEW_FACT_PHRASES = (
-    "que pasa",
-    "que mas",
-    "despues",
-    "luego",
-    "siguiente",
-    "si falla",
-    "por que",
-    "porque",
-    "quien",
-    "cuando",
-    "donde",
-    "como funciona",
-    "what happens",
-    "what else",
-    "after",
-    "next",
-    "if it fails",
-    "why",
-    "who",
-    "when",
-    "where",
-    "how does",
-)
-_ELLIPTICAL_OPERATIONAL_TOKENS = {
-    "limite",
-    "limit",
-    "manual",
-    "intento",
-    "intentos",
-    "attempt",
-    "attempts",
-    "procedimiento",
-    "procedure",
-    "estado",
-    "status",
-    "responsable",
-    "owner",
-    "equipo",
-    "team",
-    "alerta",
-    "alert",
-}
-_SOCIAL_MESSAGES = {
-    "hola",
-    "hello",
-    "hi",
-    "gracias",
-    "thanks",
-    "thank you",
-    "ok",
-    "okay",
-    "perfecto",
-    "bien",
-    "genial",
-}
-_LIST_MARKERS = (
-    "que documentacion hay",
-    "que documentos hay",
-    "lista la documentacion",
-    "list documentation",
-    "what documentation is available",
-    "what documents are available",
-)
-_DEFINITION_PREFIXES = ("que es ", "what is ", "define ", "explica que es ")
-_CODING_MARKERS = (
-    "codigo",
-    "code",
-    "funcion",
-    "function",
-    "script",
-    "python",
-    "perl",
-    "javascript",
-    "typescript",
-    "java ",
-    " c ",
-    "c++",
-    "rust",
-    "implementa",
-    "implement ",
-    "escribe una",
-    "write a ",
-)
-_QUESTION_WORDS = {
-    "cuantos",
-    "cuantas",
-    "que",
-    "como",
-    "cuando",
-    "donde",
-    "what",
-    "how",
-    "when",
-    "where",
-    "which",
-}
-_NON_TARGET_TOKENS = {
-    *_QUESTION_WORDS,
-    *_OPERATIONAL_TOKENS,
-    "who",
-    "why",
-    "is",
-    "are",
-    "does",
-    "do",
-    "has",
-    "have",
-    "there",
-    "any",
-    "hay",
-    "existe",
-    "existen",
-    "algun",
-    "alguna",
-    "puede",
-    "puedo",
-    "debe",
-    "deben",
-    "api",
-    "sla",
-    "dlq",
-    "retry",
-    "retries",
-    "python",
-    "perl",
-    "java",
-    "javascript",
-    "typescript",
-    "rust",
-    "code",
-    "codigo",
-    "class",
-    "function",
-    "funcion",
-    "implement",
-    "implementa",
-    "write",
-    "escribe",
-    "client",
-    "cliente",
-    "system",
-    "sistema",
-    "service",
-    "servicio",
-    "maximum",
-    "maximo",
-    "maxima",
-    "automatic",
-    "automated",
-    "automatico",
-    "automatica",
-    "default",
-    "allowed",
-    "number",
-    "cantidad",
-    "current",
-    "production",
-    "produccion",
-    "staging",
-    "the",
-    "el",
-    "la",
-}
-_LOWERCASE_TARGET_PATTERNS = (
-    re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
-    re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
-    re.compile(
-        r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+"
-        r"(?:retry|retries|reintento|reintentos|timeout|timeouts)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+"
-        r"(?:de|del|for|of)\s+([a-z][\w-]+)\b",
-        re.IGNORECASE,
-    ),
-)
-
-
-def _normalize(text: str) -> str:
-    folded = text.strip().casefold().lstrip("¿¡")
-    return (
-        folded.replace("á", "a")
-        .replace("é", "e")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ú", "u")
-    )
-
-
-def _contains_explicit_internal_anchor(text: str) -> bool:
-    folded = _normalize(text)
-    tokens = set(_TOKEN_RE.findall(folded))
-    for anchor in _INTERNAL_ANCHORS:
-        if " " in anchor:
-            if anchor in folded:
-                return True
-        elif anchor in tokens:
-            return True
-    return False
-
-
-def _contains_internal_marker(folded: str) -> bool:
-    return any(marker in folded for marker in _INTERNAL_MARKERS)
-
-
-def _has_operational_token(folded: str) -> bool:
-    return bool(set(_TOKEN_RE.findall(folded)).intersection(_OPERATIONAL_TOKENS))
-
-
-def _looks_like_internal_query(text: str) -> bool:
-    folded = _normalize(text)
-    tokens = set(_TOKEN_RE.findall(folded))
-    if _contains_explicit_internal_anchor(text) or _contains_internal_marker(folded):
-        return True
-    operational = bool(tokens.intersection(_OPERATIONAL_TOKENS))
-    if operational and tokens.intersection(_INTERNAL_CONTEXT_MARKERS):
-        return True
-    return operational and _has_named_operational_target(text)
-
-
-def _is_explicit_target(text: str) -> bool:
-    return _contains_explicit_internal_anchor(text) or _has_named_operational_target(text)
-
-
-def _has_named_operational_target(text: str) -> bool:
-    folded_text = _normalize(text)
-    has_operational_context = _has_operational_token(folded_text)
-    raw_tokens = _TOKEN_RE.findall(text)
-    for token in raw_tokens:
-        folded = _normalize(token)
-        if folded in _NON_TARGET_TOKENS:
-            continue
-        if has_operational_context and (
-            token.isupper()
-            or (token[:1].isupper() and any(char.isalpha() for char in token))
-        ):
-            return True
-    for pattern in _LOWERCASE_TARGET_PATTERNS:
-        match = pattern.search(folded_text)
-        if match and match.group(1) not in _NON_TARGET_TOKENS:
-            return True
-    return False
-
-
-def _looks_like_contextual_followup(folded: str) -> bool:
-    tokens = _TOKEN_RE.findall(folded)
-    if not tokens or len(tokens) > 64:
-        return False
-    return any(folded.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES) or bool(
-        set(tokens).intersection(_FOLLOWUP_REFERENCES)
-    )
-
-
-def _looks_like_operational_followup(folded: str) -> bool:
-    tokens = set(_TOKEN_RE.findall(folded))
-    return bool(tokens.intersection(_OPERATIONAL_TOKENS)) and (
-        "?" in folded or len(tokens) <= 24
-    )
-
-
-def _looks_like_elliptical_operational_question(text: str, folded: str) -> bool:
-    if "?" not in text or _is_explicit_target(text):
-        return False
-    return bool(
-        set(_TOKEN_RE.findall(folded)).intersection(_ELLIPTICAL_OPERATIONAL_TOKENS)
-    )
-
-
-def _is_contextual_new_fact(text: str, folded: str) -> bool:
-    if _is_explicit_target(text):
-        return False
-    return (
-        _looks_like_contextual_followup(folded)
-        or _looks_like_operational_followup(folded)
-        or _looks_like_elliptical_operational_question(text, folded)
-    )
-
-
-def _reuse_requires_new_fact(folded: str) -> bool:
-    return any(marker in folded for marker in _NEW_FACT_PHRASES)
-
-
-def _contextual_code_refresh_query(
-    text: str,
-    state: ConversationState,
-    resolver: FollowupResolver,
-) -> str:
-    folded = _normalize(text)
-    tokens = set(_TOKEN_RE.findall(folded))
-    only_reference = bool(tokens.intersection(_SIMPLE_REFERENCE_TOKENS)) and not bool(
-        tokens.intersection(
-            _OPERATIONAL_TOKENS
-            | {"despues", "luego", "after", "tercer", "tercero", "third"}
+        preserve_topic = same_context and has_topic
+        return TurnPlan(
+            TurnPolicy.DIRECT,
+            "semantic resolver does not require internal evidence",
+            preserve_evidence=evidence is not None and preserve_topic,
+            preserve_topic=preserve_topic,
         )
+
+
+class TurnPolicyEngine:
+    """Semantic resolver + deterministic grounding controller facade used by ReactAgent."""
+
+    def __init__(
+        self,
+        resolver: SemanticTurnResolver | None = None,
+        controller: GroundingController | None = None,
+    ) -> None:
+        self._resolver = resolver or SemanticTurnResolver.from_settings()
+        self._controller = controller or GroundingController()
+
+    def plan(self, message: str, state: ConversationState, context: QueryContext) -> TurnPlan:
+        try:
+            decision = self._resolver.resolve(message, state.semantic_context(context))
+        except Exception:
+            logger.exception("semantic turn resolver failed; falling back to grounded-safe routing")
+            decision = _safe_fallback_decision(message, state)
+        return self._controller.plan(message, decision, state, context)
+
+
+def _safe_fallback_decision(message: str, state: ConversationState) -> TurnDecision:
+    relation = ContextRelation.SAME if state.last_grounded_query else ContextRelation.NONE
+    return TurnDecision(
+        requires_grounding=True,
+        relation_to_context=relation,
+        operation=TurnOperation.ANSWER,
+        standalone_query=_safe_contextual_query(message, state),
     )
-    if only_reference and state.last_grounded_query:
-        return state.last_grounded_query
-    return resolver.resolve(text, state)
 
 
-def _is_reuse_request(folded: str) -> bool:
-    return any(marker in folded for marker in _REUSE_MARKERS)
-
-
-def _is_social_message(folded: str) -> bool:
-    return folded.strip(" .!?") in _SOCIAL_MESSAGES
-
-
-def _is_list_knowledge_request(folded: str) -> bool:
-    return any(marker in folded for marker in _LIST_MARKERS)
-
-
-def _is_definition_request(folded: str) -> bool:
-    return any(folded.startswith(prefix) for prefix in _DEFINITION_PREFIXES)
-
-
-def _is_coding_request(folded: str) -> bool:
-    padded = f" {folded} "
-    return any(marker in padded for marker in _CODING_MARKERS)
+def _safe_contextual_query(message: str, state: ConversationState) -> str:
+    current = message.strip()
+    root = (state.last_grounded_query or "").strip().rstrip(".?!")
+    if root and current:
+        return f"{root}. {current}"
+    return current or root
 
 
 def _latest_search_payload(messages: list[BaseMessage]) -> dict[str, Any] | None:
@@ -785,6 +314,7 @@ def _latest_search_payload(messages: list[BaseMessage]) -> dict[str, Any] | None
     for index, message in enumerate(messages):
         if isinstance(message, HumanMessage):
             last_user_index = index
+
     payload: dict[str, Any] | None = None
     for message in messages[last_user_index + 1 :]:
         if not isinstance(message, ToolMessage) or message.name != "search_knowledge":
@@ -824,6 +354,36 @@ def _sources_from_payload(payload: dict[str, Any]) -> tuple[GroundedSource, ...]
             )
         )
     return tuple(sources)
+
+
+def _last_human_text(messages: list[BaseMessage]) -> str | None:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            text = _message_text(message)
+            if text:
+                return text
+    return None
+
+
+def _last_ai_text(messages: list[BaseMessage]) -> str | None:
+    for message in reversed(messages):
+        if isinstance(message, AIMessage) and not message.tool_calls:
+            text = _message_text(message)
+            if text:
+                return text
+    return None
+
+
+def _message_text(message: BaseMessage) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        str(part.get("text", "")) if isinstance(part, dict) else str(part)
+        for part in content
+    ).strip()
 
 
 def _topic_label(*, query: str | None, system: str | None) -> str | None:
