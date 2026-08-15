@@ -33,20 +33,17 @@ def _direct_string_collection(node: ast.AST) -> bool:
             isinstance(element, ast.Constant) and isinstance(element.value, str)
             for element in node.elts
         )
-    if isinstance(node, ast.Dict) and node.keys:
-        nodes = [item for item in (*node.keys, *node.values) if item is not None]
-        return bool(nodes) and all(
-            isinstance(item, ast.Constant) and isinstance(item.value, str) for item in nodes
+    if isinstance(node, ast.Dict) and node.values:
+        values = [value for value in node.values if value is not None]
+        return bool(values) and all(
+            isinstance(value, ast.Constant) and isinstance(value.value, str)
+            for value in values
         )
     return False
 
 
 def _direct_string_constant(node: ast.AST) -> bool:
     return isinstance(node, ast.Constant) and isinstance(node.value, str)
-
-
-def _string_collection_lines(tree: ast.AST) -> list[int]:
-    return [node.lineno for node in ast.walk(tree) if _direct_string_collection(node)]
 
 
 def _regex_usage_lines(tree: ast.AST) -> list[int]:
@@ -82,20 +79,54 @@ def _allowed_string_constants() -> set[str]:
     return {str(value) for value in values}
 
 
+def _allowed_semantic_maps() -> set[str]:
+    guard = _load_guard()
+    values = guard["allowed_semantic_maps"]
+    assert isinstance(values, list)
+    assert all(isinstance(value, str) for value in values)
+    return {str(value) for value in values}
+
+
 def test_production_routing_has_zero_dialogue_catalogs_anywhere() -> None:
     guard = _load_guard()
     assert guard["max_legacy_string_literals"] == 0
+    allowed_maps = _allowed_semantic_maps()
 
     offenders: list[str] = []
     for path in _routing_modules():
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for line in _string_collection_lines(tree):
-            offenders.append(f"{path.relative_to(ROOT)}:{line}")
+        assignments = _top_level_assignments(tree)
+        allowed_nodes = {id(value) for name, value in assignments.items() if name in allowed_maps}
+        for node in ast.walk(tree):
+            if _direct_string_collection(node) and id(node) not in allowed_nodes:
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
 
     assert not offenders, (
-        "Dialogue/entity string catalogs or maps are forbidden anywhere in production routing "
-        f"code. Move language examples to eval data instead: {offenders}"
+        "Dialogue/entity string catalogs or maps are forbidden in production routing code. "
+        f"Move language examples to eval data instead: {offenders}"
     )
+
+
+def test_allowed_semantic_map_has_one_abstract_description_per_action() -> None:
+    allowed_maps = _allowed_semantic_maps()
+    assert allowed_maps == {"ROUTE_SEMANTICS"}
+
+    matches = 0
+    for path in _routing_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        assignments = _top_level_assignments(tree)
+        value = assignments.get("ROUTE_SEMANTICS")
+        if value is None:
+            continue
+        matches += 1
+        assert isinstance(value, ast.Dict)
+        assert len(value.values) == 3
+        assert all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str)
+            for item in value.values
+        )
+
+    assert matches == 1
 
 
 def test_production_routing_has_no_hidden_phrase_constants() -> None:
@@ -109,8 +140,8 @@ def test_production_routing_has_no_hidden_phrase_constants() -> None:
                 offenders.append(f"{path.relative_to(ROOT)}:{name}")
 
     assert not offenders, (
-        "Top-level routing phrase constants are forbidden. The semantic router prompt is the only "
-        f"approved routing string constant: {offenders}"
+        "Top-level routing phrase constants are forbidden. "
+        f"Move task semantics into the approved semantic map: {offenders}"
     )
 
 
@@ -126,13 +157,13 @@ def test_production_routing_has_zero_regex_dependency() -> None:
 
     assert not offenders, (
         "Regex is forbidden in production semantic routing modules. "
-        f"Use structured semantic routing instead: {offenders}"
+        f"Use learned semantic routing instead: {offenders}"
     )
 
 
-def test_guard_declares_semantic_only_zero_heuristic_state() -> None:
+def test_guard_declares_zero_heuristic_semantic_gate_state() -> None:
     guard = _load_guard()
-    assert guard["policy"] == "semantic-routing-only"
+    assert guard["policy"] == "semantic-gate-only"
     assert guard["target_legacy_string_literals"] == 0
     assert guard["target_legacy_regex_patterns"] == 0
     assert guard["max_legacy_string_literals"] == 0

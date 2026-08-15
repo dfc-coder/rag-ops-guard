@@ -20,6 +20,8 @@ QUERY = "Cuantos reintentos permite Calypso?"
 FOLLOWUP = "Y despues del tercero?"
 FOLLOWUP_QUERY = "Cuantos reintentos permite Calypso. Y despues del tercero?"
 LATER_FOLLOWUP = "Y quien recibe la alerta?"
+UNKNOWN_ENTITY = "Cuantos retries permite Xarlatan?"
+UNKNOWN_CONTEXT_QUERY = "Cuantos reintentos permite Calypso. Cuantos retries permite Xarlatan?"
 
 
 def _contains_retry_rule(text: str) -> bool:
@@ -100,7 +102,20 @@ def main() -> None:
         )
     print(f"authoritative escalation evidence={[item.chunk.title for item in escalation_sources]}")
 
-    print("\n=== semantic policy + streaming: exact Chainlit question ===")
+    print("\n=== retrieval diagnostic: unknown subject cannot fall back to Calypso ===")
+    unknown_result = knowledge_search().search(
+        UNKNOWN_CONTEXT_QUERY,
+        context,
+        query_mode="knowledge",
+        ranking_query=UNKNOWN_ENTITY,
+    )
+    _print_result("unknown subject", unknown_result)
+    if unknown_result.supported or unknown_result.admitted:
+        raise SystemExit(
+            "RAG smoke failed: literal Xarlatan ranking admitted unrelated Calypso evidence"
+        )
+
+    print("\n=== semantic gate + streaming: exact Chainlit question ===")
     agent = ReactAgent()
     thread_id = f"react-rag-smoke-{uuid4()}"
     terminal = None
@@ -142,11 +157,9 @@ def main() -> None:
         raise SystemExit("RAG smoke failed: successful RAG turn did not commit an evidence window")
     root_query = (state.last_grounded_query or "").strip()
     if not root_query or "calypso" not in root_query.casefold():
-        raise SystemExit(
-            f"RAG smoke failed: semantic root query lost the subject: {root_query!r}"
-        )
+        raise SystemExit(f"RAG smoke failed: grounded root lost the subject: {root_query!r}")
 
-    print("\n=== turn 2: semantic contextual new fact ===")
+    print("\n=== turn 2: contextual new internal fact ===")
     followup = agent.invoke(FOLLOWUP, thread_id=thread_id, context=context)
     _require_retrieve(
         followup,
@@ -156,24 +169,22 @@ def main() -> None:
 
     after_followup = agent.grounding_state(thread_id)
     if after_followup.last_grounded_query != root_query:
-        raise SystemExit(
-            "RAG smoke failed: contextual follow-up polluted the stable semantic root query"
-        )
+        raise SystemExit("RAG smoke failed: contextual follow-up polluted the stable root query")
 
-    print("\n=== turn 3: semantic evidence-only transformation ===")
-    reuse = agent.invoke("Resumilo en una linea.", thread_id=thread_id, context=context)
+    print("\n=== turn 3: transformation uses normal conversation history ===")
+    transform = agent.invoke("Resumilo en una linea.", thread_id=thread_id, context=context)
     print(
-        f"reuse: {reuse.elapsed_ms / 1000:.2f}s · policy={reuse.policy} · "
-        f"tools={reuse.tool_calls} · {reuse.answer}"
+        f"transform: {transform.elapsed_ms / 1000:.2f}s · policy={transform.policy} · "
+        f"tools={transform.tool_calls} · {transform.answer}"
     )
-    if reuse.failed:
-        raise SystemExit(f"RAG smoke failed during evidence reuse: {reuse.answer}")
-    if reuse.policy != "reuse_evidence":
-        raise SystemExit(f"RAG smoke failed: expected evidence reuse policy, got {reuse.policy}")
-    if reuse.tool_calls != 0:
-        raise SystemExit("RAG smoke failed: evidence transformation unnecessarily called a tool")
+    if transform.failed:
+        raise SystemExit(f"RAG smoke failed during direct transform: {transform.answer}")
+    if transform.policy != "direct":
+        raise SystemExit(f"RAG smoke failed: expected direct transform, got {transform.policy}")
+    if transform.tool_calls != 0:
+        raise SystemExit("RAG smoke failed: pure transformation unnecessarily called a tool")
 
-    print("\n=== turn 4: semantic re-ground after evidence reuse ===")
+    print("\n=== turn 4: re-ground after direct transformation ===")
     later = agent.invoke(LATER_FOLLOWUP, thread_id=thread_id, context=context)
     _require_retrieve(
         later,
@@ -186,11 +197,11 @@ def main() -> None:
             f"RAG smoke failed: expected four committed turns, got {later_state.turn_index}"
         )
     if later_state.last_grounded_query != root_query:
-        raise SystemExit("RAG smoke failed: fourth turn lost the stable semantic root query")
+        raise SystemExit("RAG smoke failed: fourth turn lost the stable grounded root query")
 
     print(
-        "\nCONVERSATIONAL GROUNDING V3 READY: semantic routing + retrieval + streaming + "
-        "evidence reuse + fourth-turn re-grounding + stable topic passed"
+        "\nCONVERSATIONAL GROUNDING V4 READY: fast semantic gate + deterministic retrieval + "
+        "streaming + direct transformations + subject isolation passed"
     )
 
 

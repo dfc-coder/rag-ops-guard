@@ -1,23 +1,24 @@
 {
-  "policy": "semantic-routing-only",
+  "policy": "semantic-gate-only",
   "target_legacy_string_literals": 0,
   "target_legacy_regex_patterns": 0,
   "max_legacy_string_literals": 0,
   "max_legacy_regex_patterns": 0,
   "routing_modules": [
     "src/rag_ops_guard/agent/grounding.py",
-    "src/rag_ops_guard/agent/semantic_router.py"
+    "src/rag_ops_guard/agent/semantic_gate.py"
   ],
-  "allowed_top_level_string_constants": [
-    "ROUTER_PROMPT"
+  "allowed_top_level_string_constants": [],
+  "allowed_semantic_maps": [
+    "ROUTE_SEMANTICS"
   ],
   "rules": [
     "Production routing code must not contain dialogue phrase catalogs or entity allowlists.",
     "Production routing code must not contain regex-based conversational intent or entity routing.",
-    "Production routing code must not hide dialogue rules in top-level phrase constants or string maps.",
-    "Natural-language meaning must be emitted through a validated semantic structured resolver.",
-    "Entities are retrieval data, not source-code routing rules.",
-    "Deterministic code may enforce evidence, context, TTL, safety, rollback, abstention, and schema invariants only.",
-    "Natural-language examples belong in evaluation data and tests, never in production routing rules."
+    "The only semantic map may define one abstract task meaning per action; it may not contain utterance examples.",
+    "Natural-language examples belong in evaluation data and tests, never in production routing rules.",
+    "The routing model may choose only direct, retrieve, catalog, or uncertain; uncertain must fail closed to retrieval.",
+    "Retrieval queries must preserve the literal current turn as the ranking query.",
+    "Generative models must not create routing decisions or standalone retrieval queries in the hot path."
   ]
 }

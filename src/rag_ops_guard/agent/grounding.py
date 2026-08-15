@@ -8,12 +8,12 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from rag_ops_guard.agent.semantic_router import (
-    ContextRelation,
-    SemanticConversationContext,
-    SemanticTurnResolver,
-    TurnDecision,
-    TurnOperation,
+from rag_ops_guard.agent.semantic_gate import (
+    GateDecision,
+    GroundingAction,
+    SemanticGateContext,
+    SemanticGroundingGate,
+    TurnGate,
 )
 from rag_ops_guard.domain.models import QueryContext
 
@@ -104,17 +104,10 @@ class ConversationState:
             return None
         return self.evidence
 
-    def semantic_context(self, context: QueryContext) -> SemanticConversationContext:
-        return SemanticConversationContext(
-            has_grounded_topic=bool(self.last_grounded_query),
-            grounded_topic=self.topic,
-            last_grounded_query=self.last_grounded_query,
+    def gate_context(self, context: QueryContext) -> SemanticGateContext:
+        return SemanticGateContext(
+            has_grounded_context=bool(self.last_grounded_query),
             has_active_evidence=self.active_evidence(context) is not None,
-            last_user_message=self.last_user_message,
-            last_assistant_message=self.last_assistant_message,
-            system_filter=context.system,
-            environment_filter=context.environment,
-            api_version_filter=context.api_version,
         )
 
     def after_success(
@@ -132,13 +125,20 @@ class ConversationState:
         if payload is not None and payload.get("supported") is True:
             sources = _sources_from_payload(payload)
             query = str(payload.get("query") or plan.retrieval_query or "").strip()
+            ranking_query = str(payload.get("ranking_query") or "").strip()
             systems = {source.system for source in sources if source.system}
             system = next(iter(systems)) if len(systems) == 1 else context.system or self.system
-            root_query = (
-                self.last_grounded_query
-                if plan.preserve_topic and self.last_grounded_query
-                else query or self.last_grounded_query
+            system_changed = (
+                self.system is not None
+                and system is not None
+                and system.casefold() != self.system.casefold()
             )
+            if system_changed and ranking_query:
+                root_query = ranking_query
+            elif plan.preserve_topic and self.last_grounded_query:
+                root_query = self.last_grounded_query
+            else:
+                root_query = query or ranking_query or self.last_grounded_query
             return ConversationState(
                 turn_index=next_turn,
                 topic=_topic_label(query=root_query or query, system=system),
@@ -201,104 +201,71 @@ class TurnPlan:
 
 
 class GroundingController:
-    """Apply deterministic evidence/state invariants to a semantic turn decision."""
+    """Convert a small semantic action into deterministic evidence behavior."""
 
     def plan(
         self,
         message: str,
-        decision: TurnDecision,
+        decision: GateDecision,
         state: ConversationState,
         context: QueryContext,
     ) -> TurnPlan:
         evidence = state.active_evidence(context)
-        same_context = decision.relation_to_context == ContextRelation.SAME
         has_topic = bool(state.last_grounded_query)
-        reusable_evidence = evidence if state.last_retrieval_supported is not False else None
 
-        if decision.operation == TurnOperation.CATALOG:
+        if decision.action == GroundingAction.CATALOG:
             return TurnPlan(
                 TurnPolicy.LIST_KNOWLEDGE,
-                "semantic resolver requested knowledge catalog",
+                "semantic gate selected the internal knowledge catalog",
                 preserve_evidence=evidence is not None,
                 preserve_topic=has_topic,
             )
 
-        if decision.requires_grounding:
-            query = (decision.standalone_query or "").strip()
-            if not query:
-                query = _safe_contextual_query(message, state)
-            preserve_topic = same_context and has_topic
+        if decision.action in {GroundingAction.RETRIEVE, GroundingAction.UNCERTAIN}:
             return TurnPlan(
                 TurnPolicy.RETRIEVE,
-                "semantic resolver requires grounded evidence",
-                retrieval_query=query,
-                ranking_query=message.strip(),
-                evidence_context=(
-                    reusable_evidence.render_prompt()
-                    if reusable_evidence is not None and preserve_topic
-                    else None
+                (
+                    "semantic gate requires grounded retrieval"
+                    if decision.action == GroundingAction.RETRIEVE
+                    else "semantic gate was uncertain and failed closed to grounded retrieval"
                 ),
-                preserve_evidence=evidence is not None and preserve_topic,
-                preserve_topic=preserve_topic,
+                retrieval_query=_safe_contextual_query(message, state),
+                ranking_query=message.strip(),
+                preserve_evidence=False,
+                preserve_topic=has_topic,
             )
 
-        if decision.operation == TurnOperation.TRANSFORM and same_context:
-            if reusable_evidence is not None:
-                return TurnPlan(
-                    TurnPolicy.REUSE_EVIDENCE,
-                    "semantic transform is covered by active evidence",
-                    evidence_context=reusable_evidence.render_prompt(),
-                    preserve_evidence=True,
-                    preserve_topic=True,
-                )
-            if has_topic:
-                root_query = state.last_grounded_query or message.strip()
-                return TurnPlan(
-                    TurnPolicy.RETRIEVE,
-                    "semantic transform requires refreshing unavailable evidence",
-                    retrieval_query=root_query,
-                    ranking_query=root_query,
-                    preserve_topic=True,
-                )
-            return TurnPlan(TurnPolicy.DIRECT, "semantic transform of non-grounded context")
-
-        preserve_topic = same_context and has_topic
         return TurnPlan(
             TurnPolicy.DIRECT,
-            "semantic resolver does not require internal evidence",
-            preserve_evidence=evidence is not None and preserve_topic,
-            preserve_topic=preserve_topic,
+            "semantic gate selected direct generation without a new internal factual claim",
+            preserve_evidence=evidence is not None,
+            preserve_topic=has_topic,
         )
 
 
 class TurnPolicyEngine:
-    """Semantic resolver + deterministic grounding controller facade used by ReactAgent."""
+    """Fast semantic gate plus deterministic grounding controller used by ReactAgent."""
 
     def __init__(
         self,
-        resolver: SemanticTurnResolver | None = None,
+        gate: TurnGate | None = None,
         controller: GroundingController | None = None,
     ) -> None:
-        self._resolver = resolver or SemanticTurnResolver.from_settings()
+        self._gate = gate or SemanticGroundingGate.from_settings()
         self._controller = controller or GroundingController()
 
     def plan(self, message: str, state: ConversationState, context: QueryContext) -> TurnPlan:
         try:
-            decision = self._resolver.resolve(message, state.semantic_context(context))
+            decision = self._gate.decide(message, state.gate_context(context))
         except Exception:
-            logger.exception("semantic turn resolver failed; falling back to grounded-safe routing")
-            decision = _safe_fallback_decision(message, state)
+            logger.exception("semantic gate failed; falling back to grounded-safe retrieval")
+            decision = GateDecision(
+                action=GroundingAction.UNCERTAIN,
+                score=0.0,
+                margin=0.0,
+                scores={},
+            )
         return self._controller.plan(message, decision, state, context)
-
-
-def _safe_fallback_decision(message: str, state: ConversationState) -> TurnDecision:
-    relation = ContextRelation.SAME if state.last_grounded_query else ContextRelation.NONE
-    return TurnDecision(
-        requires_grounding=True,
-        relation_to_context=relation,
-        operation=TurnOperation.ANSWER,
-        standalone_query=_safe_contextual_query(message, state),
-    )
 
 
 def _safe_contextual_query(message: str, state: ConversationState) -> str:
