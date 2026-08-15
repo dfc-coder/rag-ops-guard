@@ -223,11 +223,12 @@ class TurnPolicyEngine:
                     preserve_topic=True,
                 )
             if has_topic and state.last_retrieval_supported is not False:
+                root = state.last_grounded_query or text
                 return TurnPlan(
                     TurnPolicy.RETRIEVE,
                     "transformation requires refreshing expired or context-incompatible evidence",
-                    retrieval_query=self._resolver.resolve(text, state),
-                    ranking_query=text,
+                    retrieval_query=root,
+                    ranking_query=root,
                     preserve_topic=True,
                 )
 
@@ -243,14 +244,16 @@ class TurnPolicyEngine:
                         preserve_topic=True,
                     )
                 if state.last_retrieval_supported is not False:
+                    query = _contextual_code_refresh_query(text, state, self._resolver)
                     return TurnPlan(
                         TurnPolicy.RETRIEVE,
                         "contextual coding request requires refreshed internal evidence",
-                        retrieval_query=self._resolver.resolve(text, state),
-                        ranking_query=text,
+                        retrieval_query=query,
+                        ranking_query=(state.last_grounded_query if query == state.last_grounded_query else text),
                         preserve_topic=True,
                     )
-            if not _contains_internal_marker(folded):
+            named_internal_target = _has_named_operational_target(text) and _has_operational_token(folded)
+            if not _contains_internal_marker(folded) and not named_internal_target:
                 return TurnPlan(TurnPolicy.DIRECT, "general coding request")
 
         if _is_definition_request(folded) and not _contains_explicit_internal_anchor(text):
@@ -383,6 +386,7 @@ _FOLLOWUP_REFERENCES = {
     "those",
     "it",
 }
+_SIMPLE_REFERENCE_TOKENS = {"eso", "esto", "ese", "esa", "that", "it", "those"}
 _REUSE_MARKERS = (
     "resumi",
     "resume",
@@ -455,6 +459,41 @@ _QUESTION_WORDS = {
     "where",
     "which",
 }
+_NON_TARGET_TOKENS = {
+    *_QUESTION_WORDS,
+    *_OPERATIONAL_TOKENS,
+    "api",
+    "sla",
+    "dlq",
+    "retry",
+    "retries",
+    "python",
+    "perl",
+    "java",
+    "javascript",
+    "typescript",
+    "rust",
+    "code",
+    "codigo",
+    "class",
+    "function",
+    "funcion",
+    "implement",
+    "implementa",
+    "client",
+    "cliente",
+    "system",
+    "sistema",
+    "service",
+    "servicio",
+    "the",
+    "el",
+    "la",
+}
+_LOWERCASE_TARGET_PATTERNS = (
+    re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
+)
 
 
 def _normalize(text: str) -> str:
@@ -484,6 +523,10 @@ def _contains_internal_marker(folded: str) -> bool:
     return any(marker in folded for marker in _INTERNAL_MARKERS)
 
 
+def _has_operational_token(folded: str) -> bool:
+    return bool(set(_TOKEN_RE.findall(folded)).intersection(_OPERATIONAL_TOKENS))
+
+
 def _looks_like_internal_query(text: str) -> bool:
     folded = _normalize(text)
     tokens = set(_TOKEN_RE.findall(folded))
@@ -503,9 +546,15 @@ def _has_named_operational_target(text: str) -> bool:
     raw_tokens = _TOKEN_RE.findall(text)
     for token in raw_tokens[1:]:
         folded = _normalize(token)
-        if folded in _QUESTION_WORDS:
+        if folded in _NON_TARGET_TOKENS:
             continue
         if token.isupper() or (token[:1].isupper() and any(char.isalpha() for char in token)):
+            return True
+
+    normalized = _normalize(text)
+    for pattern in _LOWERCASE_TARGET_PATTERNS:
+        match = pattern.search(normalized)
+        if match and match.group(1) not in _NON_TARGET_TOKENS:
             return True
     return False
 
@@ -524,6 +573,21 @@ def _looks_like_operational_followup(folded: str) -> bool:
     if not tokens.intersection(_OPERATIONAL_TOKENS):
         return False
     return "?" in folded or len(tokens) <= 18
+
+
+def _contextual_code_refresh_query(
+    text: str,
+    state: ConversationState,
+    resolver: FollowupResolver,
+) -> str:
+    folded = _normalize(text)
+    tokens = set(_TOKEN_RE.findall(folded))
+    only_reference = bool(tokens.intersection(_SIMPLE_REFERENCE_TOKENS)) and not bool(
+        tokens.intersection(_OPERATIONAL_TOKENS | {"despues", "luego", "after", "tercero", "third"})
+    )
+    if only_reference and state.last_grounded_query:
+        return state.last_grounded_query
+    return resolver.resolve(text, state)
 
 
 def _is_reuse_request(folded: str) -> bool:
