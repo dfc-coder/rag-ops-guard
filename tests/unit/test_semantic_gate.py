@@ -46,13 +46,15 @@ def test_gate_selects_best_semantic_action() -> None:
 
 def test_gate_returns_uncertain_below_score_threshold() -> None:
     gate = SemanticGroundingGate(
-        FixedEmbeddings([0.2, 0.1, 0.1]),
+        FixedEmbeddings([0.6, 0.5, 0.0]),
         min_score=0.8,
         min_margin=0.015,
     )
 
     decision = gate.decide("current request", CONTEXT)
 
+    assert decision.score < 0.8
+    assert decision.margin > 0.015
     assert decision.action == GroundingAction.UNCERTAIN
 
 
