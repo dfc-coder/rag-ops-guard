@@ -6,4 +6,4 @@
 {"name":"new_unknown_operational_entity","context":"grounded","message":"Cuantos retries permite Xarlatan?","requires_grounding":true,"relation_to_context":"new","operation":"answer"}
 {"name":"general_code","context":"none","message":"Write a Fibonacci function in Python.","requires_grounding":false,"relation_to_context":"none","operation":"answer"}
 {"name":"general_definition","context":"none","message":"What is exponential backoff?","requires_grounding":false,"relation_to_context":"none","operation":"answer"}
-{"name":"knowledge_catalog","context":"grounded","message":"What internal documentation is available?","requires_grounding":true,"relation_to_context":"none","operation":"catalog"}
+{"name":"knowledge_catalog","context":"grounded","message":"What internal documentation is available?","requires_grounding":true,"relation_to_context":["same","none"],"operation":"catalog"}
