@@ -58,13 +58,13 @@ export RETRIEVAL_TOP_K="${BETA_RETRIEVAL_TOP_K:-8}"
 export RETRIEVAL_CONTEXT_K="${BETA_RETRIEVAL_CONTEXT_K:-3}"
 uv run python scripts/local/ensure_data.py
 
-printf '\n[3/6] Fast semantic gate on OpenVINO embeddings\n'
+printf '\n[3/6] Learned semantic gate on OpenVINO cross-encoder\n'
 uv run python scripts/semantic_gate_smoke.py
 
 printf '\n[4/6] Direct chat/code streaming\n'
 uv run python scripts/react_direct_ui_smoke.py
 
-printf '\n[5/6] Conversational Grounding v4: semantic gate + deterministic retrieval\n'
+printf '\n[5/6] Conversational Grounding v5: learned gate + deterministic retrieval\n'
 uv run python scripts/react_rag_smoke.py
 
 printf '\n[6/6] Chainlit application import/config\n'
@@ -75,11 +75,12 @@ cat <<'EOF'
 
 CHAINLIT MIGRATION GATE: HEADLESS PASS
 
-Conversational Grounding v4 invariants:
+Conversational Grounding v5 invariants:
   - no generative model is used for conversational routing
+  - routing uses the existing learned OpenVINO cross-encoder, not embedding cosine prototypes
   - dialogue/entity catalog budget = 0
   - regex dialogue routing budget = 0
-  - one abstract semantic description is allowed per control action
+  - one abstract policy hypothesis is allowed per control action
   - uncertain semantic decisions fail closed to retrieval
   - retrieval query construction is deterministic
   - the literal current user turn is always the reranker query
@@ -99,5 +100,5 @@ Manual UI confirmation still required before merge:
   10. Retry works after a recoverable failure
   11. Local Status behaves correctly
 
-If those pass, v4 is ready to promote into the Chainlit migration candidate.
+If those pass, v5 is ready for the next promotion decision.
 EOF
