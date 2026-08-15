@@ -256,6 +256,7 @@ class KnowledgeSearch:
         reranker: Reranker,
         candidate_k: int = 20,
         context_k: int = 4,
+        min_relevance: float = 0.5,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
@@ -264,6 +265,7 @@ class KnowledgeSearch:
         self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
+        self._min_relevance = min_relevance
         self._bm25: BM25Index | None = None
 
     def search(
@@ -317,7 +319,9 @@ class KnowledgeSearch:
             zip(candidates, grades, strict=True),
             key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
         )
-        admitted_pairs = _select_admitted_pairs(ranked, limit=self._context_k)
+        admitted_pairs = _select_admitted_pairs(
+            ranked, limit=self._context_k, min_relevance=self._min_relevance
+        )
         admitted = [item for item, _grade in admitted_pairs]
         top_score = ranked[0][1].score if ranked else 0.0
         reranker_scores = {item.chunk.id: round(grade.score, 6) for item, grade in ranked}
@@ -355,13 +359,14 @@ def _select_admitted_pairs(
     ranked: list[tuple[Evidence, RerankGrade]],
     *,
     limit: int,
+    min_relevance: float = 0.5,
 ) -> list[tuple[Evidence, RerankGrade]]:
     """Prefer authority only when reranker relevance is effectively tied.
 
     Authority never rescues an irrelevant candidate. Within a small score band of the strongest
     relevant hit, document authority wins before the remaining slots fall back to learned relevance.
     """
-    relevant = [pair for pair in ranked if pair[1].relevant]
+    relevant = [pair for pair in ranked if pair[1].score >= min_relevance]
     if not relevant or limit <= 0:
         return []
 

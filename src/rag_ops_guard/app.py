@@ -114,6 +114,7 @@ def knowledge_search() -> ResilientKnowledgeSearch:
         reranker=reranker(),
         candidate_k=settings.retrieval_top_k,
         context_k=settings.retrieval_context_k,
+        min_relevance=settings.retrieval_min_relevance,
     )
 
 

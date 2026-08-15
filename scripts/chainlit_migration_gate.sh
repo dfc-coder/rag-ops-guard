@@ -10,7 +10,7 @@ OVMS_EMBEDDING_MODEL="${OVMS_EMBEDDING_MODEL:-OpenVINO/Qwen3-Embedding-0.6B-int8
 OVMS_RERANKER_MODEL="${OVMS_RERANKER_MODEL:-OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov}"
 OPENVINO_VECTOR_INDEX="${OPENVINO_VECTOR_INDEX:-ops-knowledge-openvino-v1}"
 
-printf '\n[1/6] Static + architecture + deterministic grounding preflight\n'
+printf '\n[1/7] Static + architecture + deterministic grounding preflight\n'
 uv run python -m py_compile \
   src/rag_ops_guard/agent/semantic_gate.py \
   src/rag_ops_guard/agent/grounding.py \
@@ -18,6 +18,7 @@ uv run python -m py_compile \
   src/rag_ops_guard/retrieval/hybrid.py \
   src/rag_ops_guard/retrieval/resilient.py \
   scripts/semantic_gate_smoke.py \
+  scripts/calibrate_retrieval_admission.py \
   scripts/react_rag_smoke.py \
   scripts/chainlit_react_ui.py
 uv run ruff check \
@@ -29,6 +30,9 @@ uv run ruff check \
   tests/architecture/test_grounding_policy_guard.py \
   tests/unit/test_semantic_gate.py \
   tests/unit/test_grounding_policy.py \
+  tests/unit/test_react_safety.py \
+  tests/unit/test_config.py \
+  tests/adversarial/test_deterministic_guards.py \
   tests/unit/test_react_grounding_tools.py \
   tests/unit/test_resilient_retrieval.py
 uv run mypy \
@@ -42,11 +46,14 @@ uv run pytest \
   tests/unit/test_react_streaming.py \
   tests/unit/test_semantic_gate.py \
   tests/unit/test_grounding_policy.py \
+  tests/unit/test_react_safety.py \
+  tests/unit/test_config.py \
+  tests/adversarial/test_deterministic_guards.py \
   tests/unit/test_react_grounding_tools.py \
   tests/unit/test_resilient_retrieval.py \
   -q
 
-printf '\n[2/6] Local runtime + corpus integrity\n'
+printf '\n[2/7] Local runtime + corpus integrity\n'
 make generation-model local-core-up openvino-up
 
 export EMBEDDING_BASE_URL="http://127.0.0.1:${OVMS_HOST_PORT}/v3"
@@ -58,16 +65,22 @@ export RETRIEVAL_TOP_K="${BETA_RETRIEVAL_TOP_K:-8}"
 export RETRIEVAL_CONTEXT_K="${BETA_RETRIEVAL_CONTEXT_K:-3}"
 uv run python scripts/local/ensure_data.py
 
-printf '\n[3/6] Learned semantic gate on OpenVINO cross-encoder\n'
+printf '\n[3/7] Calibrate post-retrieval admission floor\n'
+CALIBRATION_ENV="$(mktemp)"
+uv run python scripts/calibrate_retrieval_admission.py --env-file "$CALIBRATION_ENV"
+source "$CALIBRATION_ENV"
+rm -f "$CALIBRATION_ENV"
+
+printf '\n[4/7] Learned semantic gate as high-precision DIRECT optimization\n'
 uv run python scripts/semantic_gate_smoke.py
 
-printf '\n[4/6] Direct chat/code streaming\n'
+printf '\n[5/7] Direct chat/code streaming\n'
 uv run python scripts/react_direct_ui_smoke.py
 
-printf '\n[5/6] Conversational Grounding v5: learned gate + deterministic retrieval\n'
+printf '\n[6/7] Conversational Grounding v5: learned gate + deterministic retrieval\n'
 uv run python scripts/react_rag_smoke.py
 
-printf '\n[6/6] Chainlit application import/config\n'
+printf '\n[7/7] Chainlit application import/config\n'
 uv run --with "chainlit==${CHAINLIT_VERSION}" python -c \
   'import runpy; runpy.run_path("scripts/chainlit_react_ui.py", run_name="chainlit_migration_gate")'
 
@@ -81,7 +94,10 @@ Conversational Grounding v5 invariants:
   - dialogue/entity catalog budget = 0
   - regex dialogue routing budget = 0
   - one abstract policy hypothesis is allowed per control action
+  - only high-confidence semantic DIRECT decisions bypass retrieval
   - uncertain semantic decisions fail closed to retrieval
+  - deterministic SafetyGuard runs before semantic routing
+  - post-retrieval relevance admission is calibrated from labeled positives/negatives
   - retrieval query construction is deterministic
   - the literal current user turn is always the reranker query
   - generation Qwen is used for answers, not routing policy

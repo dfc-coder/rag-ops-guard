@@ -33,8 +33,11 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 
 def _accepted(expected: str, actual: GroundingAction) -> bool:
+    # The gate is an optimization: false DIRECT is the dangerous failure.
     if expected == GroundingAction.RETRIEVE.value:
         return actual in {GroundingAction.RETRIEVE, GroundingAction.UNCERTAIN}
+    if expected == GroundingAction.DIRECT.value:
+        return actual in {GroundingAction.DIRECT, GroundingAction.UNCERTAIN}
     return actual.value == expected
 
 

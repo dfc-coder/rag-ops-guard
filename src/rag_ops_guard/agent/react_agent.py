@@ -29,6 +29,7 @@ from rag_ops_guard.agent.grounding import (
     TurnPolicy,
     TurnPolicyEngine,
 )
+from rag_ops_guard.agent.responses import safety_blocked_response
 from rag_ops_guard.app import knowledge_catalog, knowledge_search
 from rag_ops_guard.config import get_settings
 from rag_ops_guard.domain.models import QueryContext
@@ -197,6 +198,13 @@ class ReactAgent:
         def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
             messages = state["messages"]
             plan = _current_turn_plan()
+
+            if plan.policy == TurnPolicy.SAFETY_BLOCKED:
+                return {
+                    "messages": [
+                        AIMessage(content=safety_blocked_response(_last_user_text(messages)))
+                    ]
+                }
 
             if not _current_turn_has_tool_result(messages):
                 if plan.policy == TurnPolicy.RETRIEVE:

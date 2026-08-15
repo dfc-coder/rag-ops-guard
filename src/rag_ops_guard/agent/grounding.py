@@ -15,6 +15,7 @@ from rag_ops_guard.agent.semantic_gate import (
     SemanticGroundingGate,
     TurnGate,
 )
+from rag_ops_guard.agent.safety import SafetyGuard
 from rag_ops_guard.domain.models import QueryContext
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class TurnPolicy(StrEnum):
     REUSE_EVIDENCE = "reuse_evidence"
     RETRIEVE = "retrieve"
     LIST_KNOWLEDGE = "list_knowledge"
+    SAFETY_BLOCKED = "safety_blocked"
 
 
 @dataclass(frozen=True)
@@ -251,11 +253,20 @@ class TurnPolicyEngine:
         self,
         gate: TurnGate | None = None,
         controller: GroundingController | None = None,
+        safety: SafetyGuard | None = None,
     ) -> None:
         self._gate = gate or SemanticGroundingGate.from_settings()
         self._controller = controller or GroundingController()
+        self._safety = safety or SafetyGuard()
 
     def plan(self, message: str, state: ConversationState, context: QueryContext) -> TurnPlan:
+        if self._safety.blocked(message):
+            return TurnPlan(
+                TurnPolicy.SAFETY_BLOCKED,
+                "deterministic safety guard blocked secret extraction or policy bypass",
+                preserve_evidence=False,
+                preserve_topic=False,
+            )
         try:
             decision = self._gate.decide(message, state.gate_context(context))
         except Exception:
