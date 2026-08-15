@@ -85,6 +85,17 @@ def test_unknown_named_operational_target_remains_fail_closed_anchor() -> None:
     assert "xarlatan" in anchors
 
 
+def test_unknown_lowercase_operational_target_is_inferred_as_anchor() -> None:
+    anchors = _explicit_query_anchors("cuantos retries permite xarlatan?")
+    assert "xarlatan" in anchors
+
+
+def test_generic_subject_is_not_inferred_as_lowercase_target() -> None:
+    anchors = _explicit_query_anchors("cuantos retries permite el sistema?")
+    assert "sistema" not in anchors
+    assert "el" not in anchors
+
+
 def test_short_entity_first_query_still_keeps_entity_anchor() -> None:
     anchors = _explicit_query_anchors("Calypso retries?")
     assert "calypso" in anchors
