@@ -159,7 +159,11 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
-        candidates = resolved[: self._candidate_k]
+        # Dense and lexical retrieval are already independently capped at candidate_k, so the
+        # resolved union is at most 2 * candidate_k. Do not truncate that union again before the
+        # learned reranker: a strong dense-only cross-language hit can otherwise be pushed out by
+        # several weaker lexical/RRF matches before the reranker ever gets a chance to grade it.
+        candidates = resolved
 
         standalone_query = query.strip()
         literal_query = (ranking_query or "").strip()
