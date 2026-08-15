@@ -1,0 +1,10 @@
+[UI]
+name = "RAG Ops Guard"
+description = "Local-first conversational assistant for integration operations."
+default_theme = "dark"
+layout = "wide"
+cot = "tool_call"
+alert_style = "modern"
+chat_settings_location = "sidebar"
+default_chat_settings_open = false
+custom_css = "/public/chainlit.css"
