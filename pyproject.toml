@@ -77,6 +77,14 @@ strict = true
 packages = ["rag_ops_guard"]
 mypy_path = "src"
 
+# LangGraph's Pregel.stream overloads are narrower than the runtime-supported
+# MessagesState mapping used here, and the defensive legacy-state fallback is
+# intentionally dynamic. Keep strict checking everywhere else while isolating
+# these two third-party/dynamic boundaries to the adapter module.
+[[tool.mypy.overrides]]
+module = "rag_ops_guard.agent.react_agent"
+disable_error_code = ["call-overload", "no-any-return"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
