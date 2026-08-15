@@ -33,14 +33,15 @@ printf '\n[4/5] Grounded Calypso RAG + follow-up memory\n'
 uv run python scripts/react_rag_smoke.py
 
 printf '\n[5/5] Chainlit application import/config\n'
-uv run --with "chainlit==${CHAINLIT_VERSION}" python -m py_compile scripts/chainlit_react_ui.py
+uv run --with "chainlit==${CHAINLIT_VERSION}" python -c \
+  'import runpy; runpy.run_path("scripts/chainlit_react_ui.py", run_name="chainlit_migration_gate")'
 
 cat <<'EOF'
 
 CHAINLIT MIGRATION GATE: HEADLESS PASS
 
 Manual UI confirmation still required before merge:
-  1. bash scripts/run_chainlit_beta.sh
+  1. make chainlit-beta
   2. open http://127.0.0.1:8001
   3. direct code streams with no RAG
   4. Calypso retries answers 3 and exposes source cards
