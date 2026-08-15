@@ -283,11 +283,8 @@ def _select_admitted_pairs(
 ) -> list[tuple[Evidence, RerankGrade]]:
     """Prefer authority only when reranker relevance is effectively tied.
 
-    Authority must not rescue irrelevant evidence. Among candidates the reranker already marked
-    relevant, sources within a small score band of the strongest hit are ordered by document
-    authority before filling the remaining context slots by pure reranker order. This prevents a
-    low-authority vendor note from crowding an authority-100 policy out of a small context window
-    when their learned relevance scores differ only marginally.
+    Authority never rescues an irrelevant candidate. Within a small score band of the strongest
+    relevant hit, document authority wins before the remaining slots fall back to learned relevance.
     """
     relevant = [pair for pair in ranked if pair[1].relevant]
     if not relevant or limit <= 0:
@@ -299,15 +296,14 @@ def _select_admitted_pairs(
 
     selected = near_tied[:limit]
     selected_ids = {item.chunk.id for item, _grade in selected}
-    if len(selected) < limit:
-        selected.extend(
-            pair
-            for pair in relevant
-            if pair[0].chunk.id not in selected_ids
-            for _ in [None]
-            if len(selected) < limit
-        )
-    return selected[:limit]
+    for pair in relevant:
+        if len(selected) >= limit:
+            break
+        if pair[0].chunk.id in selected_ids:
+            continue
+        selected.append(pair)
+        selected_ids.add(pair[0].chunk.id)
+    return selected
 
 
 def reciprocal_rank_fusion(
