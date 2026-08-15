@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
-from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, RerankGrade, VectorStore
+from rag_ops_guard.ports import (
+    EmbeddingProvider,
+    ObjectStore,
+    Reranker,
+    RerankGrade,
+    VectorStore,
+)
 from rag_ops_guard.retrieval.bm25 import BM25Index
 from rag_ops_guard.retrieval.query_instruction import embedding_query
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
@@ -45,6 +51,15 @@ _STOPWORDS = {
     "third",
     "previous",
     "current",
+    "maximum",
+    "default",
+    "automatic",
+    "automated",
+    "manual",
+    "allowed",
+    "number",
+    "production",
+    "staging",
     "para",
     "por",
     "que",
@@ -84,6 +99,17 @@ _STOPWORDS = {
     "tercera",
     "siguiente",
     "anterior",
+    "maximo",
+    "máximo",
+    "maxima",
+    "máxima",
+    "automatico",
+    "automático",
+    "automatica",
+    "automática",
+    "cantidad",
+    "produccion",
+    "producción",
     "con",
     "sobre",
     "pasa",
@@ -151,6 +177,16 @@ _OPERATIONAL_ANCHOR_CONTEXT = {
 _LOWERCASE_TARGET_PATTERNS = (
     re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
     re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
+    re.compile(
+        r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+"
+        r"(?:retry|retries|reintento|reintentos|timeout|timeouts)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+"
+        r"(?:de|del|for|of)\s+([a-z][\w-]+)\b",
+        re.IGNORECASE,
+    ),
 )
 
 QueryMode = Literal["knowledge", "probe"]
