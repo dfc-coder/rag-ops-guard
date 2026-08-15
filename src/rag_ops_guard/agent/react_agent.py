@@ -3,13 +3,20 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Lock, RLock
 from time import perf_counter
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import START, MessagesState, StateGraph
@@ -40,6 +47,9 @@ Behavior:
 - Do not use tools for greetings, thanks, casual conversation, or questions about your role.
 - For factual questions about internal systems, incidents, APIs, runbooks, SLAs, retries,
   integrations, or operational procedures, use search_knowledge before answering.
+- For short contextual follow-ups after an internal-knowledge turn, re-ground with search_knowledge
+  using a standalone query that carries forward the prior system/entity before answering a new
+  operational fact.
 - Use list_knowledge when the user asks what documentation is available.
 - You may call tools more than once when a question genuinely requires it.
 - If search_knowledge reports supported=false, say that the available documentation does not
@@ -51,6 +61,49 @@ Behavior:
 
 Use tools only when they add factual evidence. Keep final answers concise and useful.
 """.strip()
+
+FOLLOWUP_GROUNDING_PROMPT = """
+The current user message is a short contextual follow-up to a previous internal-knowledge turn.
+Before answering, call search_knowledge. Build a standalone tool query by carrying forward the
+relevant system/entity and operation from the conversation and combining them with the current
+follow-up. Do not answer the operational follow-up before the tool result is available.
+""".strip()
+
+_FOLLOWUP_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+_FOLLOWUP_PREFIXES = (
+    "y ",
+    "entonces",
+    "después",
+    "despues",
+    "luego",
+    "qué pasa",
+    "que pasa",
+    "y si",
+    "and ",
+    "then",
+    "after",
+    "what about",
+    "what happens",
+)
+_FOLLOWUP_REFERENCES = {
+    "eso",
+    "esto",
+    "ese",
+    "esa",
+    "esos",
+    "esas",
+    "tercero",
+    "tercera",
+    "anterior",
+    "siguiente",
+    "después",
+    "despues",
+    "then",
+    "after",
+    "that",
+    "those",
+    "it",
+}
 
 
 @tool
@@ -137,7 +190,7 @@ class ReactAgent:
         self._histories: dict[str, list[BaseMessage]] = {}
         self._thread_locks: dict[str, Any] = {}
         tools = [search_knowledge, list_knowledge]
-        model = ChatOpenAI(
+        base_model = ChatOpenAI(
             base_url=settings.llm_base_url,
             api_key=SecretStr("local"),
             model=settings.llm_model,
@@ -153,10 +206,22 @@ class ReactAgent:
                 "repeat_penalty": settings.llm_repeat_penalty,
                 "chat_template_kwargs": {"enable_thinking": False},
             },
-        ).bind_tools(tools, parallel_tool_calls=False)
+        )
+        model = base_model.bind_tools(tools, parallel_tool_calls=False)
+        grounded_followup_model = base_model.bind_tools(
+            tools,
+            tool_choice="search_knowledge",
+            parallel_tool_calls=False,
+        )
 
         def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
-            response = model.invoke([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]])
+            messages = state["messages"]
+            force_grounding = _should_force_knowledge_followup(messages)
+            prompt: list[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+            if force_grounding:
+                prompt.append(SystemMessage(content=FOLLOWUP_GROUNDING_PROMPT))
+            active_model = grounded_followup_model if force_grounding else model
+            response = active_model.invoke([*prompt, *messages])
             return {"messages": [response]}
 
         builder = StateGraph(MessagesState)
@@ -342,6 +407,57 @@ def _next_graph_part(graph_stream: Iterator[Any], context: QueryContext) -> Any:
         return next(graph_stream)
     finally:
         _CURRENT_CONTEXT.reset(token)
+
+
+def _should_force_knowledge_followup(messages: list[BaseMessage] | list[Any]) -> bool:
+    """Require a fresh knowledge lookup for short elliptical follow-ups to grounded turns.
+
+    Small local models can incorrectly answer an elliptical operational follow-up from their own
+    conversational continuation even when the previous turn used internal evidence. For these
+    narrow follow-ups we deterministically require one new search_knowledge call. Once the tool
+    result exists in the current turn, the normal model path resumes and produces the final answer.
+    """
+    last_user_index = -1
+    for index, message in enumerate(messages):
+        if isinstance(message, HumanMessage):
+            last_user_index = index
+    if last_user_index <= 0:
+        return False
+
+    current_turn = messages[last_user_index + 1 :]
+    if any(isinstance(message, ToolMessage) for message in current_turn):
+        return False
+
+    current_message = messages[last_user_index]
+    if not isinstance(current_message, HumanMessage):
+        return False
+    if not _looks_like_contextual_followup(_message_text(current_message)):
+        return False
+
+    previous_user_index = -1
+    for index, message in enumerate(messages[:last_user_index]):
+        if isinstance(message, HumanMessage):
+            previous_user_index = index
+    previous_turn = messages[previous_user_index + 1 : last_user_index]
+    return any(_is_search_knowledge_message(message) for message in previous_turn)
+
+
+def _is_search_knowledge_message(message: BaseMessage | Any) -> bool:
+    if isinstance(message, ToolMessage) and message.name == "search_knowledge":
+        return True
+    if not isinstance(message, AIMessage):
+        return False
+    return any(call.get("name") == "search_knowledge" for call in message.tool_calls)
+
+
+def _looks_like_contextual_followup(text: str) -> bool:
+    stripped = text.strip().casefold().lstrip("¿¡")
+    tokens = _FOLLOWUP_TOKEN_RE.findall(stripped)
+    if not tokens or len(tokens) > 16:
+        return False
+    if any(stripped.startswith(prefix) for prefix in _FOLLOWUP_PREFIXES):
+        return True
+    return bool(set(tokens).intersection(_FOLLOWUP_REFERENCES))
 
 
 def _streamed_agent_text(data: Any) -> str:
