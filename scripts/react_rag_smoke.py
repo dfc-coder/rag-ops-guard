@@ -19,6 +19,7 @@ from rag_ops_guard.domain.models import QueryContext
 QUERY = "Cuantos reintentos permite Calypso?"
 FOLLOWUP = "Y despues del tercero?"
 FOLLOWUP_QUERY = "Cuantos reintentos permite Calypso. Y despues del tercero?"
+LATER_FOLLOWUP = "Y quien recibe la alerta?"
 
 
 def _contains_retry_rule(text: str) -> bool:
@@ -35,6 +36,23 @@ def _print_result(label: str, result) -> None:
         f"{label}: supported={result.supported} relevance={result.relevance:.4f} "
         f"admitted={[item.chunk.title for item in result.admitted]}"
     )
+
+
+def _require_retrieve(response, *, label: str, expected_text: str) -> None:
+    print(
+        f"{label}: {response.elapsed_ms / 1000:.2f}s · policy={response.policy} · "
+        f"tools={response.tool_calls} · {response.answer}"
+    )
+    if response.failed:
+        raise SystemExit(f"RAG smoke failed during {label}: {response.answer}")
+    if response.policy != "retrieve":
+        raise SystemExit(
+            f"RAG smoke failed: {label} policy was {response.policy}, expected retrieve"
+        )
+    if response.tool_calls < 1:
+        raise SystemExit(f"RAG smoke failed: {label} was not re-grounded")
+    if expected_text.casefold() not in response.answer.casefold():
+        raise SystemExit(f"RAG smoke failed: {label} lost expected fact {expected_text!r}")
 
 
 def main() -> None:
@@ -72,7 +90,9 @@ def main() -> None:
     _print_result("follow-up retrieval", follow_result)
     if not follow_result.supported or not follow_result.admitted:
         raise SystemExit("RAG smoke failed: contextual follow-up evidence was not admitted")
-    escalation_sources = [item for item in follow_result.admitted if _contains_escalation(item.chunk.text)]
+    escalation_sources = [
+        item for item in follow_result.admitted if _contains_escalation(item.chunk.text)
+    ]
     if not escalation_sources:
         raise SystemExit(
             "RAG smoke failed: contextual retrieval did not admit evidence containing the "
@@ -122,20 +142,13 @@ def main() -> None:
     if state.last_grounded_query != QUERY:
         raise SystemExit("RAG smoke failed: initial grounding root query was not preserved")
 
-    print("\n=== new internal fact: contextual follow-up ===")
+    print("\n=== turn 2: new internal fact ===")
     followup = agent.invoke(FOLLOWUP, thread_id=thread_id, context=context)
-    print(
-        f"follow-up: {followup.elapsed_ms / 1000:.2f}s · policy={followup.policy} · "
-        f"tools={followup.tool_calls} · {followup.answer}"
+    _require_retrieve(
+        followup,
+        label="follow-up",
+        expected_text="Treasury Integrations",
     )
-    if followup.failed:
-        raise SystemExit(f"RAG smoke failed during follow-up: {followup.answer}")
-    if followup.policy != "retrieve":
-        raise SystemExit(f"RAG smoke failed: follow-up policy was {followup.policy}, expected retrieve")
-    if followup.tool_calls < 1:
-        raise SystemExit("RAG smoke failed: contextual operational follow-up was not re-grounded")
-    if "treasury integrations" not in followup.answer.casefold():
-        raise SystemExit("RAG smoke failed: follow-up lost the Treasury Integrations escalation")
 
     after_followup = agent.grounding_state(thread_id)
     if after_followup.last_grounded_query != QUERY:
@@ -143,7 +156,7 @@ def main() -> None:
             "RAG smoke failed: contextual follow-up polluted the stable grounding root query"
         )
 
-    print("\n=== evidence window reuse: transformation only ===")
+    print("\n=== turn 3: evidence-only transformation ===")
     reuse = agent.invoke("Resumilo en una linea.", thread_id=thread_id, context=context)
     print(
         f"reuse: {reuse.elapsed_ms / 1000:.2f}s · policy={reuse.policy} · "
@@ -156,9 +169,24 @@ def main() -> None:
     if reuse.tool_calls != 0:
         raise SystemExit("RAG smoke failed: evidence transformation unnecessarily called a tool")
 
+    print("\n=== turn 4: re-ground after an evidence-reuse turn ===")
+    later = agent.invoke(LATER_FOLLOWUP, thread_id=thread_id, context=context)
+    _require_retrieve(
+        later,
+        label="later follow-up",
+        expected_text="Treasury Integrations",
+    )
+    later_state = agent.grounding_state(thread_id)
+    if later_state.turn_index != 4:
+        raise SystemExit(
+            f"RAG smoke failed: expected four committed turns, got {later_state.turn_index}"
+        )
+    if later_state.last_grounded_query != QUERY:
+        raise SystemExit("RAG smoke failed: fourth turn lost the stable root query")
+
     print(
         "\nCONVERSATIONAL GROUNDING V2 READY: initial retrieval + contextual retrieval + "
-        "streaming + stable topic + follow-up re-grounding + evidence reuse passed"
+        "streaming + evidence reuse + fourth-turn re-grounding + stable topic passed"
     )
 
 
