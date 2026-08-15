@@ -96,4 +96,5 @@ or handler may depend on them.
 - Chainlit import against the canonical application agent.
 
 The branch is not eligible to freeze until repository CI is green and this gate passes on the target
-Fedora/Tiger Lake machine.
+Fedora/Tiger Lake machine. ADR-0001 through ADR-0003 remain historical design records; this decision
+supersedes their routing architecture for runtime clients.
