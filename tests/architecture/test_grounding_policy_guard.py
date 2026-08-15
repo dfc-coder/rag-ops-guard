@@ -107,15 +107,15 @@ def test_production_routing_has_zero_dialogue_catalogs_anywhere() -> None:
     )
 
 
-def test_allowed_semantic_map_has_one_abstract_description_per_action() -> None:
+def test_allowed_semantic_map_has_one_abstract_hypothesis_per_action() -> None:
     allowed_maps = _allowed_semantic_maps()
-    assert allowed_maps == {"ROUTE_SEMANTICS"}
+    assert allowed_maps == {"POLICY_HYPOTHESES"}
 
     matches = 0
     for path in _routing_modules():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         assignments = _top_level_assignments(tree)
-        value = assignments.get("ROUTE_SEMANTICS")
+        value = assignments.get("POLICY_HYPOTHESES")
         if value is None:
             continue
         matches += 1
@@ -161,9 +161,9 @@ def test_production_routing_has_zero_regex_dependency() -> None:
     )
 
 
-def test_guard_declares_zero_heuristic_semantic_gate_state() -> None:
+def test_guard_declares_zero_heuristic_learned_gate_state() -> None:
     guard = _load_guard()
-    assert guard["policy"] == "semantic-gate-only"
+    assert guard["policy"] == "learned-cross-encoder-gate"
     assert guard["target_legacy_string_literals"] == 0
     assert guard["target_legacy_regex_patterns"] == 0
     assert guard["max_legacy_string_literals"] == 0
