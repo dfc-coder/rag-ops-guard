@@ -142,7 +142,6 @@ class SemanticTurnResolver:
         bound = base_model.bind_tools(
             [TurnDecision],
             tool_choice=TurnDecision.__name__,
-            strict=True,
         )
         return cls(bound)
 
