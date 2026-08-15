@@ -149,11 +149,11 @@ class FollowupResolver:
 
 
 class TurnPolicyEngine:
-    """Small deterministic policy layer in front of the local generation model.
+    """Deterministic policy layer in front of the local generation model.
 
-    The model is no longer responsible for deciding every grounding transition. General chat and
-    coding stay direct, transformations can reuse a short-lived evidence window, and new internal
-    facts are deterministically re-grounded.
+    General chat and coding stay direct, transformations reuse a short-lived evidence window, and
+    new internal facts are deterministically re-grounded. The model therefore generates language;
+    it does not own the safety-critical decision about whether internal evidence is required.
     """
 
     def __init__(self, resolver: FollowupResolver | None = None) -> None:
@@ -235,7 +235,14 @@ _INTERNAL_MARKERS = {
     "knowledge base",
     "base de conocimiento",
     "documentacion interna",
-    "documentación interna",
+}
+_INTERNAL_CONTEXT_MARKERS = {
+    "nuestro",
+    "nuestra",
+    "interno",
+    "interna",
+    "internal",
+    "our",
 }
 _OPERATIONAL_TOKENS = {
     "retry",
@@ -250,13 +257,11 @@ _OPERATIONAL_TOKENS = {
     "failed",
     "fails",
     "escalacion",
-    "escalación",
     "escalar",
     "escalate",
     "idempotency",
     "idempotencia",
     "transaccion",
-    "transacción",
     "transaction",
     "resubmit",
     "resubmission",
@@ -297,11 +302,8 @@ _REUSE_MARKERS = (
     "resume",
     "resumen",
     "mas corto",
-    "más corto",
     "explicalo",
-    "explícalo",
     "explicame",
-    "explícame",
     "reformula",
     "reescrib",
     "translate",
@@ -328,9 +330,7 @@ _SOCIAL_MESSAGES = {
 }
 _LIST_MARKERS = (
     "que documentacion hay",
-    "qué documentación hay",
     "que documentos hay",
-    "qué documentos hay",
     "lista la documentacion",
     "list documentation",
     "what documentation is available",
@@ -338,21 +338,34 @@ _LIST_MARKERS = (
 )
 _DEFINITION_PREFIXES = (
     "que es ",
-    "qué es ",
     "what is ",
     "define ",
     "explica que es ",
-    "explica qué es ",
 )
+_QUESTION_WORDS = {
+    "cuantos",
+    "cuantas",
+    "que",
+    "como",
+    "cuando",
+    "donde",
+    "what",
+    "how",
+    "when",
+    "where",
+    "which",
+}
 
 
 def _normalize(text: str) -> str:
     folded = text.strip().casefold().lstrip("¿¡")
-    return folded.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-
-
-def _tokens(text: str) -> set[str]:
-    return {token.casefold() for token in _TOKEN_RE.findall(_normalize(text))}
+    return (
+        folded.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
 
 
 def _contains_explicit_internal_anchor(text: str) -> bool:
@@ -362,9 +375,26 @@ def _contains_explicit_internal_anchor(text: str) -> bool:
 
 def _looks_like_internal_query(text: str) -> bool:
     folded = _normalize(text)
+    tokens = set(_TOKEN_RE.findall(folded))
     if _contains_explicit_internal_anchor(text):
         return True
-    return any(marker in folded for marker in _INTERNAL_MARKERS)
+    if any(marker in folded for marker in _INTERNAL_MARKERS):
+        return True
+    operational = bool(tokens.intersection(_OPERATIONAL_TOKENS))
+    if operational and tokens.intersection(_INTERNAL_CONTEXT_MARKERS):
+        return True
+    return operational and _has_named_operational_target(text)
+
+
+def _has_named_operational_target(text: str) -> bool:
+    raw_tokens = _TOKEN_RE.findall(text)
+    for token in raw_tokens[1:]:
+        folded = _normalize(token)
+        if folded in _QUESTION_WORDS:
+            continue
+        if token.isupper() or (token[:1].isupper() and any(char.isalpha() for char in token)):
+            return True
+    return False
 
 
 def _looks_like_contextual_followup(folded: str) -> bool:
@@ -412,7 +442,7 @@ def _latest_supported_search_payload(messages: list[BaseMessage]) -> dict[str, A
             continue
         try:
             parsed = json.loads(str(message.content))
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             continue
         if isinstance(parsed, dict) and parsed.get("supported") is True:
             payload = parsed
