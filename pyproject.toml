@@ -67,6 +67,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "scripts/gradio_ui.py" = ["I001"]
 "scripts/validate_prompt_cache.py" = ["I001"]
 "src/rag_ops_guard/graph/prompts.py" = ["I001"]
+"tests/unit/test_grounding_policy.py" = ["I001"]
+"tests/unit/test_grounding_policy_edges.py" = ["I001"]
+"tests/unit/test_grounding_policy_matrix.py" = ["I001", "F401"]
 
 [tool.mypy]
 python_version = "3.12"
