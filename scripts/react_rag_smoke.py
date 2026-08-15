@@ -38,10 +38,6 @@ def main() -> None:
     if not result.supported or not result.admitted:
         raise SystemExit("RAG smoke failed: Calypso evidence was not admitted")
 
-    # The acceptance contract is factual, not tied to one exact document title. Both the active
-    # Payment Retry Policy and Payments API v2 are high-authority sources for the same retry rule.
-    # Requiring a specific logical_id makes the gate brittle even when the admitted evidence is
-    # sufficient and authoritative enough to answer the user correctly.
     authoritative_retry_sources = [
         item
         for item in result.admitted
@@ -57,7 +53,7 @@ def main() -> None:
         f"{[item.chunk.title for item in authoritative_retry_sources]}"
     )
 
-    print("\n=== ReAct streaming: exact Chainlit question ===")
+    print("\n=== policy-driven streaming: exact Chainlit question ===")
     agent = ReactAgent()
     thread_id = f"react-rag-smoke-{uuid4()}"
     terminal = None
@@ -75,9 +71,11 @@ def main() -> None:
     if terminal is None or terminal.kind == "error":
         raise SystemExit(f"RAG smoke failed: terminal={terminal}")
     print(
-        f"answer: {terminal.elapsed_ms / 1000:.2f}s · tools={terminal.tool_calls} · "
-        f"tokens={token_events} · {terminal.text}"
+        f"answer: {terminal.elapsed_ms / 1000:.2f}s · policy={terminal.policy} · "
+        f"tools={terminal.tool_calls} · tokens={token_events} · {terminal.text}"
     )
+    if terminal.policy != "retrieve":
+        raise SystemExit(f"RAG smoke failed: expected retrieve policy, got {terminal.policy}")
     if terminal.tool_calls < 1:
         raise SystemExit("RAG smoke failed: Calypso question did not call search_knowledge")
     if token_events < 1:
@@ -87,24 +85,54 @@ def main() -> None:
     if not any(token in terminal.text.casefold() for token in ("3", "tres", "three")):
         raise SystemExit("RAG smoke failed: final answer does not contain retry count")
 
-    print("\n=== conversation memory: follow-up ===")
+    state = agent.grounding_state(thread_id)
+    print(
+        f"grounding state: turn={state.turn_index} grounded={state.grounded} "
+        f"topic={state.topic!r} sources={len(state.evidence.sources) if state.evidence else 0}"
+    )
+    if not state.grounded or state.evidence is None:
+        raise SystemExit("RAG smoke failed: successful RAG turn did not commit an evidence window")
+
+    print("\n=== new internal fact: contextual follow-up ===")
     followup = agent.invoke(
         "Y despues del tercero?",
         thread_id=thread_id,
         context=context,
     )
     print(
-        f"follow-up: {followup.elapsed_ms / 1000:.2f}s · tools={followup.tool_calls} · "
-        f"{followup.answer}"
+        f"follow-up: {followup.elapsed_ms / 1000:.2f}s · policy={followup.policy} · "
+        f"tools={followup.tool_calls} · {followup.answer}"
     )
     if followup.failed:
         raise SystemExit(f"RAG smoke failed during follow-up: {followup.answer}")
+    if followup.policy != "retrieve":
+        raise SystemExit(f"RAG smoke failed: follow-up policy was {followup.policy}, expected retrieve")
     if followup.tool_calls < 1:
         raise SystemExit("RAG smoke failed: contextual operational follow-up was not re-grounded")
     if "treasury integrations" not in followup.answer.casefold():
         raise SystemExit("RAG smoke failed: follow-up lost the Treasury Integrations escalation")
 
-    print("\nREACT RAG READY: retrieval + streaming + tool use + follow-up memory passed")
+    print("\n=== evidence window reuse: transformation only ===")
+    reuse = agent.invoke(
+        "Resumilo en una linea.",
+        thread_id=thread_id,
+        context=context,
+    )
+    print(
+        f"reuse: {reuse.elapsed_ms / 1000:.2f}s · policy={reuse.policy} · "
+        f"tools={reuse.tool_calls} · {reuse.answer}"
+    )
+    if reuse.failed:
+        raise SystemExit(f"RAG smoke failed during evidence reuse: {reuse.answer}")
+    if reuse.policy != "reuse_evidence":
+        raise SystemExit(f"RAG smoke failed: expected evidence reuse policy, got {reuse.policy}")
+    if reuse.tool_calls != 0:
+        raise SystemExit("RAG smoke failed: evidence transformation unnecessarily called a tool")
+
+    print(
+        "\nCONVERSATIONAL GROUNDING V2 READY: policy + retrieval + streaming + "
+        "follow-up re-grounding + evidence reuse passed"
+    )
 
 
 if __name__ == "__main__":
