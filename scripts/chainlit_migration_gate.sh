@@ -10,7 +10,7 @@ OVMS_EMBEDDING_MODEL="${OVMS_EMBEDDING_MODEL:-OpenVINO/Qwen3-Embedding-0.6B-int8
 OVMS_RERANKER_MODEL="${OVMS_RERANKER_MODEL:-OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov}"
 OPENVINO_VECTOR_INDEX="${OPENVINO_VECTOR_INDEX:-ops-knowledge-openvino-v1}"
 
-printf '\n[1/5] Fast static + complete grounding regression preflight\n'
+printf '\n[1/5] Fast static + architecture + complete grounding regression preflight\n'
 uv run python -m py_compile \
   src/rag_ops_guard/agent/grounding.py \
   src/rag_ops_guard/agent/react_agent.py \
@@ -23,6 +23,7 @@ uv run ruff check \
   src/rag_ops_guard/agent/react_agent.py \
   src/rag_ops_guard/retrieval/hybrid.py \
   src/rag_ops_guard/retrieval/resilient.py \
+  tests/architecture/test_grounding_policy_guard.py \
   tests/unit/test_grounding_policy.py \
   tests/unit/test_grounding_policy_edges.py \
   tests/unit/test_grounding_policy_matrix.py \
@@ -34,6 +35,7 @@ uv run mypy \
   src/rag_ops_guard/retrieval/hybrid.py \
   src/rag_ops_guard/retrieval/resilient.py
 uv run pytest \
+  tests/architecture/test_grounding_policy_guard.py \
   tests/unit/test_react_streaming.py \
   tests/unit/test_grounding_policy.py \
   tests/unit/test_grounding_policy_edges.py \
@@ -80,6 +82,10 @@ Manual UI confirmation still required before merge:
   9. Stop interrupts a generation without corrupting prior message/grounding state
   10. Retry works after a recoverable failure
   11. Local Status behaves correctly
+
+Architecture invariant:
+  Dialogue/entity heuristics are frozen technical debt. The heuristic budget may only decrease,
+  and Conversational Grounding v3 must drive it to zero through semantic structured routing.
 
 If those pass, this branch is ready to merge into the Chainlit migration candidate.
 EOF
