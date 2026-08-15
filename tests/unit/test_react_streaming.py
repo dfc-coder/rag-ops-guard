@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 from threading import Lock
 from typing import Any
 
@@ -94,6 +95,25 @@ def test_stream_yields_immediate_status_tokens_and_terminal_response() -> None:
     assert events[-1].kind == "done"
     assert events[-1].text == "Hola mundo"
     assert text_content(agent._histories["thread-1"]) == ["Hola", "Hola mundo"]
+
+
+def test_stream_survives_resumption_in_different_contexts() -> None:
+    """Model Gradio resuming a sync generator under different ContextVar contexts."""
+    agent = make_agent(SuccessGraph("Hola contexto"))
+    stream = agent.stream("Hola", thread_id="thread-context", context=QueryContext())
+    events = []
+
+    while True:
+        try:
+            # A fresh Context for every next() reproduces the class of failure seen when a UI
+            # framework resumes a generator outside the context that produced the previous yield.
+            events.append(contextvars.Context().run(next, stream))
+        except StopIteration:
+            break
+
+    assert events[-1].kind == "done"
+    assert events[-1].text == "Hola contexto"
+    assert text_content(agent._histories["thread-context"]) == ["Hola", "Hola contexto"]
 
 
 def test_timeout_is_friendly_and_does_not_commit_failed_turn() -> None:
