@@ -10,7 +10,7 @@ OVMS_EMBEDDING_MODEL="${OVMS_EMBEDDING_MODEL:-OpenVINO/Qwen3-Embedding-0.6B-int8
 OVMS_RERANKER_MODEL="${OVMS_RERANKER_MODEL:-OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov}"
 OPENVINO_VECTOR_INDEX="${OPENVINO_VECTOR_INDEX:-ops-knowledge-openvino-v1}"
 
-printf '\n[1/5] Fast static + grounding regression preflight\n'
+printf '\n[1/5] Fast static + complete grounding regression preflight\n'
 uv run python -m py_compile \
   src/rag_ops_guard/agent/grounding.py \
   src/rag_ops_guard/agent/react_agent.py \
@@ -22,11 +22,14 @@ uv run ruff check \
   src/rag_ops_guard/agent/grounding.py \
   src/rag_ops_guard/agent/react_agent.py \
   src/rag_ops_guard/retrieval/hybrid.py \
+  src/rag_ops_guard/retrieval/resilient.py \
   tests/unit/test_grounding_policy.py \
+  tests/unit/test_grounding_policy_edges.py \
   tests/unit/test_resilient_retrieval.py
 uv run pytest \
   tests/unit/test_react_streaming.py \
   tests/unit/test_grounding_policy.py \
+  tests/unit/test_grounding_policy_edges.py \
   tests/unit/test_resilient_retrieval.py \
   -q
 
@@ -64,9 +67,10 @@ Manual UI confirmation still required before merge:
   5. follow-up after the third re-grounds and answers Treasury Integrations
   6. "Resumilo" reuses the active evidence window without another RAG call
   7. change environment and verify stale evidence is not reused
-  8. Stop interrupts a generation without corrupting prior message/grounding state
-  9. Retry works after a recoverable failure
-  10. Local Status behaves correctly
+  8. contextual code based on prior evidence stays grounded
+  9. Stop interrupts a generation without corrupting prior message/grounding state
+  10. Retry works after a recoverable failure
+  11. Local Status behaves correctly
 
 If those pass, this branch is ready to merge into the Chainlit migration candidate.
 EOF
