@@ -1,0 +1,35 @@
+{
+  "policy": "semantic-routing-only",
+  "target_legacy_string_literals": 0,
+  "target_legacy_regex_patterns": 0,
+  "max_legacy_string_literals": 301,
+  "max_legacy_regex_patterns": 4,
+  "legacy_catalogs": {
+    "_INTERNAL_ANCHORS": 9,
+    "_INTERNAL_MARKERS": 13,
+    "_INTERNAL_CONTEXT_MARKERS": 6,
+    "_OPERATIONAL_TOKENS": 27,
+    "_FOLLOWUP_PREFIXES": 30,
+    "_FOLLOWUP_REFERENCES": 30,
+    "_SIMPLE_REFERENCE_TOKENS": 10,
+    "_REUSE_MARKERS": 25,
+    "_NEW_FACT_PHRASES": 22,
+    "_ELLIPTICAL_OPERATIONAL_TOKENS": 17,
+    "_SOCIAL_MESSAGES": 11,
+    "_LIST_MARKERS": 6,
+    "_DEFINITION_PREFIXES": 4,
+    "_CODING_MARKERS": 17,
+    "_QUESTION_WORDS": 11,
+    "_NON_TARGET_TOKENS": 63
+  },
+  "legacy_regex_catalogs": {
+    "_LOWERCASE_TARGET_PATTERNS": 4
+  },
+  "rules": [
+    "Legacy language catalogs may only shrink or disappear.",
+    "No new top-level string catalog may be introduced in the grounding policy module.",
+    "No new regex-based dialogue/entity routing pattern may be introduced.",
+    "Conversational meaning must be produced by a semantic structured resolver, not by phrase/entity lists.",
+    "Deterministic code may enforce evidence, context, TTL, safety, rollback, and abstention invariants only."
+  ]
+}
