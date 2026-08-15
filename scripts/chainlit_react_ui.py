@@ -265,9 +265,7 @@ async def _run_turn(message: str) -> None:
                     return
 
             if cancel_event.is_set():
-                activity.output = (
-                    "Generación detenida · el turno no se incorporó a la conversación"
-                )
+                activity.output = "Generación detenida · el turno no se incorporó a la conversación"
                 await activity.update()
                 if has_visible_output:
                     answer.content = f"{answer.content}\n\n---\n\n_Generación detenida._"

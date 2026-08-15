@@ -36,8 +36,7 @@ def _direct_string_collection(node: ast.AST) -> bool:
     if isinstance(node, ast.Dict) and node.values:
         values = [value for value in node.values if value is not None]
         return bool(values) and all(
-            isinstance(value, ast.Constant) and isinstance(value.value, str)
-            for value in values
+            isinstance(value, ast.Constant) and isinstance(value.value, str) for value in values
         )
     return False
 
@@ -122,8 +121,7 @@ def test_allowed_semantic_map_has_one_abstract_hypothesis_per_action() -> None:
         assert isinstance(value, ast.Dict)
         assert len(value.values) == 3
         assert all(
-            isinstance(item, ast.Constant) and isinstance(item.value, str)
-            for item in value.values
+            isinstance(item, ast.Constant) and isinstance(item.value, str) for item in value.values
         )
 
     assert matches == 1

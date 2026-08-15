@@ -59,7 +59,9 @@ def main() -> None:
     results = rerank.json().get("results", [])
     print(f"rerank: {rerank_seconds:.3f}s · documents={len(documents)}")
     for item in results:
-        print(f"  #{item['index']} score={item['relevance_score']:.4f} · {documents[item['index']]}")
+        print(
+            f"  #{item['index']} score={item['relevance_score']:.4f} · {documents[item['index']]}"
+        )
 
 
 if __name__ == "__main__":

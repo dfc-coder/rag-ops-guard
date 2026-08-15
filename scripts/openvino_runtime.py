@@ -23,9 +23,11 @@ RERANKER_MODEL = os.environ.get(
 
 def model_dir() -> Path:
     cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return Path(
-        os.environ.get("OVMS_MODEL_DIR", cache_home / "rag-ops-guard" / "openvino-models")
-    ).expanduser().resolve()
+    return (
+        Path(os.environ.get("OVMS_MODEL_DIR", cache_home / "rag-ops-guard" / "openvino-models"))
+        .expanduser()
+        .resolve()
+    )
 
 
 def render_group_id() -> str:
@@ -85,8 +87,7 @@ def wait_ready(timeout_seconds: int = 180) -> None:
 
     logs = podman("logs", "--tail", "80", OVMS_CONTAINER_NAME, check=False)
     raise SystemExit(
-        f"OpenVINO backend did not become ready: {last_error}\n"
-        f"{logs.stdout}{logs.stderr}"
+        f"OpenVINO backend did not become ready: {last_error}\n{logs.stdout}{logs.stderr}"
     )
 
 

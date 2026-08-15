@@ -138,9 +138,7 @@ def test_authority_does_not_override_a_material_relevance_gap() -> None:
 
 
 def test_contextual_query_only_requires_real_entity_anchor() -> None:
-    anchors = _explicit_query_anchors(
-        "Cuantos reintentos permite Calypso. Y despues del tercero?"
-    )
+    anchors = _explicit_query_anchors("Cuantos reintentos permite Calypso. Y despues del tercero?")
     assert anchors == {"calypso"}
 
 

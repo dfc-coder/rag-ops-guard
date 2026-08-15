@@ -78,8 +78,7 @@ def main() -> None:
             "from an authority >= 90 source"
         )
     print(
-        "authoritative retry evidence="
-        f"{[item.chunk.title for item in authoritative_retry_sources]}"
+        f"authoritative retry evidence={[item.chunk.title for item in authoritative_retry_sources]}"
     )
 
     print("\n=== retrieval diagnostic: contextual follow-up ===")

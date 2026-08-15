@@ -96,10 +96,7 @@ class SemanticGroundingGate:
         if len(grades) != len(self._actions):
             raise ValueError("semantic gate reranker returned an unexpected grade count")
 
-        scores = {
-            action: grade.score
-            for action, grade in zip(self._actions, grades, strict=True)
-        }
+        scores = {action: grade.score for action, grade in zip(self._actions, grades, strict=True)}
         ordered = sorted(scores.items(), key=lambda item: (-item[1], item[0].value))
         if not ordered:
             return GateDecision(
