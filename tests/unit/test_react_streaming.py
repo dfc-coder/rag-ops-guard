@@ -6,7 +6,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 
-from rag_ops_guard.agent.grounding import TurnPolicyEngine
+from rag_ops_guard.agent.grounding import ConversationState, TurnPlan, TurnPolicy
 from rag_ops_guard.agent.react_agent import ReactAgent
 from rag_ops_guard.domain.models import QueryContext
 
@@ -64,13 +64,24 @@ class TimeoutGraph:
         raise APITimeoutError("model stalled")
 
 
+class DirectPolicy:
+    def plan(
+        self,
+        message: str,
+        state: ConversationState,
+        context: QueryContext,
+    ) -> TurnPlan:
+        del message, state, context
+        return TurnPlan(TurnPolicy.DIRECT, "streaming unit test")
+
+
 def make_agent(graph: Any) -> ReactAgent:
     agent = object.__new__(ReactAgent)
     agent._history_guard = Lock()
     agent._histories = {}
     agent._grounding_states = {}
     agent._thread_locks = {}
-    agent._turn_policy = TurnPolicyEngine()
+    agent._turn_policy = DirectPolicy()
     agent._agent = graph
     return agent
 
@@ -103,7 +114,6 @@ def test_stream_yields_immediate_status_tokens_and_terminal_response() -> None:
 
 
 def test_stream_survives_resumption_in_different_contexts() -> None:
-    """Model a UI resuming a sync generator under different ContextVar contexts."""
     agent = make_agent(SuccessGraph("Hola contexto"))
     stream = agent.stream("Hola", thread_id="thread-context", context=QueryContext())
     events = []
