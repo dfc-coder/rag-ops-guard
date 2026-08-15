@@ -1,0 +1,36 @@
+name: Diagnose final unit once
+
+on:
+  push:
+    branches:
+      - agent/beta-unified-react-core
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: agent/beta-unified-react-core
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - run: uv sync --frozen --group dev
+      - name: Capture unit failure
+        run: |
+          set +e
+          uv run pytest tests/unit -q --tb=short > docs/final-unit-diagnostic.txt 2>&1
+          echo "exit=$?" >> docs/final-unit-diagnostic.txt
+          exit 0
+      - name: Commit diagnostic
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/final-unit-diagnostic.txt
+          git commit -m "chore: capture final unit diagnostic"
+          git push origin HEAD:agent/beta-unified-react-core
