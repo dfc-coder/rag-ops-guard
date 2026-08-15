@@ -3,10 +3,11 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Lock, RLock
 from time import perf_counter
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
