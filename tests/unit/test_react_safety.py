@@ -17,4 +17,6 @@ def test_react_agent_blocks_explicit_secret_extraction_without_tools() -> None:
     assert response.policy == "safety_blocked"
     assert response.tool_calls == 0
     assert "cannot help" in response.answer.casefold()
-    assert "credentials" not in response.answer.casefold() or "extract" in response.answer.casefold()
+    assert (
+        "credentials" not in response.answer.casefold() or "extract" in response.answer.casefold()
+    )

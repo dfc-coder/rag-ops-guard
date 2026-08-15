@@ -324,9 +324,7 @@ def _sources_from_payload(payload: dict[str, Any]) -> tuple[GroundedSource, ...]
                 version=str(raw.get("version") or ""),
                 system=str(raw.get("system")) if raw.get("system") is not None else None,
                 environment=(
-                    str(raw.get("environment"))
-                    if raw.get("environment") is not None
-                    else None
+                    str(raw.get("environment")) if raw.get("environment") is not None else None
                 ),
                 section=str(raw.get("section") or ""),
                 text=text,
@@ -360,8 +358,7 @@ def _message_text(message: BaseMessage) -> str:
     if not isinstance(content, list):
         return ""
     return "".join(
-        str(part.get("text", "")) if isinstance(part, dict) else str(part)
-        for part in content
+        str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in content
     ).strip()
 
 

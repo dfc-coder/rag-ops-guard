@@ -579,8 +579,7 @@ def _message_text(message: Any) -> str:
     if not isinstance(content, list):
         return ""
     return "".join(
-        str(part.get("text", "")) if isinstance(part, dict) else str(part)
-        for part in content
+        str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in content
     )
 
 
