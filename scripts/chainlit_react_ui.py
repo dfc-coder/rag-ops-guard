@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 from collections.abc import AsyncIterator
@@ -10,13 +9,13 @@ from uuid import uuid4
 import chainlit as cl
 import httpx
 from chainlit.input_widget import Select
-from langchain_core.messages import HumanMessage, ToolMessage
 
-from rag_ops_guard.agent.react_agent import ReactAgent, ReactStreamEvent
+from rag_ops_guard.agent.conversation import ConversationStreamEvent, DocumentSource
+from rag_ops_guard.app import conversation_agent
 from rag_ops_guard.domain.models import QueryContext
 
 logger = logging.getLogger(__name__)
-AGENT = ReactAgent()
+AGENT = conversation_agent()
 
 _ENVIRONMENTS: dict[str, str | None] = {
     "Cualquier ambiente": None,
@@ -31,8 +30,8 @@ async def _agent_events(
     thread_id: str,
     context: QueryContext,
     cancel_event: threading.Event,
-) -> AsyncIterator[ReactStreamEvent]:
-    """Bridge the synchronous local agent into Chainlit without blocking the event loop."""
+) -> AsyncIterator[ConversationStreamEvent]:
+    """Bridge the synchronous canonical agent into Chainlit without blocking the event loop."""
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[object] = asyncio.Queue()
     sentinel = object()
@@ -44,7 +43,7 @@ async def _agent_events(
                 if cancel_event.is_set():
                     break
                 loop.call_soon_threadsafe(queue.put_nowait, event)
-        except BaseException as exc:  # noqa: BLE001 - forwarded to the async UI boundary
+        except BaseException as exc:
             loop.call_soon_threadsafe(queue.put_nowait, exc)
         finally:
             close = getattr(stream, "close", None)
@@ -60,7 +59,7 @@ async def _agent_events(
                 break
             if isinstance(item, BaseException):
                 raise item
-            if isinstance(item, ReactStreamEvent):
+            if isinstance(item, ConversationStreamEvent):
                 yield item
     finally:
         cancel_event.set()
@@ -79,94 +78,23 @@ def _query_context() -> QueryContext:
     )
 
 
-def _last_turn_sources(
-    thread_id: str,
-    *,
-    include_active_evidence: bool = False,
-) -> list[dict[str, str]]:
-    """Read exact committed evidence; optionally reuse the active EvidenceWindow for transforms."""
-    with AGENT._history_guard:  # noqa: SLF001 - UI adapter reads committed agent state
-        messages = list(AGENT._histories.get(thread_id, []))  # noqa: SLF001
-
-    last_user = -1
-    for index, message in enumerate(messages):
-        if isinstance(message, HumanMessage):
-            last_user = index
-
-    documents: dict[tuple[str, str, str, str], dict[str, str]] = {}
-    for message in messages[last_user + 1 :]:
-        if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
-            continue
-        try:
-            payload = json.loads(message.content)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict) or payload.get("supported") is not True:
-            continue
-        raw_sources = payload.get("sources")
-        if not isinstance(raw_sources, list):
-            continue
-
-        for raw in raw_sources:
-            if not isinstance(raw, dict):
-                continue
-            title = str(raw.get("title", "Fuente"))
-            version = str(raw.get("version", ""))
-            system = str(raw.get("system", ""))
-            environment = str(raw.get("environment", ""))
-            key = (title, version, system, environment)
-            section = str(raw.get("section", ""))
-            text = str(raw.get("text", ""))
-            excerpt = f"### {section}\n{text}" if section else text
-
-            current = documents.get(key)
-            if current is None:
-                documents[key] = {
-                    "title": title,
-                    "version": version,
-                    "system": system,
-                    "environment": environment,
-                    "text": excerpt,
-                }
-            elif excerpt and excerpt not in current["text"]:
-                current["text"] += f"\n\n{excerpt}"
-
-    if documents or not include_active_evidence:
-        return list(documents.values())
-
-    state = AGENT.grounding_state(thread_id)
-    evidence = state.active_evidence()
-    if evidence is None:
-        return []
-    return [
-        {
-            "title": source.title,
-            "version": source.version,
-            "system": source.system or "",
-            "environment": source.environment or "",
-            "text": f"### {source.section}\n{source.text}" if source.section else source.text,
-        }
-        for source in evidence.sources
-    ]
-
-
-def _source_elements(sources: list[dict[str, str]]) -> tuple[list[cl.Text], str]:
+def _source_elements(sources: tuple[DocumentSource, ...]) -> tuple[list[cl.Text], str]:
     elements: list[cl.Text] = []
     labels: list[str] = []
     for source in sources:
-        title = source["title"]
         meta = " · ".join(
             value
             for value in (
-                source["system"],
-                source["environment"],
-                f"v{source['version']}" if source["version"] else "",
+                source.system or "",
+                source.environment or "",
+                f"v{source.version}" if source.version else "",
             )
             if value
         )
-        content = f"{meta}\n\n{source['text']}".strip()
-        elements.append(cl.Text(name=title, content=content, display="side"))
-        labels.append(title)
+        excerpt = f"### {source.section}\n{source.text}" if source.section else source.text
+        content = f"{meta}\n\n{excerpt}".strip()
+        elements.append(cl.Text(name=source.title, content=content, display="side"))
+        labels.append(source.title)
     return elements, " · ".join(labels)
 
 
@@ -199,7 +127,7 @@ async def _run_turn(message: str) -> None:
                 if event.kind == "status":
                     activity.output = event.text
                     await activity.update()
-                    if "base de conocimiento" in event.text.casefold() and has_visible_output:
+                    if "document" in event.text.casefold() and has_visible_output:
                         await answer.remove()
                         answer = await cl.Message(content="").send()
                         streamed_text = ""
@@ -222,26 +150,23 @@ async def _run_turn(message: str) -> None:
                     continue
 
                 if event.kind == "done":
-                    sources = _last_turn_sources(
-                        thread_id,
-                        include_active_evidence=event.policy == "reuse_evidence",
-                    )
-                    elements, source_labels = _source_elements(sources)
+                    elements, source_labels = _source_elements(event.sources)
                     final_text = event.text
                     if source_labels:
                         final_text += f"\n\n**Fuentes:** {source_labels}"
                     answer.content = final_text
                     answer.elements = elements
                     await answer.update()
+                    status = event.status.value if event.status is not None else "unknown"
                     activity.output = (
                         f"Listo · {event.elapsed_ms / 1000:.1f}s · "
-                        f"{event.tool_calls} tool call{'s' if event.tool_calls != 1 else ''}"
+                        f"{event.tool_calls} tool call{'s' if event.tool_calls != 1 else ''} · "
+                        f"{status}"
                     )
-                    if event.policy == "reuse_evidence":
-                        activity.output += " · evidencia reutilizada"
-                    if sources:
+                    if event.sources:
                         activity.output += (
-                            f" · {len(sources)} fuente{'s' if len(sources) != 1 else ''}"
+                            f" · {len(event.sources)} fuente"
+                            f"{'s' if len(event.sources) != 1 else ''}"
                         )
                     await activity.update()
                     return
@@ -267,10 +192,11 @@ async def _run_turn(message: str) -> None:
             if cancel_event.is_set():
                 activity.output = "Generación detenida · el turno no se incorporó a la conversación"
                 await activity.update()
-                if has_visible_output:
-                    answer.content = f"{answer.content}\n\n---\n\n_Generación detenida._"
-                else:
-                    answer.content = "_Generación detenida._"
+                answer.content = (
+                    f"{answer.content}\n\n---\n\n_Generación detenida._"
+                    if has_visible_output
+                    else "_Generación detenida._"
+                )
                 await answer.update()
         except asyncio.CancelledError:
             cancel_event.set()
@@ -278,7 +204,7 @@ async def _run_turn(message: str) -> None:
             await activity.update()
             raise
         except Exception:
-            logger.exception("Unhandled Chainlit ReAct bridge failure")
+            logger.exception("Unhandled Chainlit conversation bridge failure")
             activity.output = "La interfaz perdió el turno, pero la sesión sigue disponible"
             await activity.update()
             notice = "No pude cerrar este turno. La conversación anterior sigue intacta."
@@ -293,76 +219,27 @@ async def _run_turn(message: str) -> None:
 async def _diagnostics() -> str:
     states: list[tuple[str, str]] = []
     async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            response = await client.get("http://127.0.0.1:8080/health")
-            states.append(
-                ("Generación", "Ready" if response.is_success else f"HTTP {response.status_code}")
-            )
-        except httpx.HTTPError:
-            states.append(("Generación", "No disponible"))
-
-        try:
-            response = await client.get("http://127.0.0.1:4566/")
-            states.append(
-                (
-                    "Knowledge / Floci",
-                    "Ready" if response.status_code < 500 else f"HTTP {response.status_code}",
-                )
-            )
-        except httpx.HTTPError:
-            states.append(("Knowledge / Floci", "No disponible"))
-
-        try:
-            embedding = await client.post(
-                "http://127.0.0.1:8083/v3/embeddings",
-                json={
-                    "model": "OpenVINO/Qwen3-Embedding-0.6B-int8-ov",
-                    "input": "health probe",
-                },
-            )
-            states.append(
-                (
-                    "Embeddings / OpenVINO",
-                    "Ready" if embedding.is_success else f"HTTP {embedding.status_code}",
-                )
-            )
-        except httpx.HTTPError:
-            states.append(("Embeddings / OpenVINO", "No disponible"))
-
-        try:
-            rerank = await client.post(
-                "http://127.0.0.1:8083/v3/rerank",
-                json={
-                    "model": "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov",
-                    "query": "health",
-                    "documents": ["health"],
-                    "top_n": 1,
-                },
-            )
-            states.append(
-                (
-                    "Reranker / OpenVINO",
-                    "Ready" if rerank.is_success else f"HTTP {rerank.status_code}",
-                )
-            )
-        except httpx.HTTPError:
-            states.append(("Reranker / OpenVINO", "No disponible"))
-
-    lines = [f"- **{label}:** {state}" for label, state in states]
-    return "### Estado local\n" + "\n".join(lines)
+        probes = [
+            ("Generación", "http://127.0.0.1:8080/health"),
+            ("Knowledge / Floci", "http://127.0.0.1:4566/"),
+        ]
+        for label, url in probes:
+            try:
+                response = await client.get(url)
+                state = "Ready" if response.status_code < 500 else f"HTTP {response.status_code}"
+            except httpx.HTTPError:
+                state = "No disponible"
+            states.append((label, state))
+    return "### Estado local\n" + "\n".join(f"- **{label}:** {state}" for label, state in states)
 
 
 @cl.set_starters
 async def starters() -> list[cl.Starter]:
     return [
         cl.Starter(label="Calypso retries", message="¿Cuántos reintentos permite Calypso?"),
+        cl.Starter(label="Documentos", message="¿Qué documentación tienes disponible?"),
         cl.Starter(
-            label="Runbooks disponibles",
-            message="¿Qué documentación tienes disponible?",
-        ),
-        cl.Starter(label="Analizar incidente", message="¿Qué sabes del incidente INC-001?"),
-        cl.Starter(
-            label="Generar código",
+            label="Código directo",
             message="Escribe una función corta en Python para merge sort.",
         ),
     ]
@@ -373,7 +250,6 @@ async def on_chat_start() -> None:
     cl.user_session.set("thread_id", str(uuid4()))
     cl.user_session.set("environment", None)
     cl.user_session.set("cancel_event", None)
-
     await cl.ChatSettings(
         [
             Select(
@@ -381,16 +257,15 @@ async def on_chat_start() -> None:
                 label="Ambiente",
                 values=list(_ENVIRONMENTS),
                 initial_index=0,
-                description="Filtra la evidencia operacional cuando el agente usa RAG.",
+                description="Filtra evidencia cuando el agente decide usar documentos.",
             )
         ]
     ).send()
-
     await cl.Message(
         content=(
             "## RAG Ops Guard\n"
-            "Asistente local para operaciones de integración. Conversá normalmente, pedí código "
-            "o consultá runbooks, APIs, incidentes y SLAs."
+            "Agente conversacional único. Responde normalmente y usa documentos como herramienta "
+            "cuando necesita evidencia del corpus."
         ),
         actions=[
             cl.Action(
