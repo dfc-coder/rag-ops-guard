@@ -17,6 +17,8 @@ from rag_ops_guard.app import knowledge_search
 from rag_ops_guard.domain.models import QueryContext
 
 QUERY = "Cuantos reintentos permite Calypso?"
+FOLLOWUP = "Y despues del tercero?"
+FOLLOWUP_QUERY = "Cuantos reintentos permite Calypso. Y despues del tercero?"
 
 
 def _contains_retry_rule(text: str) -> bool:
@@ -24,17 +26,24 @@ def _contains_retry_rule(text: str) -> bool:
     return "maximum of three times" in folded or "up to three times" in folded
 
 
+def _contains_escalation(text: str) -> bool:
+    return "treasury integrations" in text.casefold()
+
+
+def _print_result(label: str, result) -> None:
+    print(
+        f"{label}: supported={result.supported} relevance={result.relevance:.4f} "
+        f"admitted={[item.chunk.title for item in result.admitted]}"
+    )
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     context = QueryContext()
 
-    print("\n=== retrieval diagnostic: default / any environment ===")
+    print("\n=== retrieval diagnostic: initial Calypso fact ===")
     result = knowledge_search().search(QUERY, context, query_mode="knowledge")
-    print(
-        "supported="
-        f"{result.supported} relevance={result.relevance:.4f} "
-        f"admitted={[item.chunk.title for item in result.admitted]}"
-    )
+    _print_result("initial", result)
     if not result.supported or not result.admitted:
         raise SystemExit("RAG smoke failed: Calypso evidence was not admitted")
 
@@ -52,6 +61,24 @@ def main() -> None:
         "authoritative retry evidence="
         f"{[item.chunk.title for item in authoritative_retry_sources]}"
     )
+
+    print("\n=== retrieval diagnostic: contextual follow-up ===")
+    follow_result = knowledge_search().search(
+        FOLLOWUP_QUERY,
+        context,
+        query_mode="knowledge",
+        ranking_query=FOLLOWUP,
+    )
+    _print_result("follow-up retrieval", follow_result)
+    if not follow_result.supported or not follow_result.admitted:
+        raise SystemExit("RAG smoke failed: contextual follow-up evidence was not admitted")
+    escalation_sources = [item for item in follow_result.admitted if _contains_escalation(item.chunk.text)]
+    if not escalation_sources:
+        raise SystemExit(
+            "RAG smoke failed: contextual retrieval did not admit evidence containing the "
+            "Treasury Integrations escalation"
+        )
+    print(f"authoritative escalation evidence={[item.chunk.title for item in escalation_sources]}")
 
     print("\n=== policy-driven streaming: exact Chainlit question ===")
     agent = ReactAgent()
@@ -92,13 +119,11 @@ def main() -> None:
     )
     if not state.grounded or state.evidence is None:
         raise SystemExit("RAG smoke failed: successful RAG turn did not commit an evidence window")
+    if state.last_grounded_query != QUERY:
+        raise SystemExit("RAG smoke failed: initial grounding root query was not preserved")
 
     print("\n=== new internal fact: contextual follow-up ===")
-    followup = agent.invoke(
-        "Y despues del tercero?",
-        thread_id=thread_id,
-        context=context,
-    )
+    followup = agent.invoke(FOLLOWUP, thread_id=thread_id, context=context)
     print(
         f"follow-up: {followup.elapsed_ms / 1000:.2f}s · policy={followup.policy} · "
         f"tools={followup.tool_calls} · {followup.answer}"
@@ -112,12 +137,14 @@ def main() -> None:
     if "treasury integrations" not in followup.answer.casefold():
         raise SystemExit("RAG smoke failed: follow-up lost the Treasury Integrations escalation")
 
+    after_followup = agent.grounding_state(thread_id)
+    if after_followup.last_grounded_query != QUERY:
+        raise SystemExit(
+            "RAG smoke failed: contextual follow-up polluted the stable grounding root query"
+        )
+
     print("\n=== evidence window reuse: transformation only ===")
-    reuse = agent.invoke(
-        "Resumilo en una linea.",
-        thread_id=thread_id,
-        context=context,
-    )
+    reuse = agent.invoke("Resumilo en una linea.", thread_id=thread_id, context=context)
     print(
         f"reuse: {reuse.elapsed_ms / 1000:.2f}s · policy={reuse.policy} · "
         f"tools={reuse.tool_calls} · {reuse.answer}"
@@ -130,8 +157,8 @@ def main() -> None:
         raise SystemExit("RAG smoke failed: evidence transformation unnecessarily called a tool")
 
     print(
-        "\nCONVERSATIONAL GROUNDING V2 READY: policy + retrieval + streaming + "
-        "follow-up re-grounding + evidence reuse passed"
+        "\nCONVERSATIONAL GROUNDING V2 READY: initial retrieval + contextual retrieval + "
+        "streaming + stable topic + follow-up re-grounding + evidence reuse passed"
     )
 
 
