@@ -23,13 +23,17 @@ export RETRIEVAL_CONTEXT_K="${BETA_RETRIEVAL_CONTEXT_K:-3}"
 printf '\n[1/5] Local corpus integrity\n'
 uv run python scripts/local/ensure_data.py
 
-printf '\n[2/5] Streaming / rollback regressions\n'
-uv run pytest tests/unit/test_react_streaming.py tests/unit/test_resilient_retrieval.py -q
+printf '\n[2/5] Streaming / rollback / grounding policy regressions\n'
+uv run pytest \
+  tests/unit/test_react_streaming.py \
+  tests/unit/test_grounding_policy.py \
+  tests/unit/test_resilient_retrieval.py \
+  -q
 
 printf '\n[3/5] Direct chat/code streaming\n'
 uv run python scripts/react_direct_ui_smoke.py
 
-printf '\n[4/5] Grounded Calypso RAG + follow-up memory\n'
+printf '\n[4/5] Conversational Grounding v2: Calypso + follow-up + evidence reuse\n'
 uv run python scripts/react_rag_smoke.py
 
 printf '\n[5/5] Chainlit application import/config\n'
@@ -43,12 +47,13 @@ CHAINLIT MIGRATION GATE: HEADLESS PASS
 Manual UI confirmation still required before merge:
   1. make chainlit-beta
   2. open http://127.0.0.1:8001
-  3. direct code streams with no RAG
+  3. direct code streams with policy=direct and no RAG
   4. Calypso retries answers 3 and exposes source cards
-  5. follow-up after the third answers Treasury Integrations
-  6. Stop interrupts a generation without corrupting the prior conversation
-  7. Retry works after a recoverable failure
-  8. environment selector and Local Status behave correctly
+  5. follow-up after the third re-grounds and answers Treasury Integrations
+  6. "Resumilo" reuses the active evidence window without another RAG call
+  7. Stop interrupts a generation without corrupting prior message/grounding state
+  8. Retry works after a recoverable failure
+  9. environment selector and Local Status behave correctly
 
-If those pass, this branch is ready to make Chainlit the primary beta UI.
+If those pass, this branch is ready to merge into the Chainlit migration candidate.
 EOF
