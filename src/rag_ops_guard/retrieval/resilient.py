@@ -31,7 +31,7 @@ class ResilientKnowledgeSearch(KnowledgeSearch):
             query_mode=query_mode,
             ranking_query=ranking_query,
         )
-        _log_attempt("primary", query_mode, query, context, primary)
+        _log_attempt("primary", query_mode, query, ranking_query, context, primary)
 
         if query_mode != "knowledge" or primary.supported:
             return primary
@@ -42,11 +42,13 @@ class ResilientKnowledgeSearch(KnowledgeSearch):
             query_mode="probe",
             ranking_query=ranking_query,
         )
-        _log_attempt("raw-query-fallback", "probe", query, context, fallback)
+        _log_attempt("raw-query-fallback", "probe", query, ranking_query, context, fallback)
         if fallback.supported:
             logger.info(
-                "knowledge-search recovered with raw-query fallback query=%r environment=%r",
+                "knowledge-search recovered with raw-query fallback query=%r ranking_query=%r "
+                "environment=%r",
                 query,
+                ranking_query,
                 context.environment,
             )
             return fallback
@@ -54,25 +56,25 @@ class ResilientKnowledgeSearch(KnowledgeSearch):
 
 
 def _evidence_names(items: list[Evidence], *, limit: int = 8) -> list[str]:
-    return [
-        f"{item.chunk.logical_id}#{item.chunk.chunk_index}"
-        for item in items[:limit]
-    ]
+    return [f"{item.chunk.logical_id}#{item.chunk.chunk_index}" for item in items[:limit]]
 
 
 def _log_attempt(
     attempt: str,
     mode: QueryMode,
     query: str,
+    ranking_query: str | None,
     context: QueryContext,
     result: KnowledgeSearchResult,
 ) -> None:
     logger.info(
-        "knowledge-search attempt=%s mode=%s query=%r system=%r environment=%r api_version=%r "
-        "supported=%s relevance=%.4f dense=%s lexical=%s fused=%s reranker=%s admitted=%s",
+        "knowledge-search attempt=%s mode=%s query=%r ranking_query=%r system=%r "
+        "environment=%r api_version=%r supported=%s relevance=%.4f dense=%s lexical=%s "
+        "fused=%s reranker=%s admitted=%s",
         attempt,
         mode,
         query,
+        ranking_query,
         context.system,
         context.environment,
         context.api_version,
