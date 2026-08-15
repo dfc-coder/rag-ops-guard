@@ -193,12 +193,12 @@ class ConversationAgent:
 
             if self._safety.blocked(message):
                 answer = safety_blocked_response(message)
-                final_messages = [
+                safety_messages = [
                     *history,
                     HumanMessage(content=message),
                     AIMessage(content=answer),
                 ]
-                self._commit_history(thread_id, final_messages)
+                self._commit_history(thread_id, safety_messages)
                 yield ConversationStreamEvent(
                     kind="done",
                     text=answer,
