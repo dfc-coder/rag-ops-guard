@@ -32,4 +32,4 @@ Correctness is enforced in this order:
 
 ## Validation
 
-`make chainlit-gate` must cover deterministic safety, retrieval admission calibration, direct-path smoke tests, conversational RAG smoke tests, and Chainlit import/configuration before promotion.
+`make chainlit-gate` must cover deterministic safety, retrieval admission calibration, direct-path smoke tests, conversational RAG smoke tests, and Chainlit import/configuration before promotion. Repository CI must also pass on the final consolidation commit before the PR is taken out of draft.
