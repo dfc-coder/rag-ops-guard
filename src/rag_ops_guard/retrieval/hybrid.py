@@ -38,6 +38,12 @@ _STOPWORDS = {
     "are",
     "do",
     "did",
+    "after",
+    "then",
+    "next",
+    "third",
+    "previous",
+    "current",
     "para",
     "por",
     "que",
@@ -70,6 +76,13 @@ _STOPWORDS = {
     "uno",
     "se",
     "entonces",
+    "despues",
+    "después",
+    "luego",
+    "tercero",
+    "tercera",
+    "siguiente",
+    "anterior",
     "con",
     "sobre",
     "pasa",
@@ -96,6 +109,34 @@ _GENERIC_OPERATION_TOKENS = {
     "sla",
     "sql",
     "xml",
+}
+_STRUCTURAL_TOKENS = {
+    "follow",
+    "followup",
+    "source",
+    "sources",
+    "query",
+    "context",
+    "user",
+    "assistant",
+    "turn",
+    "message",
+    "previous",
+    "current",
+}
+_OPERATIONAL_ANCHOR_CONTEXT = {
+    "retry",
+    "retries",
+    "reintento",
+    "reintentos",
+    "timeout",
+    "timeouts",
+    "incident",
+    "incidente",
+    "runbook",
+    "sla",
+    "api",
+    "dlq",
 }
 
 QueryMode = Literal["knowledge", "probe"]
@@ -144,12 +185,7 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve broadly, then grade candidates against the resolved user intent.
-
-        For contextual follow-ups, ``query`` is the standalone rewrite used for recall and
-        ``ranking_query`` is the literal current turn. The reranker receives both so it keeps
-        the resolved topic without losing what the user actually asked in the follow-up.
-        """
+        """Retrieve broadly, then grade candidates against the resolved user intent."""
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
         dense = self._vectors.query(dense_vector, self._candidate_k)
@@ -159,10 +195,6 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
-        # Dense and lexical retrieval are already independently capped at candidate_k, so the
-        # resolved union is at most 2 * candidate_k. Do not truncate that union again before the
-        # learned reranker: a strong dense-only cross-language hit can otherwise be pushed out by
-        # several weaker lexical/RRF matches before the reranker ever gets a chance to grade it.
         candidates = resolved
 
         standalone_query = query.strip()
@@ -172,7 +204,11 @@ class KnowledgeSearch:
             if literal_query and literal_query != standalone_query
             else standalone_query
         )
-        if not _candidates_cover_explicit_anchors(relevance_query, candidates):
+
+        # Anchor admission is a fail-closed safety guard, but it must only inspect actual user/query
+        # entities. Sentence capitalization and synthetic structural words must never veto the
+        # reranker before it sees otherwise valid evidence.
+        if not _candidates_cover_explicit_anchors(standalone_query, candidates):
             return KnowledgeSearchResult(
                 dense=dense,
                 lexical=lexical,
@@ -251,7 +287,6 @@ def reciprocal_rank_fusion(
 
 
 def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Legacy diagnostic score; production admission is decided by learned grading."""
     semantic = 0.0
     distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
@@ -268,7 +303,6 @@ def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
 
 
 def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Diagnostic informative-token overlap against admitted evidence."""
     query_tokens = _informative_tokens(query)
     if not query_tokens:
         return 0.0
@@ -308,15 +342,32 @@ def _candidates_cover_explicit_anchors(query: str, candidates: list[Evidence]) -
 
 
 def _explicit_query_anchors(text: str) -> set[str]:
+    matches = list(_TOKEN_RE.finditer(text))
+    normalized_tokens = [match.group(0).casefold() for match in matches]
+    has_operational_context = bool(set(normalized_tokens).intersection(_OPERATIONAL_ANCHOR_CONTEXT))
+
     anchors: set[str] = set()
-    for match in _TOKEN_RE.finditer(text):
+    for index, match in enumerate(matches):
         token = match.group(0)
         folded = token.casefold()
-        if folded in _STOPWORDS or folded in _GENERIC_OPERATION_TOKENS:
+        if (
+            folded in _STOPWORDS
+            or folded in _GENERIC_OPERATION_TOKENS
+            or folded in _STRUCTURAL_TOKENS
+        ):
             continue
+
         has_letter = any(char.isalpha() for char in token)
+        if not has_letter:
+            continue
+
         has_internal_upper = any(char.isupper() for char in token[1:])
-        if has_letter and (token.isupper() or has_internal_upper or token[:1].isupper()):
+        has_digit = any(char.isdigit() for char in token)
+        strong_identifier = token.isupper() or has_internal_upper or has_digit
+        titlecase_entity = token[:1].isupper() and (
+            index > 0 or has_operational_context or len(matches) <= 3
+        )
+        if strong_identifier or titlecase_entity:
             anchors.add(folded)
     return anchors
 
