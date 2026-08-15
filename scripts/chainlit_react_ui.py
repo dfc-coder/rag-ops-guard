@@ -65,7 +65,6 @@ async def _agent_events(
     finally:
         cancel_event.set()
         if not worker_task.done():
-            # Do not make the UI wait for a local inference that the user explicitly stopped.
             worker_task.add_done_callback(
                 lambda task: task.exception() if not task.cancelled() else None
             )
@@ -80,8 +79,12 @@ def _query_context() -> QueryContext:
     )
 
 
-def _last_turn_sources(thread_id: str) -> list[dict[str, str]]:
-    """Read the exact search_knowledge evidence already committed for the successful turn."""
+def _last_turn_sources(
+    thread_id: str,
+    *,
+    include_active_evidence: bool = False,
+) -> list[dict[str, str]]:
+    """Read exact committed evidence; optionally reuse the active EvidenceWindow for transforms."""
     with AGENT._history_guard:  # noqa: SLF001 - UI adapter reads committed agent state
         messages = list(AGENT._histories.get(thread_id, []))  # noqa: SLF001
 
@@ -128,7 +131,23 @@ def _last_turn_sources(thread_id: str) -> list[dict[str, str]]:
             elif excerpt and excerpt not in current["text"]:
                 current["text"] += f"\n\n{excerpt}"
 
-    return list(documents.values())
+    if documents or not include_active_evidence:
+        return list(documents.values())
+
+    state = AGENT.grounding_state(thread_id)
+    evidence = state.active_evidence()
+    if evidence is None:
+        return []
+    return [
+        {
+            "title": source.title,
+            "version": source.version,
+            "system": source.system or "",
+            "environment": source.environment or "",
+            "text": f"### {source.section}\n{source.text}" if source.section else source.text,
+        }
+        for source in evidence.sources
+    ]
 
 
 def _source_elements(sources: list[dict[str, str]]) -> tuple[list[cl.Text], str]:
@@ -203,7 +222,10 @@ async def _run_turn(message: str) -> None:
                     continue
 
                 if event.kind == "done":
-                    sources = _last_turn_sources(thread_id)
+                    sources = _last_turn_sources(
+                        thread_id,
+                        include_active_evidence=event.policy == "reuse_evidence",
+                    )
                     elements, source_labels = _source_elements(sources)
                     final_text = event.text
                     if source_labels:
@@ -215,6 +237,8 @@ async def _run_turn(message: str) -> None:
                         f"Listo · {event.elapsed_ms / 1000:.1f}s · "
                         f"{event.tool_calls} tool call{'s' if event.tool_calls != 1 else ''}"
                     )
+                    if event.policy == "reuse_evidence":
+                        activity.output += " · evidencia reutilizada"
                     if sources:
                         activity.output += (
                             f" · {len(sources)} fuente{'s' if len(sources) != 1 else ''}"
@@ -273,13 +297,20 @@ async def _diagnostics() -> str:
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             response = await client.get("http://127.0.0.1:8080/health")
-            states.append(("Generación", "Ready" if response.is_success else f"HTTP {response.status_code}"))
+            states.append(
+                ("Generación", "Ready" if response.is_success else f"HTTP {response.status_code}")
+            )
         except httpx.HTTPError:
             states.append(("Generación", "No disponible"))
 
         try:
             response = await client.get("http://127.0.0.1:4566/")
-            states.append(("Knowledge / Floci", "Ready" if response.status_code < 500 else f"HTTP {response.status_code}"))
+            states.append(
+                (
+                    "Knowledge / Floci",
+                    "Ready" if response.status_code < 500 else f"HTTP {response.status_code}",
+                )
+            )
         except httpx.HTTPError:
             states.append(("Knowledge / Floci", "No disponible"))
 
@@ -291,7 +322,12 @@ async def _diagnostics() -> str:
                     "input": "health probe",
                 },
             )
-            states.append(("Embeddings / OpenVINO", "Ready" if embedding.is_success else f"HTTP {embedding.status_code}"))
+            states.append(
+                (
+                    "Embeddings / OpenVINO",
+                    "Ready" if embedding.is_success else f"HTTP {embedding.status_code}",
+                )
+            )
         except httpx.HTTPError:
             states.append(("Embeddings / OpenVINO", "No disponible"))
 
@@ -305,7 +341,12 @@ async def _diagnostics() -> str:
                     "top_n": 1,
                 },
             )
-            states.append(("Reranker / OpenVINO", "Ready" if rerank.is_success else f"HTTP {rerank.status_code}"))
+            states.append(
+                (
+                    "Reranker / OpenVINO",
+                    "Ready" if rerank.is_success else f"HTTP {rerank.status_code}",
+                )
+            )
         except httpx.HTTPError:
             states.append(("Reranker / OpenVINO", "No disponible"))
 
@@ -317,7 +358,10 @@ async def _diagnostics() -> str:
 async def starters() -> list[cl.Starter]:
     return [
         cl.Starter(label="Calypso retries", message="¿Cuántos reintentos permite Calypso?"),
-        cl.Starter(label="Runbooks disponibles", message="¿Qué documentación tienes disponible?"),
+        cl.Starter(
+            label="Runbooks disponibles",
+            message="¿Qué documentación tienes disponible?",
+        ),
         cl.Starter(label="Analizar incidente", message="¿Qué sabes del incidente INC-001?"),
         cl.Starter(
             label="Generar código",
