@@ -40,7 +40,7 @@ export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWO
 
 OPENVINO_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 
-.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke react-smoke beta-openvino beta-react demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
+.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke react-smoke react-direct-stream-smoke beta-openvino beta-react demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint types ci eval eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -145,6 +145,11 @@ openvino-smoke:
 react-smoke: generation-model local-core-up openvino-up
 	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
 	$(OPENVINO_ENV) uv run python scripts/react_smoke.py
+
+# Regression probe for the direct code path that previously timed out before Gradio could render
+# a response. It requires streaming, no RAG tool calls, and two Perl subroutines.
+react-direct-stream-smoke: generation-model local-core-up
+	uv run python scripts/react_direct_stream_smoke.py
 
 # Hardware-split legacy UI: CPU generation/Floci/Python; Intel iGPU embeddings/reranking.
 beta-openvino: generation-model local-core-up openvino-up
