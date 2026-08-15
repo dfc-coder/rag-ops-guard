@@ -36,11 +36,20 @@ def main() -> None:
     print("--- end model output ---\n")
 
     if terminal.kind == "error":
-        raise SystemExit(f"Direct stream smoke failed: recovered backend error after {terminal.elapsed_ms / 1000:.2f}s")
+        reason = f" finish_reason={terminal.finish_reason}" if terminal.finish_reason else ""
+        raise SystemExit(
+            "Direct stream smoke failed: recoverable/incomplete model turn "
+            f"after {terminal.elapsed_ms / 1000:.2f}s.{reason}"
+        )
     if first_token_ms is None:
         raise SystemExit("Direct stream smoke failed: response did not stream any visible token")
     if terminal.tool_calls != 0:
         raise SystemExit("Direct stream smoke failed: code request unexpectedly called a RAG tool")
+    if terminal.finish_reason in {"length", "max_tokens"}:
+        raise SystemExit(
+            "Direct stream smoke failed: model hit its output budget before finishing "
+            f"(finish_reason={terminal.finish_reason})"
+        )
 
     perl_subroutines = re.findall(r"(?im)^\s*sub\s+[A-Za-z_]\w*\s*", terminal.text)
     if len(perl_subroutines) < 2:
@@ -49,10 +58,20 @@ def main() -> None:
             f"(expected >=2 Perl subroutines, found {len(perl_subroutines)})"
         )
 
+    # When the model uses a Markdown code fence, require it to be closed. This catches the exact
+    # regression where two `sub` declarations existed but the second function was cut mid-body.
+    fence_count = terminal.text.count("```")
+    if fence_count and fence_count % 2 != 0:
+        raise SystemExit(
+            "Direct stream smoke failed: generated code block is visibly truncated "
+            f"(unclosed Markdown fence, count={fence_count})"
+        )
+
     print(
         "DIRECT STREAM READY: "
         f"first_token={first_token_ms / 1000:.2f}s · total={terminal.elapsed_ms / 1000:.2f}s · "
-        f"tools={terminal.tool_calls} · perl_subroutines={len(perl_subroutines)}"
+        f"tools={terminal.tool_calls} · finish_reason={terminal.finish_reason or 'unknown'} · "
+        f"perl_subroutines={len(perl_subroutines)}"
     )
 
 
