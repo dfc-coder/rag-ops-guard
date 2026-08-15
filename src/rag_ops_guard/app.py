@@ -14,7 +14,7 @@ from rag_ops_guard.graph.prompts import CONVERSATIONAL_SYSTEM_PROMPT, GROUNDING_
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.observability.langsmith import configure_langsmith
-from rag_ops_guard.retrieval.hybrid import KnowledgeSearch
+from rag_ops_guard.retrieval.resilient import ResilientKnowledgeSearch
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 
@@ -104,9 +104,9 @@ def ingestion_service() -> IngestionService:
 
 
 @lru_cache(maxsize=1)
-def knowledge_search() -> KnowledgeSearch:
+def knowledge_search() -> ResilientKnowledgeSearch:
     settings = get_settings()
-    return KnowledgeSearch(
+    return ResilientKnowledgeSearch(
         embeddings=embeddings(),
         vectors=vector_store(),
         objects=object_store(),

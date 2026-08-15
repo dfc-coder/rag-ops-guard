@@ -15,12 +15,18 @@ from rag_ops_guard.agent.react_agent import ReactAgent
 from rag_ops_guard.domain.models import QueryContext
 
 
+def require_success(label: str, failed: bool, answer: str) -> None:
+    if failed:
+        raise SystemExit(f"ReAct smoke failed during {label}: {answer}")
+
+
 def main() -> None:
     agent = ReactAgent()
     thread_id = f"react-smoke-{uuid4()}"
 
     hello = agent.invoke("Hola", thread_id=thread_id, context=QueryContext())
     print(f"chat: {hello.elapsed_ms / 1000:.2f}s · tools={hello.tool_calls} · {hello.answer}")
+    require_success("greeting", hello.failed, hello.answer)
     if hello.tool_calls != 0:
         raise SystemExit("ReAct smoke failed: greeting unexpectedly called a tool")
 
@@ -32,6 +38,7 @@ def main() -> None:
     print(
         f"rag: {grounded.elapsed_ms / 1000:.2f}s · tools={grounded.tool_calls} · {grounded.answer}"
     )
+    require_success("grounded query", grounded.failed, grounded.answer)
     if grounded.tool_calls < 1:
         raise SystemExit("ReAct smoke failed: operational question did not call the RAG tool")
     if not any(token in grounded.answer.casefold() for token in ("3", "tres", "three")):
@@ -46,6 +53,7 @@ def main() -> None:
         f"follow-up: {followup.elapsed_ms / 1000:.2f}s · tools={followup.tool_calls} · "
         f"{followup.answer}"
     )
+    require_success("follow-up", followup.failed, followup.answer)
     if "treasury integrations" not in followup.answer.casefold():
         raise SystemExit("ReAct smoke failed: follow-up lost the Treasury escalation context")
 
