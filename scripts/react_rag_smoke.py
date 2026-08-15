@@ -32,9 +32,15 @@ def main() -> None:
     )
     if not result.supported or not result.admitted:
         raise SystemExit("RAG smoke failed: Calypso evidence was not admitted")
-    evidence_text = "\n".join(item.chunk.text for item in result.admitted).casefold()
-    if "three automated retries" not in evidence_text:
-        raise SystemExit("RAG smoke failed: admitted evidence does not contain the retry rule")
+
+    retry_policy = next(
+        (item for item in result.admitted if item.chunk.logical_id == "payment-retry-policy"),
+        None,
+    )
+    if retry_policy is None:
+        raise SystemExit("RAG smoke failed: authoritative Payment Retry Policy was not admitted")
+    if "maximum of three times" not in retry_policy.chunk.text.casefold():
+        raise SystemExit("RAG smoke failed: Payment Retry Policy does not contain the retry rule")
 
     print("\n=== ReAct streaming: exact Chainlit question ===")
     agent = ReactAgent()
@@ -72,7 +78,10 @@ def main() -> None:
         thread_id=thread_id,
         context=context,
     )
-    print(f"follow-up: {followup.elapsed_ms / 1000:.2f}s · tools={followup.tool_calls} · {followup.answer}")
+    print(
+        f"follow-up: {followup.elapsed_ms / 1000:.2f}s · tools={followup.tool_calls} · "
+        f"{followup.answer}"
+    )
     if followup.failed:
         raise SystemExit(f"RAG smoke failed during follow-up: {followup.answer}")
     if "treasury integrations" not in followup.answer.casefold():
