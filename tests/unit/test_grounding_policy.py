@@ -98,8 +98,10 @@ def test_contextual_new_fact_retrieves_with_prior_grounded_query() -> None:
 
     assert plan.policy == TurnPolicy.RETRIEVE
     assert plan.preserve_evidence is True
-    assert "Calypso" in (plan.retrieval_query or "")
-    assert "Y despues del tercero?" in (plan.retrieval_query or "")
+    assert plan.retrieval_query == (
+        "Cuantos reintentos permite Calypso. Y despues del tercero?"
+    )
+    assert "Follow-up" not in (plan.retrieval_query or "")
 
 
 def test_explicit_new_internal_target_does_not_inherit_previous_query() -> None:
