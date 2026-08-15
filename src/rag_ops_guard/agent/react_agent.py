@@ -35,13 +35,13 @@ from rag_ops_guard.domain.models import QueryContext
 
 logger = logging.getLogger(__name__)
 
-_CURRENT_CONTEXT: contextvars.ContextVar[QueryContext] = contextvars.ContextVar(
+_CURRENT_CONTEXT: contextvars.ContextVar[QueryContext | None] = contextvars.ContextVar(
     "rag_ops_react_context",
-    default=QueryContext(),
+    default=None,
 )
-_CURRENT_TURN_PLAN: contextvars.ContextVar[TurnPlan] = contextvars.ContextVar(
+_CURRENT_TURN_PLAN: contextvars.ContextVar[TurnPlan | None] = contextvars.ContextVar(
     "rag_ops_react_turn_plan",
-    default=TurnPlan(TurnPolicy.DIRECT, "default direct turn"),
+    default=None,
 )
 
 SYSTEM_PROMPT = """
@@ -69,13 +69,21 @@ Keep final answers concise and useful.
 """.strip()
 
 
+def _current_context() -> QueryContext:
+    return _CURRENT_CONTEXT.get() or QueryContext()
+
+
+def _current_turn_plan() -> TurnPlan:
+    return _CURRENT_TURN_PLAN.get() or TurnPlan(TurnPolicy.DIRECT, "default direct turn")
+
+
 @tool
 def search_knowledge(query: str, ranking_query: str | None = None) -> str:
     """Search internal operations knowledge using contextual recall and literal-turn reranking."""
     try:
         result = knowledge_search().search(
             query,
-            _CURRENT_CONTEXT.get(),
+            _current_context(),
             query_mode="knowledge",
             ranking_query=ranking_query,
         )
@@ -130,7 +138,7 @@ def list_knowledge() -> str:
     """List the internal operational documentation currently available to the agent."""
     return knowledge_catalog().render(
         "What documentation is available?",
-        _CURRENT_CONTEXT.get(),
+        _current_context(),
     )
 
 
@@ -188,7 +196,7 @@ class ReactAgent:
 
         def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
             messages = state["messages"]
-            plan = _CURRENT_TURN_PLAN.get()
+            plan = _current_turn_plan()
 
             if not _current_turn_has_tool_result(messages):
                 if plan.policy == TurnPolicy.RETRIEVE:
