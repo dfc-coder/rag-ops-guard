@@ -122,7 +122,8 @@ def test_reuse_word_plus_new_fact_does_not_reuse_stale_scope() -> None:
 def test_plain_example_request_reuses_active_evidence() -> None:
     plan = TurnPolicyEngine().plan("Dame un ejemplo.", _state(), PROD)
     assert plan.policy == TurnPolicy.REUSE_EVIDENCE
-    assert plan.tool_calls if False else True
+    assert plan.retrieval_query is None
+    assert plan.evidence_context is not None
 
 
 def test_catalog_side_trip_preserves_grounded_topic() -> None:
