@@ -6,7 +6,12 @@ from rag_ops_guard.retrieval.hybrid import _explicit_query_anchors, _select_admi
 from rag_ops_guard.retrieval.resilient import ResilientKnowledgeSearch
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 from tests.fixtures.builders import evidence, metadata
-from tests.fixtures.fakes import FakeEmbeddingProvider, FakeObjectStore, FakeReranker, FakeVectorStore
+from tests.fixtures.fakes import (
+    FakeEmbeddingProvider,
+    FakeObjectStore,
+    FakeReranker,
+    FakeVectorStore,
+)
 
 
 class ModeSensitiveEmbeddings(FakeEmbeddingProvider):
@@ -65,29 +70,13 @@ def test_knowledge_search_retries_raw_query_without_lowering_admission_rules() -
 
 
 def test_authority_breaks_only_near_relevance_ties_for_context_selection() -> None:
-    vendor_meta = metadata(
-        doc_id="vendor-v1",
-        logical_id="vendor-note",
-        authority=20,
-    )
+    vendor_meta = metadata(doc_id="vendor-v1", logical_id="vendor-note", authority=20)
     vendor_meta.title = "Vendor Note"
-    policy_meta = metadata(
-        doc_id="policy-v2",
-        logical_id="retry-policy",
-        authority=100,
-    )
+    policy_meta = metadata(doc_id="policy-v2", logical_id="retry-policy", authority=100)
     policy_meta.title = "Payment Retry Policy"
-    api_meta = metadata(
-        doc_id="api-v2",
-        logical_id="payments-api",
-        authority=95,
-    )
+    api_meta = metadata(doc_id="api-v2", logical_id="payments-api", authority=95)
     api_meta.title = "Payments API v2"
-    incident_meta = metadata(
-        doc_id="incident-v1",
-        logical_id="incident",
-        authority=70,
-    )
+    incident_meta = metadata(doc_id="incident-v1", logical_id="incident", authority=70)
     incident_meta.title = "Calypso Incident"
 
     vendor = evidence(meta=vendor_meta, text="Calypso retry supporting note")
@@ -128,6 +117,25 @@ def test_authority_does_not_rescue_irrelevant_evidence() -> None:
     assert [item.chunk.title for item, _grade in selected] == ["Strong Relevant Note"]
 
 
+def test_authority_does_not_override_a_material_relevance_gap() -> None:
+    low_meta = metadata(doc_id="strong-v1", logical_id="strong", authority=20)
+    low_meta.title = "Strong Relevant Note"
+    high_meta = metadata(doc_id="policy-v1", logical_id="policy", authority=100)
+    high_meta.title = "Distant Policy"
+    strong = evidence(meta=low_meta)
+    policy = evidence(meta=high_meta)
+
+    selected = _select_admitted_pairs(
+        [
+            (strong, RerankGrade(relevant=True, score=0.90)),
+            (policy, RerankGrade(relevant=True, score=0.70)),
+        ],
+        limit=1,
+    )
+
+    assert selected[0][0].chunk.title == "Strong Relevant Note"
+
+
 def test_contextual_query_only_requires_real_entity_anchor() -> None:
     anchors = _explicit_query_anchors(
         "Cuantos reintentos permite Calypso. Y despues del tercero?"
@@ -148,14 +156,30 @@ def test_sentence_initial_temporal_word_is_not_treated_as_entity() -> None:
     assert _explicit_query_anchors("Despues del tercero, que pasa?") == set()
 
 
+def test_generic_operational_descriptors_are_not_entities() -> None:
+    assert _explicit_query_anchors("Maximum retries?") == set()
+    assert _explicit_query_anchors("Manual retries?") == set()
+    assert _explicit_query_anchors("Automatic retries?") == set()
+
+
 def test_unknown_named_operational_target_remains_fail_closed_anchor() -> None:
     anchors = _explicit_query_anchors("Cuantos retries permite Xarlatan?")
     assert "xarlatan" in anchors
 
 
+def test_unknown_target_first_syntax_remains_fail_closed_anchor() -> None:
+    assert "xarlatan" in _explicit_query_anchors("Xarlatan retries?")
+    assert "xarlatan" in _explicit_query_anchors("xarlatan retries?")
+
+
 def test_unknown_lowercase_operational_target_is_inferred_as_anchor() -> None:
     anchors = _explicit_query_anchors("cuantos retries permite xarlatan?")
     assert "xarlatan" in anchors
+
+
+def test_retry_of_unknown_target_is_inferred_as_anchor() -> None:
+    assert "xarlatan" in _explicit_query_anchors("retries de xarlatan?")
+    assert "xarlatan" in _explicit_query_anchors("retries for xarlatan?")
 
 
 def test_generic_subject_is_not_inferred_as_lowercase_target() -> None:
