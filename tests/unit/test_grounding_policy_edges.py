@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from rag_ops_guard.agent.grounding import (
     ConversationState,
     EvidenceWindow,
@@ -58,10 +60,7 @@ def test_contextual_code_reuses_active_grounded_evidence() -> None:
 
 
 def test_contextual_code_refreshes_when_evidence_expired() -> None:
-    state = _state()
-    state = ConversationState(
-        **{**state.__dict__, "turn_index": 10, "grounded": False}
-    )
+    state = replace(_state(), turn_index=10, grounded=False)
     plan = TurnPolicyEngine().plan("Implementalo en Python usando eso.", state, PROD)
     assert plan.policy == TurnPolicy.RETRIEVE
     assert plan.ranking_query == "Implementalo en Python usando eso."
@@ -107,3 +106,19 @@ def test_topic_root_is_not_prefixed_to_unknown_explicit_target() -> None:
     assert plan.policy == TurnPolicy.RETRIEVE
     assert plan.retrieval_query == "Cuantos retries permite Xarlatan?"
     assert "Calypso" not in (plan.retrieval_query or "")
+
+
+def test_sla_followup_keeps_current_topic_instead_of_treating_sla_as_target() -> None:
+    plan = TurnPolicyEngine().plan("Y su SLA?", _state(), PROD)
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.retrieval_query == "Cuantos reintentos permite Calypso. Y su SLA?"
+
+
+def test_unknown_lowercase_target_in_retry_question_retrieves() -> None:
+    plan = TurnPolicyEngine().plan(
+        "cuantos retries permite xarlatan?",
+        ConversationState(),
+        QueryContext(),
+    )
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.retrieval_query == "cuantos retries permite xarlatan?"
