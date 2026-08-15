@@ -25,6 +25,7 @@ uv run ruff check \
   src/rag_ops_guard/retrieval/resilient.py \
   tests/unit/test_grounding_policy.py \
   tests/unit/test_grounding_policy_edges.py \
+  tests/unit/test_grounding_policy_matrix.py \
   tests/unit/test_react_grounding_tools.py \
   tests/unit/test_resilient_retrieval.py
 uv run mypy \
@@ -36,6 +37,7 @@ uv run pytest \
   tests/unit/test_react_streaming.py \
   tests/unit/test_grounding_policy.py \
   tests/unit/test_grounding_policy_edges.py \
+  tests/unit/test_grounding_policy_matrix.py \
   tests/unit/test_react_grounding_tools.py \
   tests/unit/test_resilient_retrieval.py \
   -q
