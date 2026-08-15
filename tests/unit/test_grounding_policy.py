@@ -69,6 +69,26 @@ def test_unknown_named_operational_target_is_not_missed() -> None:
     assert plan.retrieval_query == "Cuantos retries permite Xarlatan?"
 
 
+def test_generic_retry_code_request_stays_direct() -> None:
+    plan = TurnPolicyEngine().plan(
+        "Implement a Retry class in Python with exponential backoff.",
+        ConversationState(),
+        QueryContext(),
+    )
+
+    assert plan.policy == TurnPolicy.DIRECT
+
+
+def test_code_request_that_depends_on_internal_calypso_fact_retrieves() -> None:
+    plan = TurnPolicyEngine().plan(
+        "Escribe codigo Python que respete los retries de Calypso.",
+        ConversationState(),
+        QueryContext(),
+    )
+
+    assert plan.policy == TurnPolicy.RETRIEVE
+
+
 def test_contextual_new_fact_retrieves_with_prior_grounded_query() -> None:
     plan = TurnPolicyEngine().plan(
         "Y despues del tercero?",
