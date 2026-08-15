@@ -99,6 +99,8 @@ def main() -> None:
     )
     if followup.failed:
         raise SystemExit(f"RAG smoke failed during follow-up: {followup.answer}")
+    if followup.tool_calls < 1:
+        raise SystemExit("RAG smoke failed: contextual operational follow-up was not re-grounded")
     if "treasury integrations" not in followup.answer.casefold():
         raise SystemExit("RAG smoke failed: follow-up lost the Treasury Integrations escalation")
 
