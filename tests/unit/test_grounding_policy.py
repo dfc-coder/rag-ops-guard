@@ -58,6 +58,17 @@ def test_initial_internal_fact_is_retrieved_deterministically() -> None:
     assert plan.retrieval_query == "Cuantos reintentos permite Calypso?"
 
 
+def test_unknown_named_operational_target_is_not_missed() -> None:
+    plan = TurnPolicyEngine().plan(
+        "Cuantos retries permite Xarlatan?",
+        ConversationState(),
+        QueryContext(),
+    )
+
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.retrieval_query == "Cuantos retries permite Xarlatan?"
+
+
 def test_contextual_new_fact_retrieves_with_prior_grounded_query() -> None:
     plan = TurnPolicyEngine().plan(
         "Y despues del tercero?",
@@ -68,6 +79,17 @@ def test_contextual_new_fact_retrieves_with_prior_grounded_query() -> None:
     assert plan.policy == TurnPolicy.RETRIEVE
     assert "Calypso" in (plan.retrieval_query or "")
     assert "Y despues del tercero?" in (plan.retrieval_query or "")
+
+
+def test_explicit_new_internal_target_does_not_inherit_previous_query() -> None:
+    plan = TurnPolicyEngine().plan(
+        "Que incidentes tiene SendGrid?",
+        grounded_state(),
+        QueryContext(),
+    )
+
+    assert plan.policy == TurnPolicy.RETRIEVE
+    assert plan.retrieval_query == "Que incidentes tiene SendGrid?"
 
 
 def test_transform_reuses_active_evidence_without_new_retrieval() -> None:
