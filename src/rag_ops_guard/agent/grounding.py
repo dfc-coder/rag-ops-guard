@@ -156,7 +156,11 @@ class ConversationState:
             evidence=existing if active else None,
             grounded=active,
             last_retrieval_supported=(
-                False if retrieval_failed else self.last_retrieval_supported if preserve_topic else None
+                False
+                if retrieval_failed
+                else self.last_retrieval_supported
+                if preserve_topic
+                else None
             ),
         )
 
@@ -200,6 +204,7 @@ class TurnPolicyEngine:
         text = message.strip()
         folded = _normalize(text)
         evidence = state.active_evidence(context)
+        fallback_evidence = evidence if state.last_retrieval_supported is not False else None
         has_topic = bool(state.last_grounded_query)
 
         if _is_list_knowledge_request(folded):
@@ -221,11 +226,11 @@ class TurnPolicyEngine:
         reuse_request = _is_reuse_request(folded)
         reuse_asks_new_fact = reuse_request and _reuse_requires_new_fact(folded)
         if reuse_request and not reuse_asks_new_fact:
-            if evidence is not None and state.last_retrieval_supported is not False:
+            if fallback_evidence is not None:
                 return TurnPlan(
                     TurnPolicy.REUSE_EVIDENCE,
                     "requested transformation is covered by the active evidence window",
-                    evidence_context=evidence.render_prompt(),
+                    evidence_context=fallback_evidence.render_prompt(),
                     preserve_evidence=True,
                     preserve_topic=True,
                 )
@@ -242,11 +247,11 @@ class TurnPolicyEngine:
         if _is_coding_request(folded) and not _contains_explicit_internal_anchor(text):
             contextual_code = has_topic and _looks_like_contextual_followup(folded)
             if contextual_code:
-                if evidence is not None and state.last_retrieval_supported is not False:
+                if fallback_evidence is not None:
                     return TurnPlan(
                         TurnPolicy.REUSE_EVIDENCE,
                         "coding request refers to the active grounded evidence",
-                        evidence_context=evidence.render_prompt(),
+                        evidence_context=fallback_evidence.render_prompt(),
                         preserve_evidence=True,
                         preserve_topic=True,
                     )
@@ -280,8 +285,8 @@ class TurnPolicyEngine:
                 retrieval_query=query,
                 ranking_query=text,
                 evidence_context=(
-                    evidence.render_prompt()
-                    if evidence is not None and not explicit_target
+                    fallback_evidence.render_prompt()
+                    if fallback_evidence is not None and not explicit_target
                     else None
                 ),
                 preserve_evidence=evidence is not None and not explicit_target,
@@ -300,7 +305,9 @@ class TurnPolicyEngine:
                 "contextual follow-up asks for a new internal fact",
                 retrieval_query=self._resolver.resolve(text, state),
                 ranking_query=text,
-                evidence_context=evidence.render_prompt() if evidence is not None else None,
+                evidence_context=(
+                    fallback_evidence.render_prompt() if fallback_evidence is not None else None
+                ),
                 preserve_evidence=evidence is not None,
                 preserve_topic=True,
             )
@@ -372,22 +379,31 @@ _FOLLOWUP_PREFIXES = (
     "despues",
     "luego",
     "que pasa",
+    "que mas",
     "y si",
     "por que",
     "porque",
     "como funciona",
     "quien ",
     "cuando ",
+    "donde ",
+    "cual ",
+    "cuales ",
     "and ",
     "then",
     "after",
     "what about",
     "what happens",
+    "what else",
+    "what should",
+    "what do",
     "why",
     "how come",
     "how does",
     "who ",
     "when ",
+    "where ",
+    "which ",
 )
 _FOLLOWUP_REFERENCES = {
     "eso",
@@ -396,22 +412,43 @@ _FOLLOWUP_REFERENCES = {
     "esa",
     "esos",
     "esas",
+    "mismo",
+    "misma",
     "tercer",
     "tercero",
     "tercera",
     "anterior",
     "siguiente",
+    "ultimo",
+    "ultima",
     "despues",
     "luego",
     "entonces",
+    "this",
+    "these",
     "third",
+    "next",
+    "previous",
+    "current",
+    "above",
     "then",
     "after",
     "that",
     "those",
     "it",
 }
-_SIMPLE_REFERENCE_TOKENS = {"eso", "esto", "ese", "esa", "that", "it", "those"}
+_SIMPLE_REFERENCE_TOKENS = {
+    "eso",
+    "esto",
+    "ese",
+    "esa",
+    "mismo",
+    "misma",
+    "this",
+    "that",
+    "it",
+    "those",
+}
 _REUSE_MARKERS = (
     "resumi",
     "resume",
@@ -429,23 +466,38 @@ _REUSE_MARKERS = (
     "bullet",
     "tabla",
     "table",
+    "detalle",
+    "details",
+    "more detail",
+    "tell me more",
+    "amplia",
+    "expand",
+    "elabora",
+    "continue",
+    "continua",
 )
 _NEW_FACT_PHRASES = (
     "que pasa",
+    "que mas",
     "despues",
     "luego",
+    "siguiente",
     "si falla",
     "por que",
     "porque",
     "quien",
     "cuando",
+    "donde",
     "como funciona",
     "what happens",
+    "what else",
     "after",
+    "next",
     "if it fails",
     "why",
     "who",
     "when",
+    "where",
     "how does",
 )
 _ELLIPTICAL_OPERATIONAL_TOKENS = {
@@ -462,6 +514,10 @@ _ELLIPTICAL_OPERATIONAL_TOKENS = {
     "status",
     "responsable",
     "owner",
+    "equipo",
+    "team",
+    "alerta",
+    "alert",
 }
 _SOCIAL_MESSAGES = {
     "hola",
@@ -538,12 +594,29 @@ _NON_TARGET_TOKENS = {
     "funcion",
     "implement",
     "implementa",
+    "write",
+    "escribe",
     "client",
     "cliente",
     "system",
     "sistema",
     "service",
     "servicio",
+    "maximum",
+    "maximo",
+    "maxima",
+    "automatic",
+    "automated",
+    "automatico",
+    "automatica",
+    "default",
+    "allowed",
+    "number",
+    "cantidad",
+    "current",
+    "production",
+    "produccion",
+    "staging",
     "the",
     "el",
     "la",
@@ -551,6 +624,16 @@ _NON_TARGET_TOKENS = {
 _LOWERCASE_TARGET_PATTERNS = (
     re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
     re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
+    re.compile(
+        r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+"
+        r"(?:retry|retries|reintento|reintentos|timeout|timeouts)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+"
+        r"(?:de|del|for|of)\s+([a-z][\w-]+)\b",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -601,17 +684,20 @@ def _is_explicit_target(text: str) -> bool:
 
 
 def _has_named_operational_target(text: str) -> bool:
+    folded_text = _normalize(text)
+    has_operational_context = _has_operational_token(folded_text)
     raw_tokens = _TOKEN_RE.findall(text)
-    for token in raw_tokens[1:]:
+    for token in raw_tokens:
         folded = _normalize(token)
         if folded in _NON_TARGET_TOKENS:
             continue
-        if token.isupper() or (token[:1].isupper() and any(char.isalpha() for char in token)):
+        if has_operational_context and (
+            token.isupper() or (token[:1].isupper() and any(char.isalpha() for char in token))
+        ):
             return True
 
-    normalized = _normalize(text)
     for pattern in _LOWERCASE_TARGET_PATTERNS:
-        match = pattern.search(normalized)
+        match = pattern.search(folded_text)
         if match and match.group(1) not in _NON_TARGET_TOKENS:
             return True
     return False
