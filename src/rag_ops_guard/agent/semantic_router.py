@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -86,6 +86,14 @@ class SemanticConversationContext:
             },
             ensure_ascii=False,
         )
+
+
+class TurnResolver(Protocol):
+    def resolve(
+        self,
+        message: str,
+        context: SemanticConversationContext,
+    ) -> TurnDecision: ...
 
 
 ROUTER_PROMPT = """
