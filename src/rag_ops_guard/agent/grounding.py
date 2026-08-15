@@ -232,6 +232,24 @@ class TurnPolicyEngine:
                 )
 
         if _is_coding_request(folded) and not _contains_explicit_internal_anchor(text):
+            contextual_code = has_topic and _looks_like_contextual_followup(folded)
+            if contextual_code:
+                if evidence is not None and state.last_retrieval_supported is not False:
+                    return TurnPlan(
+                        TurnPolicy.REUSE_EVIDENCE,
+                        "coding request refers to the active grounded evidence",
+                        evidence_context=evidence.render_prompt(),
+                        preserve_evidence=True,
+                        preserve_topic=True,
+                    )
+                if state.last_retrieval_supported is not False:
+                    return TurnPlan(
+                        TurnPolicy.RETRIEVE,
+                        "contextual coding request requires refreshed internal evidence",
+                        retrieval_query=self._resolver.resolve(text, state),
+                        ranking_query=text,
+                        preserve_topic=True,
+                    )
             if not _contains_internal_marker(folded):
                 return TurnPlan(TurnPolicy.DIRECT, "general coding request")
 
@@ -246,7 +264,11 @@ class TurnPolicyEngine:
                 "internal operational fact requires grounded evidence",
                 retrieval_query=query,
                 ranking_query=text,
-                evidence_context=evidence.render_prompt() if evidence is not None and not explicit_target else None,
+                evidence_context=(
+                    evidence.render_prompt()
+                    if evidence is not None and not explicit_target
+                    else None
+                ),
                 preserve_evidence=evidence is not None and not explicit_target,
                 preserve_topic=has_topic and not explicit_target,
             )
@@ -325,11 +347,21 @@ _FOLLOWUP_PREFIXES = (
     "luego",
     "que pasa",
     "y si",
+    "por que",
+    "porque",
+    "como funciona",
+    "quien ",
+    "cuando ",
     "and ",
     "then",
     "after",
     "what about",
     "what happens",
+    "why",
+    "how come",
+    "how does",
+    "who ",
+    "when ",
 )
 _FOLLOWUP_REFERENCES = {
     "eso",
@@ -344,6 +376,7 @@ _FOLLOWUP_REFERENCES = {
     "siguiente",
     "despues",
     "luego",
+    "entonces",
     "then",
     "after",
     "that",
