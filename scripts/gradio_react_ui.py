@@ -42,6 +42,7 @@ def chat(message: str, _history: list, environment: str, thread_id: str) -> Iter
     """Yield replacement responses so Gradio paints progress and model tokens immediately."""
     del _history
     env = environment if environment in {"production", "staging"} else None
+    last_visible = ""
     try:
         for event in AGENT.stream(
             message,
@@ -49,30 +50,39 @@ def chat(message: str, _history: list, environment: str, thread_id: str) -> Iter
             context=QueryContext(environment=env),
         ):
             if event.kind == "status":
-                yield f"_{event.text}_"
+                rendered = f"_{event.text}_"
             elif event.kind == "token":
-                yield event.text
+                rendered = event.text
             elif event.kind == "done":
-                yield _render_terminal(
+                rendered = _render_terminal(
                     event.text,
                     tool_calls=event.tool_calls,
                     elapsed_ms=event.elapsed_ms,
                     failed=False,
                 )
             elif event.kind == "error":
-                yield _render_terminal(
+                rendered = _render_terminal(
                     event.text,
                     tool_calls=event.tool_calls,
                     elapsed_ms=event.elapsed_ms,
                     failed=True,
                 )
+            else:
+                continue
+
+            last_visible = rendered
+            yield rendered
     except Exception:
-        # Last UI boundary: backend exceptions should never become Gradio's generic red Error.
-        logger.exception("Unhandled ReAct UI failure; keeping the current conversation usable")
-        yield (
-            "No pude completar este turno por un problema de la interfaz. "
+        # Last UI boundary: never replace already-streamed model text with a generic red error.
+        logger.exception("Unhandled ReAct UI bridge failure; preserving streamed output")
+        notice = (
+            "No pude cerrar este turno por un error inesperado. "
             "La conversación anterior se conservó; podés volver a intentarlo."
         )
+        if last_visible and not last_visible.startswith("_"):
+            yield f"{last_visible}\n\n---\n\n{notice}"
+        else:
+            yield notice
 
 
 def clear(thread_id: str) -> str:
