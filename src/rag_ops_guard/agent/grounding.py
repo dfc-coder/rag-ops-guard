@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
@@ -11,7 +11,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from rag_ops_guard.domain.models import QueryContext
 
 
-class TurnPolicy(str, Enum):
+class TurnPolicy(StrEnum):
     DIRECT = "direct"
     REUSE_EVIDENCE = "reuse_evidence"
     RETRIEVE = "retrieve"
