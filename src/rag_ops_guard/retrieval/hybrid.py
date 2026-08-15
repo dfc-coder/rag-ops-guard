@@ -123,6 +123,15 @@ _STRUCTURAL_TOKENS = {
     "message",
     "previous",
     "current",
+    "client",
+    "cliente",
+    "system",
+    "sistema",
+    "service",
+    "servicio",
+    "the",
+    "el",
+    "la",
 }
 _OPERATIONAL_ANCHOR_CONTEXT = {
     "retry",
@@ -138,6 +147,10 @@ _OPERATIONAL_ANCHOR_CONTEXT = {
     "api",
     "dlq",
 }
+_LOWERCASE_TARGET_PATTERNS = (
+    re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
+)
 
 QueryMode = Literal["knowledge", "probe"]
 
@@ -205,9 +218,6 @@ class KnowledgeSearch:
             else standalone_query
         )
 
-        # Anchor admission is a fail-closed safety guard, but it must only inspect actual user/query
-        # entities. Sentence capitalization and synthetic structural words must never veto the
-        # reranker before it sees otherwise valid evidence.
         if not _candidates_cover_explicit_anchors(standalone_query, candidates):
             return KnowledgeSearchResult(
                 dense=dense,
@@ -369,6 +379,18 @@ def _explicit_query_anchors(text: str) -> set[str]:
         )
         if strong_identifier or titlecase_entity:
             anchors.add(folded)
+
+    normalized = text.casefold()
+    for pattern in _LOWERCASE_TARGET_PATTERNS:
+        target_match = pattern.search(normalized)
+        if target_match:
+            target = target_match.group(1)
+            if (
+                target not in _STOPWORDS
+                and target not in _GENERIC_OPERATION_TOKENS
+                and target not in _STRUCTURAL_TOKENS
+            ):
+                anchors.add(target)
     return anchors
 
 
