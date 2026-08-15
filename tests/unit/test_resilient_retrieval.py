@@ -143,6 +143,18 @@ def test_contextual_query_only_requires_real_entity_anchor() -> None:
     assert anchors == {"calypso"}
 
 
+def test_contextual_conversational_verbs_do_not_become_anchors() -> None:
+    queries = [
+        "Cuantos reintentos permite Calypso. Explicame que pasa despues del tercero?",
+        "Cuantos reintentos permite Calypso. Hay algun limite manual?",
+        "Cuantos reintentos permite Calypso. Dame mas detalles de lo que sigue?",
+        "Cuantos reintentos permite Calypso. Explain what happens next?",
+        "Cuantos reintentos permite Calypso. Give me more details?",
+    ]
+    for query in queries:
+        assert _explicit_query_anchors(query) == {"calypso"}
+
+
 def test_synthetic_followup_label_cannot_become_required_anchor() -> None:
     anchors = _explicit_query_anchors(
         "Cuantos reintentos permite Calypso. Follow-up: Y despues del tercero?"
