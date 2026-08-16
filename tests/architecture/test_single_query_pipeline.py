@@ -46,16 +46,16 @@ def test_all_runtime_clients_resolve_the_canonical_agent_from_app() -> None:
     assert "from rag_ops_guard.app import conversation_agent" in gradio
     assert "AGENT = conversation_agent()" in gradio
     assert "def conversation_agent() -> ConversationAgent:" in app
-    assert "return conversation_agent()" in app
 
 
-def test_api_query_workflow_is_only_a_compatibility_alias_to_canonical_agent() -> None:
+def test_api_uses_canonical_agent_without_compatibility_alias() -> None:
     app = (ROOT / "src/rag_ops_guard/app.py").read_text(encoding="utf-8")
     handler = (ROOT / "src/rag_ops_guard/handlers/query.py").read_text(encoding="utf-8")
 
-    assert "def query_workflow() -> ConversationAgent:" in app
-    assert "return conversation_agent()" in app
-    assert "response = query_workflow().invoke(request)" in handler
+    assert "def query_workflow(" not in app
+    assert "from rag_ops_guard.app import conversation_agent" in handler
+    assert "response = conversation_agent().invoke(request)" in handler
+    assert "query_workflow" not in handler
 
 
 def test_canonical_agent_uses_tool_calling_port_without_fabricated_calls() -> None:
