@@ -11,6 +11,7 @@ services:
       FLOCI_DEFAULT_REGION: us-east-1
       FLOCI_STORAGE_MODE: hybrid
       FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock
       FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
       FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
       FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci
@@ -18,6 +19,8 @@ services:
     volumes:
       - floci-data:/app/data
       - "${PODMAN_SOCKET}:/var/run/docker.sock:z"
+    security_opt:
+      - label=disable
     networks:
       - rag-ops-net
 
