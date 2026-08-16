@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: rag-e2e-runner
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   real-e2e:
@@ -35,6 +35,8 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:28080/v1
+      LLM_MODEL: qwen3-4b-rag
+      RAGAS_JUDGE_MODEL: qwen3-4b-rag
       EMBEDDING_BASE_URL: http://localhost:28081/v1
       RERANKER_BASE_URL: http://localhost:28082
       RERANKER_TIMEOUT_SECONDS: '90'
@@ -85,6 +87,8 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:38080/v1
+      LLM_MODEL: qwen3-4b-rag
+      RAGAS_JUDGE_MODEL: qwen3-4b-rag
       EMBEDDING_BASE_URL: http://localhost:38081/v1
       RERANKER_BASE_URL: http://localhost:38082
       RERANKER_TIMEOUT_SECONDS: '90'
