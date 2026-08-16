@@ -103,6 +103,8 @@ class ConversationResponse:
     citations: tuple[Citation, ...] = ()
     sources: tuple[DocumentSource, ...] = ()
     relevance_score: float | None = None
+    domain_relevance_score: float | None = None
+    grounded_relevance_score: float | None = None
     retrieval_query: str | None = None
 
 
@@ -120,6 +122,8 @@ class ConversationStreamEvent:
     citations: tuple[Citation, ...] = ()
     sources: tuple[DocumentSource, ...] = ()
     relevance_score: float | None = None
+    domain_relevance_score: float | None = None
+    grounded_relevance_score: float | None = None
     retrieval_query: str | None = None
 
 
@@ -138,6 +142,7 @@ class ConversationAgent:
         self._histories: dict[str, list[ModelMessage]] = {}
         self._thread_locks: dict[str, Any] = {}
         self._safety = safety or SafetyGuard()
+        self._knowledge = knowledge
         tools: list[Tool] = [
             SearchDocumentsTool(knowledge, _current_context),
             ListDocumentsTool(catalog, _current_context),
@@ -176,6 +181,7 @@ class ConversationAgent:
                 )
                 return
 
+            probe_domain, probe_grounded = self._probe_relevance(message, context)
             messages = [*history, user_message]
             tool_calls = 0
             search_result: ToolResult | None = None
@@ -269,6 +275,8 @@ class ConversationAgent:
                         finish_reason=finish_reason,
                         status=QueryStatus.ERROR,
                         route="error",
+                        domain_relevance_score=probe_domain,
+                        grounded_relevance_score=probe_grounded,
                     )
                     return
 
@@ -279,19 +287,13 @@ class ConversationAgent:
                     ),
                     *_model_prompt_messages(messages),
                 ]
-                structured = self._model.invoke_structured(
-                    structured_prompt,
-                    StructuredAnswer,
-                )
+                structured = self._model.invoke_structured(structured_prompt, StructuredAnswer)
 
                 all_sources = _sources_from_payload(
                     search_result.payload if search_result is not None else {}
                 )
                 admitted_citations = [_citation_for_source(source) for source in all_sources]
-                segments = validate_generated_segments(
-                    structured.segments,
-                    admitted_citations,
-                )
+                segments = validate_generated_segments(structured.segments, admitted_citations)
                 contract = QueryResponse(
                     request_id="stream",
                     outcome=ResponseOutcome.ANSWER,
@@ -299,7 +301,12 @@ class ConversationAgent:
                 )
                 answer = contract.answer or "No pude producir una respuesta utilizable."
                 route = _route_for_turn(search_result=search_result, list_used=list_used)
-                relevance = _relevance_from_result(search_result)
+                grounded_relevance = _score_from_result(
+                    search_result,
+                    "grounded_relevance",
+                )
+                if grounded_relevance is None:
+                    grounded_relevance = probe_grounded
                 used_sources = _sources_for_citations(all_sources, contract.citations)
 
                 if messages and messages[-1].role == "assistant" and not messages[-1].tool_calls:
@@ -320,7 +327,9 @@ class ConversationAgent:
                     route=route,
                     citations=tuple(contract.citations),
                     sources=used_sources,
-                    relevance_score=relevance,
+                    relevance_score=grounded_relevance,
+                    domain_relevance_score=probe_domain,
+                    grounded_relevance_score=grounded_relevance,
                     retrieval_query=retrieval_query,
                 )
             except Exception as exc:
@@ -336,7 +345,27 @@ class ConversationAgent:
                     outcome=ResponseOutcome.ERROR,
                     status=QueryStatus.ERROR,
                     route="error",
+                    domain_relevance_score=probe_domain,
+                    grounded_relevance_score=probe_grounded,
                 )
+
+    def _probe_relevance(
+        self,
+        message: str,
+        context: QueryContext,
+    ) -> tuple[float | None, float | None]:
+        """Observe corpus affinity without influencing the ReAct tool decision."""
+        try:
+            result = self._knowledge.search(
+                message,
+                context,
+                query_mode="probe",
+                ranking_query=message,
+            )
+        except Exception:
+            logger.exception("non-routing relevance probe failed message=%r", message)
+            return None, None
+        return result.domain_relevance, result.grounded_relevance
 
     @overload
     def invoke(
@@ -407,6 +436,8 @@ class ConversationAgent:
             citations=terminal.citations,
             sources=terminal.sources,
             relevance_score=terminal.relevance_score,
+            domain_relevance_score=terminal.domain_relevance_score,
+            grounded_relevance_score=terminal.grounded_relevance_score,
             retrieval_query=terminal.retrieval_query,
         )
 
@@ -426,6 +457,8 @@ class ConversationAgent:
             route=result.route,
             timings_ms={"total": float(result.elapsed_ms)},
             relevance_score=result.relevance_score,
+            domain_relevance_score=result.domain_relevance_score,
+            grounded_relevance_score=result.grounded_relevance_score,
             retrieval_query=result.retrieval_query,
         )
 
@@ -496,10 +529,10 @@ def _route_for_turn(
     return "chat"
 
 
-def _relevance_from_result(search_result: ToolResult | None) -> float | None:
+def _score_from_result(search_result: ToolResult | None, key: str) -> float | None:
     if search_result is None:
         return None
-    raw = search_result.payload.get("relevance")
+    raw = search_result.payload.get(key)
     return float(raw) if isinstance(raw, (int, float)) else None
 
 
