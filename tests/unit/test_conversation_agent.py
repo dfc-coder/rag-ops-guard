@@ -9,11 +9,13 @@ from rag_ops_guard.retrieval.hybrid import KnowledgeSearchResult
 from tests.fixtures.builders import evidence, metadata
 
 T = TypeVar("T")
+CALYPSO_CHUNK_ID = "calypso-retry:2.0:000:deadbeef"
 
 
 class ScriptedModel:
     def __init__(self) -> None:
         self.calls = 0
+        self.structured_calls = 0
         self.bound_tool_names: set[str] = set()
 
     def bind_tools(self, tools: list[Tool]) -> ScriptedModel:
@@ -33,7 +35,7 @@ class ScriptedModel:
                 current_has_tool_result = True
 
         if current_has_tool_result:
-            return ModelTurn(content="Grounded answer from the returned document evidence.")
+            return ModelTurn(content="Draft after tool observation.")
 
         if "Calypso" in last_user or "SAP" in last_user:
             return ModelTurn(
@@ -49,10 +51,38 @@ class ScriptedModel:
             return ModelTurn(
                 tool_calls=(ToolCall(id="list-1", name="list_documents", arguments={}),)
             )
-        return ModelTurn(content="Direct answer without document retrieval.")
+        return ModelTurn(content="Direct draft without document retrieval.")
 
-    def invoke_structured(self, _messages: list[ModelMessage], _schema: type[T]) -> T:
-        raise AssertionError("structured generation is not used by U1a tests")
+    def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T:
+        self.structured_calls += 1
+        serialized = "\n".join(message.content for message in messages)
+        if CALYPSO_CHUNK_ID in serialized:
+            payload = {
+                "segments": [
+                    {
+                        "text": "Calypso allows three retries.",
+                        "citation_ids": [CALYPSO_CHUNK_ID],
+                    }
+                ]
+            }
+        elif "SAP" in serialized:
+            payload = {
+                "segments": [
+                    {
+                        "text": "The ingested documents do not state the SAP timeout.",
+                        "citation_ids": [],
+                    }
+                ]
+            }
+        elif "documents are available" in serialized:
+            payload = {
+                "segments": [{"text": "Payment Retry Policy", "citation_ids": []}]
+            }
+        else:
+            payload = {
+                "segments": [{"text": "Direct final answer.", "citation_ids": []}]
+            }
+        return schema.model_validate(payload)  # type: ignore[attr-defined,no-any-return]
 
 
 class FakeKnowledge:
@@ -66,7 +96,12 @@ class FakeKnowledge:
                 supported=False,
             )
 
-        meta = metadata(doc_id="calypso-v2", logical_id="calypso-retry", authority=100)
+        meta = metadata(
+            doc_id="calypso-v2",
+            logical_id="calypso-retry",
+            version="2.0",
+            authority=100,
+        )
         meta.title = "Payment Retry Policy"
         item = evidence(
             meta=meta,
@@ -115,6 +150,8 @@ def test_model_is_bound_to_real_document_tools_and_direct_turn_skips_them() -> N
     assert result.route == "chat"
     assert result.tool_calls == 0
     assert result.citations == ()
+    assert result.answer == "Direct final answer."
+    assert model.structured_calls == 1
 
 
 def test_grounded_tool_call_produces_grounded_status_and_citations() -> None:
@@ -122,23 +159,26 @@ def test_grounded_tool_call_produces_grounded_status_and_citations() -> None:
 
     result = _invoke(agent, "How many retries does Calypso allow?", "grounded")
 
-    assert result.status == QueryStatus.ANSWERED
+    assert result.status == QueryStatus.ANSWERED_GROUNDED
     assert result.route == "knowledge"
     assert result.tool_calls == 1
     assert len(result.citations) == 1
     assert result.citations[0].title == "Payment Retry Policy"
+    assert result.segments[0].grounded is True
 
 
-def test_unsupported_corpus_fact_is_stopped_before_second_model_generation() -> None:
+def test_unsupported_corpus_fact_becomes_ungrounded_not_hard_abstention() -> None:
     agent, model = _agent()
 
     result = _invoke(agent, "What is the exact SAP timeout?", "unsupported")
 
-    assert result.status == QueryStatus.INSUFFICIENT_EVIDENCE
+    assert result.status == QueryStatus.ANSWERED_UNGROUNDED
     assert result.route == "knowledge"
     assert result.tool_calls == 1
     assert result.citations == ()
-    assert model.calls == 1
+    assert "do not state" in result.answer
+    assert model.calls == 2
+    assert model.structured_calls == 1
 
 
 def test_deterministic_safety_blocks_before_model_and_tools() -> None:
@@ -153,7 +193,9 @@ def test_deterministic_safety_blocks_before_model_and_tools() -> None:
     assert result.status == QueryStatus.SAFETY_BLOCKED
     assert result.route == "safety"
     assert result.tool_calls == 0
+    assert result.citations == ()
     assert model.calls == 0
+    assert model.structured_calls == 0
 
 
 def test_catalog_is_a_tool_but_not_a_grounded_factual_answer() -> None:
