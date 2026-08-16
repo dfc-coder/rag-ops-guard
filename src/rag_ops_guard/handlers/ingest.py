@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from time import perf_counter
 from typing import Any
 
@@ -15,6 +16,13 @@ from rag_ops_guard.observability.runtime import (
     add_count,
     add_milliseconds,
 )
+
+
+def _internal_error_body(exc: Exception) -> str:
+    payload: dict[str, str] = {"error": "internal_error"}
+    if os.environ.get("APP_ENV") == "local":
+        payload["detail"] = str(exc)
+    return json.dumps(payload)
 
 
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
@@ -56,6 +64,14 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             "statusCode": 400,
             "headers": {"content-type": "application/json"},
             "body": json.dumps({"error": "invalid_request", "detail": str(exc)}),
+        }
+    except Exception as exc:
+        add_count(INGEST_METRICS, "InternalErrorCount")
+        INGEST_LOGGER.exception("ingest_failed", extra={"error_type": type(exc).__name__})
+        return {
+            "statusCode": 500,
+            "headers": {"content-type": "application/json"},
+            "body": _internal_error_body(exc),
         }
     finally:
         add_milliseconds(INGEST_METRICS, "IngestLatencyMs", (perf_counter() - started) * 1000)
