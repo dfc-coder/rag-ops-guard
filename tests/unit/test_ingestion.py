@@ -63,6 +63,33 @@ def test_ingestion_is_idempotent() -> None:
     assert len(vectors.stored) == first.chunks
 
 
+def test_plain_markdown_without_frontmatter_flows_through_service() -> None:
+    """SPEC-2.1"""
+    objects = FakeObjectStore(
+        {"raw/architecture-notes.md": "# Architecture Notes\n\nGeneric content."}
+    )
+    vectors = FakeVectorStore()
+
+    result = _service(objects, vectors).ingest("raw/architecture-notes.md")
+
+    assert result.status == "ingested"
+    assert result.logical_id.startswith("doc-")
+    assert result.version == "1"
+    assert result.chunks == 1
+    assert len(vectors.stored) == 1
+
+
+def test_plain_text_without_frontmatter_flows_through_service() -> None:
+    """SPEC-2.2"""
+    objects = FakeObjectStore({"raw/manual-operativo.txt": "Texto operativo general."})
+    vectors = FakeVectorStore()
+
+    result = _service(objects, vectors).ingest("raw/manual-operativo.txt")
+
+    assert result.status == "ingested"
+    assert result.chunks == 1
+
+
 def test_changed_document_deletes_stale_chunk_objects() -> None:
     objects = FakeObjectStore({"raw/policy.md": DOCUMENT_TWO_SECTIONS})
     vectors = FakeVectorStore()

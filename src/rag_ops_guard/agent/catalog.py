@@ -28,11 +28,15 @@ class KnowledgeCatalog:
                 continue
             chunk = Chunk.model_validate_json(self._objects.get_text(key))
             meta = chunk.metadata
-            if meta.status != DocumentStatus.ACTIVE:
+            if meta.status is not None and meta.status != DocumentStatus.ACTIVE:
                 continue
-            if context.system and meta.system != context.system:
+            if context.system and meta.system is not None and meta.system != context.system:
                 continue
-            if context.environment and meta.environment not in {context.environment, "all"}:
+            if (
+                context.environment
+                and meta.environment is not None
+                and meta.environment not in {context.environment, "all"}
+            ):
                 continue
             identity = (meta.logical_id, meta.version)
             if identity in seen:
@@ -41,8 +45,8 @@ class KnowledgeCatalog:
             entries.append(
                 CatalogEntry(
                     title=meta.title,
-                    document_type=meta.document_type.value,
-                    system=meta.system,
+                    document_type=meta.document_type.value if meta.document_type else "document",
+                    system=meta.system or "general",
                     version=meta.version,
                 )
             )
@@ -52,17 +56,17 @@ class KnowledgeCatalog:
         entries = self.entries(context)
         if not entries:
             if _is_spanish(question):
-                return "No hay documentación activa disponible para ese contexto."
-            return "There is no active documentation available for that context."
+                return "No hay documentación disponible para ese contexto."
+            return "There is no documentation available for that context."
 
         groups: dict[str, list[CatalogEntry]] = {}
         for entry in entries:
             groups.setdefault(entry.document_type, []).append(entry)
 
         if _is_spanish(question):
-            header = "Documentación activa disponible:"
+            header = "Documentación disponible:"
         else:
-            header = "Available active documentation:"
+            header = "Available documentation:"
 
         lines = [header]
         for document_type in sorted(groups):

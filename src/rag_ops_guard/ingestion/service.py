@@ -25,7 +25,7 @@ class IngestionService:
 
     def ingest(self, s3_key: str) -> IngestResponse:
         content = self._objects.get_text(s3_key)
-        metadata, body = parse_document(content)
+        metadata, body = parse_document(content, filename=s3_key)
         digest = document_sha256(content)
         previous = load_manifest(self._objects, metadata.logical_id, metadata.version)
 

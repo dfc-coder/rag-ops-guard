@@ -45,16 +45,7 @@ class S3VectorsStore:
                 {
                     "key": chunk.id,
                     "data": {"float32": [float(value) for value in embedding]},
-                    "metadata": {
-                        "logical_id": chunk.logical_id,
-                        "version": chunk.version,
-                        "status": chunk.metadata.status.value,
-                        "system": chunk.metadata.system,
-                        "environment": chunk.metadata.environment,
-                        "document_type": chunk.metadata.document_type.value,
-                        "chunk_index": chunk.chunk_index,
-                        "chunk_s3_key": chunk_s3_key,
-                    },
+                    "metadata": _vector_metadata(chunk, chunk_s3_key),
                 }
             )
         if vectors:
@@ -100,3 +91,21 @@ class S3VectorsStore:
             indexName=self._index,
             keys=keys,
         )
+
+
+def _vector_metadata(chunk: Chunk, chunk_s3_key: str) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "logical_id": chunk.logical_id,
+        "version": chunk.version,
+        "chunk_index": chunk.chunk_index,
+        "chunk_s3_key": chunk_s3_key,
+    }
+    document = chunk.metadata
+    optional = {
+        "status": document.status.value if document.status else None,
+        "system": document.system,
+        "environment": document.environment,
+        "document_type": document.document_type.value if document.document_type else None,
+    }
+    metadata.update({key: value for key, value in optional.items() if value is not None})
+    return metadata

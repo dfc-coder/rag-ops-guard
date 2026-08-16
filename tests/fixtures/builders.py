@@ -14,11 +14,12 @@ def metadata(
     doc_id: str = "payment-retry-policy-v2",
     logical_id: str = "payment-retry-policy",
     version: str = "2.0",
-    status: DocumentStatus = DocumentStatus.ACTIVE,
-    effective_date: date = date(2026, 6, 1),
-    system: str = "payments",
-    environment: str = "production",
-    authority: int = 100,
+    status: DocumentStatus | None = DocumentStatus.ACTIVE,
+    effective_date: date | None = date(2026, 6, 1),
+    system: str | None = "payments",
+    environment: str | None = "production",
+    document_type: DocumentType | None = DocumentType.RUNBOOK,
+    authority: int | None = 100,
     supersedes: list[str] | None = None,
 ) -> DocumentMetadata:
     return DocumentMetadata(
@@ -30,7 +31,7 @@ def metadata(
         effective_date=effective_date,
         system=system,
         environment=environment,
-        document_type=DocumentType.RUNBOOK,
+        document_type=document_type,
         authority=authority,
         supersedes=supersedes or [],
     )

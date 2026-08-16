@@ -26,15 +26,30 @@ class EvidenceResolver:
     @staticmethod
     def _eligible(item: Evidence, context: QueryContext) -> bool:
         meta = item.chunk.metadata
-        if meta.status != DocumentStatus.ACTIVE:
+        if not meta.has_governance_metadata:
+            return True
+        if meta.status is not None and meta.status != DocumentStatus.ACTIVE:
             return False
-        if context.system and meta.system != context.system:
+        if context.system and meta.system is not None and meta.system != context.system:
             return False
-        if context.environment and meta.environment not in {context.environment, "all"}:
+        if (
+            context.environment
+            and meta.environment is not None
+            and meta.environment not in {context.environment, "all"}
+        ):
             return False
-        return not context.api_version or meta.version == context.api_version
+        if context.api_version and meta.version != context.api_version:
+            return False
+        return True
 
     def _resolve_logical_document(self, group: list[Evidence]) -> list[Evidence]:
+        generic = [item for item in group if not item.chunk.metadata.has_governance_metadata]
+        governed = [item for item in group if item.chunk.metadata.has_governance_metadata]
+        if not governed:
+            return generic
+        return [*generic, *self._resolve_governed_document(governed)]
+
+    def _resolve_governed_document(self, group: list[Evidence]) -> list[Evidence]:
         by_document: dict[str, list[Evidence]] = defaultdict(list)
         for item in group:
             by_document[item.chunk.metadata.id].append(item)
@@ -70,4 +85,4 @@ class EvidenceResolver:
     def _precedence(item: Evidence) -> tuple[date, int, tuple[int, ...]]:
         meta = item.chunk.metadata
         version = tuple(int(part) if part.isdigit() else 0 for part in meta.version.split("."))
-        return (meta.effective_date, meta.authority, version)
+        return (meta.effective_date or date.min, meta.authority or 0, version)
