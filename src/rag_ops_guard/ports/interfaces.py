@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Literal, Protocol, Self, TypeVar, runtime_checkable
 
-from langchain_core.messages import BaseMessage
+from pydantic import BaseModel, Field
 
 from rag_ops_guard.domain.models import Chunk, Evidence, GroundedAnswer, QueryAnalysis
+
+T = TypeVar("T")
+MessageRole = Literal["system", "user", "assistant", "tool"]
 
 
 @dataclass(frozen=True)
@@ -16,7 +19,56 @@ class RerankGrade:
     score: float
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ModelMessage:
+    role: MessageRole
+    content: str = ""
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ModelTurn:
+    content: str = ""
+    tool_calls: tuple[ToolCall, ...] = ()
+    finish_reason: str | None = None
+
+
+class ToolResult(BaseModel):
+    ok: bool
+    payload: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = None
+
+
+@runtime_checkable
+class Tool(Protocol):
+    name: str
+    description: str
+
+    def schema(self) -> dict[str, Any]: ...
+
+    def invoke(self, arguments: dict[str, Any]) -> ToolResult: ...
+
+
+class ToolCallingModel(Protocol):
+    def bind_tools(self, tools: list[Tool]) -> Self: ...
+
+    def invoke(self, messages: list[ModelMessage]) -> ModelTurn: ...
+
+    def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T: ...
+
+
 class ChatModel(Protocol):
+    """Legacy structured-RAG interface retained only for evaluation utilities."""
+
     def analyze_query(self, prompt: str) -> QueryAnalysis: ...
 
     def rewrite_query(
@@ -26,17 +78,15 @@ class ChatModel(Protocol):
         source_titles: list[str],
     ) -> str: ...
 
-    # Legacy workflow contract. The conversational agent does not use this method.
     def generate_answer(
         self,
         prompt: str,
-        history: list[BaseMessage] | None = None,
+        history: list[Any] | None = None,
     ) -> GroundedAnswer: ...
 
-    # Conversational-agent contract: evidence sufficiency and citations are decided by code.
     def generate_grounded_text(self, prompt: str) -> str: ...
 
-    def generate_chat(self, messages: list[BaseMessage]) -> str: ...
+    def generate_chat(self, messages: list[Any]) -> str: ...
 
 
 class EmbeddingProvider(Protocol):
