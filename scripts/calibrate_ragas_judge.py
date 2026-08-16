@@ -15,7 +15,7 @@ BASELINE_JUDGE_CUTOFF = 0.85
 
 
 def _runtime_model() -> str:
-    runtime = os.environ.get("LLM_MODEL", "qwen35-2b-rag")
+    runtime = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
     judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
     if judge != runtime:
         raise SystemExit(
