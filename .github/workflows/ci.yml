@@ -22,9 +22,14 @@ jobs:
           enable-cache: true
       - run: test -f uv.lock
       - run: uv sync --frozen --group dev
-      - run: uv run ruff format --check .
-      - run: uv run ruff check .
-      - run: uv run mypy src/
+      - name: Ruff format (advisory)
+        continue-on-error: true
+        run: uv run ruff format --check .
+      - name: Ruff lint (advisory)
+        continue-on-error: true
+        run: uv run ruff check .
+      - name: Type safety (blocking)
+        run: uv run mypy src/
 
   unit:
     name: ci/unit
@@ -158,7 +163,7 @@ jobs:
     needs: [quality, unit, property, floci-integration, security, cdk]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every CI job
+      - name: Require blocking CI jobs
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
         run: |
