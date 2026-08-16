@@ -5,9 +5,9 @@ import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import boto3
+import httpx
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
@@ -21,6 +21,7 @@ VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_CODE_PATH = Path(os.environ.get("LAMBDA_CODE_PATH", ".local/lambda-package")).resolve()
 LOCAL_API_ID = os.environ.get("RAG_LOCAL_API_ID", "rag-ops-guard")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
+DEFAULT_API_STAGE = "$default"
 
 
 def client(service: str, **kwargs: object) -> Any:
@@ -150,6 +151,36 @@ def recreate_lambda(name: str, handler: str, role_arn: str) -> str:
     return str(response["FunctionArn"])
 
 
+def floci_execution_endpoint(base_endpoint: str, api_id: str) -> str:
+    """Return Floci's path-style API Gateway execution endpoint."""
+    return f"{base_endpoint.rstrip('/')}/execute-api/{api_id}/{DEFAULT_API_STAGE}"
+
+
+def validate_ingest_probe(response: httpx.Response) -> None:
+    """Require proof that the request reached the ingest Lambda, not another Floci router."""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if (
+        response.status_code == 400
+        and isinstance(payload, dict)
+        and payload.get("error") == "invalid_request"
+    ):
+        return
+    content_type = response.headers.get("content-type", "unknown")
+    raise RuntimeError(
+        "API Gateway data-plane probe failed: expected ingest Lambda HTTP 400 JSON "
+        f"invalid_request, got HTTP {response.status_code} ({content_type}): "
+        f"{response.text[:500]}"
+    )
+
+
+def probe_local_api(endpoint: str) -> None:
+    response = httpx.post(f"{endpoint}/v1/ingest", json={}, timeout=120)
+    validate_ingest_probe(response)
+
+
 def recreate_api(query_arn: str, ingest_arn: str) -> str:
     api = client("apigatewayv2")
     lamb = client("lambda")
@@ -162,7 +193,7 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
         ProtocolType="HTTP",
         Tags={"floci:override-id": LOCAL_API_ID},
     )
-    api_id = created["ApiId"]
+    api_id = str(created["ApiId"])
     for route_key, function_arn, statement in (
         ("POST /v1/query", query_arn, "AllowApiQuery"),
         ("POST /v1/ingest", ingest_arn, "AllowApiIngest"),
@@ -186,11 +217,10 @@ def recreate_api(query_arn: str, ingest_arn: str) -> str:
                 Action="lambda:InvokeFunction",
                 Principal="apigateway.amazonaws.com",
             )
-    api.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
+    api.create_stage(ApiId=api_id, StageName=DEFAULT_API_STAGE, AutoDeploy=True)
 
-    parsed_endpoint = urlparse(ENDPOINT)
-    host_port = parsed_endpoint.port or (443 if parsed_endpoint.scheme == "https" else 80)
-    endpoint = f"http://{api_id}.execute-api.localhost.floci.io:{host_port}"
+    endpoint = floci_execution_endpoint(ENDPOINT, api_id)
+    probe_local_api(endpoint)
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint)
     return endpoint
@@ -231,6 +261,7 @@ def main() -> None:
     )
     endpoint = recreate_api(query_arn, ingest_arn)
     print(f"Local API: {endpoint}")
+    print("API data plane: ready")
 
 
 if __name__ == "__main__":
