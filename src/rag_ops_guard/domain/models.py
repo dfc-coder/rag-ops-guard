@@ -137,7 +137,6 @@ class ResponseSegment(BaseModel):
         return value
 
     @computed_field
-    @property
     def grounded(self) -> bool:
         return bool(self.citations)
 
@@ -212,7 +211,6 @@ class QueryResponse(BaseModel):
         return self
 
     @computed_field
-    @property
     def status(self) -> QueryStatus:
         if self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED:
             return QueryStatus.CLARIFICATION_REQUIRED
@@ -229,14 +227,12 @@ class QueryResponse(BaseModel):
         return QueryStatus.ANSWERED_UNGROUNDED
 
     @computed_field
-    @property
     def answer(self) -> str | None:
         if self.outcome == ResponseOutcome.ANSWER:
             return "\n\n".join(segment.text for segment in self.segments)
         return self.message
 
     @computed_field
-    @property
     def citations(self) -> list[Citation]:
         unique: dict[str, Citation] = {}
         for segment in self.segments:
