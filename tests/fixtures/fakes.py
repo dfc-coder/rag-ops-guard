@@ -2,14 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from langchain_core.messages import BaseMessage
-
-from rag_ops_guard.domain.models import (
-    Chunk,
-    Evidence,
-    GroundedAnswer,
-    QueryAnalysis,
-)
+from rag_ops_guard.domain.models import Chunk, Evidence
 from rag_ops_guard.ports import RerankGrade
 
 
@@ -105,46 +98,3 @@ class FakeVectorStore:
         self.deleted.extend(keys)
         for key in keys:
             self.stored.pop(key, None)
-
-
-@dataclass
-class FakeChatModel:
-    analysis: QueryAnalysis
-    answer: GroundedAnswer
-    analysis_calls: int = 0
-    generation_calls: int = 0
-    rewrite_calls: int = 0
-
-    def analyze_query(self, prompt: str) -> QueryAnalysis:
-        del prompt
-        self.analysis_calls += 1
-        return self.analysis
-
-    def rewrite_query(
-        self,
-        current_question: str,
-        previous_query: str,
-        source_titles: list[str],
-    ) -> str:
-        del source_titles
-        self.rewrite_calls += 1
-        return f"{previous_query} {current_question}".strip()
-
-    def generate_answer(
-        self,
-        prompt: str,
-        history: list[BaseMessage] | None = None,
-    ) -> GroundedAnswer:
-        del prompt, history
-        self.generation_calls += 1
-        return self.answer
-
-    def generate_grounded_text(self, prompt: str) -> str:
-        del prompt
-        self.generation_calls += 1
-        return self.answer.answer
-
-    def generate_chat(self, messages: list[BaseMessage]) -> str:
-        del messages
-        self.generation_calls += 1
-        return self.answer.answer
