@@ -29,7 +29,7 @@ def parse_document(content: str, filename: str | None = None) -> tuple[DocumentM
         body = content.strip()
         if not body:
             raise DocumentValidationError("document body is empty")
-        return DocumentMetadata(**_generic_identity(content, body, filename)), body
+        return DocumentMetadata.model_validate(_generic_identity(content, body, filename)), body
 
     body = match.group("body").strip()
     if not body:
