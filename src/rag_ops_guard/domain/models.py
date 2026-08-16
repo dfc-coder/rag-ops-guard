@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    computed_field,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -136,9 +136,15 @@ class ResponseSegment(BaseModel):
             return value.strip()
         return value
 
-    @computed_field
+    @property
     def grounded(self) -> bool:
         return bool(self.citations)
+
+    @model_serializer(mode="wrap")
+    def serialize_with_grounding(self, handler: Any) -> dict[str, Any]:
+        data = dict(handler(self))
+        data["grounded"] = self.grounded
+        return data
 
 
 class QueryContext(BaseModel):
@@ -210,7 +216,7 @@ class QueryResponse(BaseModel):
             raise ValueError("clarification_required requires clarification_question")
         return self
 
-    @computed_field
+    @property
     def status(self) -> QueryStatus:
         if self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED:
             return QueryStatus.CLARIFICATION_REQUIRED
@@ -226,19 +232,27 @@ class QueryResponse(BaseModel):
             return QueryStatus.ANSWERED_MIXED
         return QueryStatus.ANSWERED_UNGROUNDED
 
-    @computed_field
+    @property
     def answer(self) -> str | None:
         if self.outcome == ResponseOutcome.ANSWER:
             return "\n\n".join(segment.text for segment in self.segments)
         return self.message
 
-    @computed_field
+    @property
     def citations(self) -> list[Citation]:
         unique: dict[str, Citation] = {}
         for segment in self.segments:
             for citation in segment.citations:
                 unique.setdefault(citation.chunk_id, citation)
         return list(unique.values())
+
+    @model_serializer(mode="wrap")
+    def serialize_with_derived_contract(self, handler: Any) -> dict[str, Any]:
+        data = dict(handler(self))
+        data["status"] = self.status.value
+        data["answer"] = self.answer
+        data["citations"] = [citation.model_dump(mode="json") for citation in self.citations]
+        return data
 
 
 class IngestRequest(BaseModel):
