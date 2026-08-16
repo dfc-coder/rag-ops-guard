@@ -26,6 +26,7 @@ from rag_ops_guard.evaluation.gates import (
     JudgePolicy,
     enforce_metric_thresholds,
     grounded_segment_text,
+    require_calibration_policy,
 )
 
 JUDGE_POLICY_PATH = Path("artifacts/evaluation/judge-policy.json")
@@ -173,6 +174,13 @@ def _runtime_judge_model() -> str:
     return judge
 
 
+def _calibration_required() -> bool:
+    value = os.environ.get("RAGAS_REQUIRE_CALIBRATION", "1").strip()
+    if value not in {"0", "1"}:
+        raise SystemExit("RAGAS_REQUIRE_CALIBRATION must be '0' or '1'")
+    return value == "1"
+
+
 def _load_judge_policy(model: str) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
@@ -304,10 +312,18 @@ def main() -> None:
     (output / "ragas.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
 
+    try:
+        policy = require_calibration_policy(
+            policy,
+            required=_calibration_required(),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
     if policy is None:
         print(
-            "RAGAS calibration absent; metrics are informational. "
-            "Label exactly 10 cases and run scripts/calibrate_ragas_judge.py before enabling RAGAS gating."
+            "RAGAS calibration absent; metrics are informational because "
+            "RAGAS_REQUIRE_CALIBRATION=0 was set explicitly."
         )
         return
 
