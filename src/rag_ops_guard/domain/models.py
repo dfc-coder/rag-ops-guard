@@ -204,7 +204,10 @@ class QueryResponse(BaseModel):
             raise ValueError("answer responses require at least one segment")
         if self.outcome != ResponseOutcome.ANSWER and self.segments:
             raise ValueError("non-answer responses cannot carry answer segments")
-        if self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED and not self.clarification_question:
+        if (
+            self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED
+            and not self.clarification_question
+        ):
             raise ValueError("clarification_required requires clarification_question")
         return self
 
