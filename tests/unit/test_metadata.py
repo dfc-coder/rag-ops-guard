@@ -29,9 +29,12 @@ def test_parse_document_returns_metadata_and_body() -> None:
     assert "three times" in body
 
 
-def test_parse_document_requires_frontmatter() -> None:
-    with pytest.raises(DocumentValidationError, match="front matter"):
-        parse_document("# Missing metadata")
+def test_parse_document_without_frontmatter_uses_heading() -> None:
+    """SPEC-2.1"""
+    metadata, body = parse_document("# Missing metadata\n\nGeneric body")
+    assert metadata.title == "Missing metadata"
+    assert metadata.authority is None
+    assert body.endswith("Generic body")
 
 
 def test_parse_document_rejects_empty_body() -> None:
