@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from statistics import fmean
 from typing import Any
 
+HUMAN_CALIBRATION_CASES = 10
+STRONG_JUDGE_AGREEMENT = 0.90
+MINIMUM_GATING_AGREEMENT = 0.70
+STRONG_AGREEMENT_MEAN_FLOOR = 0.85
+
 
 @dataclass(frozen=True)
 class HumanJudgeCase:
@@ -68,26 +73,45 @@ def enforce_metric_thresholds(
         raise ValueError("; ".join(failures))
 
 
-def calibrate_judge_policy(cases: list[HumanJudgeCase]) -> JudgePolicy:
-    """Derive whether RAGAS may gate from exactly ten human-labelled comparisons."""
-    if len(cases) != 10 or len({case.case_id for case in cases}) != 10:
-        raise ValueError("judge calibration requires exactly 10 unique human-labelled cases")
+def require_calibration_policy(
+    policy: JudgePolicy | None,
+    *,
+    required: bool,
+) -> JudgePolicy | None:
+    """SPEC-5.3: release is fail-closed when the human calibration policy is absent."""
+    if policy is None and required:
+        raise ValueError(
+            "RAGAS calibration absent; release gating requires a calibrated judge policy. "
+            "Run scripts/calibrate_ragas_judge.py after producing ragas-results.json."
+        )
+    return policy
 
-    agreement = sum(case.human_pass == case.judge_pass for case in cases) / 10
+
+def calibrate_judge_policy(cases: list[HumanJudgeCase]) -> JudgePolicy:
+    """Derive whether RAGAS may gate from the fixed human-labelled calibration set."""
+    if len(cases) != HUMAN_CALIBRATION_CASES or len({case.case_id for case in cases}) != HUMAN_CALIBRATION_CASES:
+        raise ValueError(
+            f"judge calibration requires exactly {HUMAN_CALIBRATION_CASES} unique human-labelled cases"
+        )
+
+    agreement = (
+        sum(case.human_pass == case.judge_pass for case in cases)
+        / HUMAN_CALIBRATION_CASES
+    )
     calibrated_cutoff = _best_score_cutoff(cases)
 
-    if agreement >= 0.9:
+    if agreement >= STRONG_JUDGE_AGREEMENT:
         return JudgePolicy(
             agreement=agreement,
             gating_enabled=True,
-            mean_floor=0.85,
+            mean_floor=STRONG_AGREEMENT_MEAN_FLOOR,
             calibrated_cutoff=calibrated_cutoff,
         )
-    if agreement >= 0.7:
+    if agreement >= MINIMUM_GATING_AGREEMENT:
         return JudgePolicy(
             agreement=agreement,
             gating_enabled=True,
-            mean_floor=min(calibrated_cutoff, 0.849999),
+            mean_floor=min(calibrated_cutoff, STRONG_AGREEMENT_MEAN_FLOOR - 0.000001),
             calibrated_cutoff=calibrated_cutoff,
         )
     return JudgePolicy(
