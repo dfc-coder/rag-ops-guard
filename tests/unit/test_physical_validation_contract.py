@@ -28,12 +28,18 @@ def test_physical_runtime_uses_one_generation_model_alias() -> None:
     assert f"RAGAS_JUDGE_MODEL: {alias}" in release
 
 
-def test_physical_floci_version_supports_api_id_override() -> None:
+def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     compose = _read("docker/docker-compose.yml")
     hosted_ci = _read(".github/workflows/ci.yml")
+    provision = _read("scripts/local/provision.py")
 
     assert "floci/floci:1.6.0" in compose
     assert "floci/floci:1.6.0" in hosted_ci
+    assert "floci:override-id" not in provision
+    assert '"hot-reload"' not in provision
+    assert "S3_LAMBDA_CODE_BUCKET" in provision
+    assert 'Code={"S3Bucket": LAMBDA_CODE_BUCKET, "S3Key": code_key}' in provision
+    assert "/execute-api/{api_id}/" in provision
 
 
 def test_physical_smokes_use_segmented_status_contract() -> None:
