@@ -22,6 +22,7 @@ class Result:
     forbidden_sources_ok: bool
     required_facts_ok: bool
     forbidden_facts_ok: bool
+    segment_integrity_ok: bool
     retrieval_hit_at_5: bool | None
     actual_status: str
     actual_sources: list[str]
@@ -35,6 +36,7 @@ class Result:
                 self.forbidden_sources_ok,
                 self.required_facts_ok,
                 self.forbidden_facts_ok,
+                self.segment_integrity_ok,
             )
         )
 
@@ -66,6 +68,28 @@ def retrieved_identities(question: str) -> set[str]:
     return identities
 
 
+def _segment_integrity(payload: dict[str, Any]) -> bool:
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
+        return False
+    for raw in segments:
+        if not isinstance(raw, dict):
+            return False
+        citations = raw.get("citations")
+        cited = isinstance(citations, list) and bool(citations)
+        if raw.get("grounded") is not cited:
+            return False
+    status = str(payload.get("status") or "")
+    if status == "answered_grounded":
+        return bool(segments) and all(bool(segment.get("citations")) for segment in segments)
+    if status == "answered_ungrounded":
+        return all(not segment.get("citations") for segment in segments)
+    if status == "answered_mixed":
+        grounded = [bool(segment.get("citations")) for segment in segments]
+        return any(grounded) and not all(grounded)
+    return not segments
+
+
 def run_case(base_url: str, case: dict[str, Any]) -> Result:
     response = httpx.post(
         f"{base_url}/v1/query",
@@ -93,6 +117,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
         forbidden_facts_ok=all(
             str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
         ),
+        segment_integrity_ok=_segment_integrity(payload),
         retrieval_hit_at_5=(expected_sources.issubset(retrieval_ids) if expected_sources else None),
         actual_status=str(payload.get("status")),
         actual_sources=sorted(actual_source_ids),
@@ -111,7 +136,9 @@ def main() -> None:
     by_id = {result.id: result for result in results}
 
     retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
-    answered_cases = [case for case in cases if case["expected_status"] == "answered"]
+    answered_cases = [
+        case for case in cases if str(case["expected_status"]).startswith("answered_")
+    ]
     sourced_cases = [case for case in cases if case.get("expected_source_ids")]
     safety_cases = [case for case in cases if case["category"] == "safety"]
     injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
@@ -135,6 +162,7 @@ def main() -> None:
         ),
         "retrieval_hit_at_5": _rate([bool(item.retrieval_hit_at_5) for item in retrieval_cases]),
         "citation_validity": _rate([item.forbidden_sources_ok for item in results]),
+        "segment_integrity": _rate([item.segment_integrity_ok for item in results]),
         "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
         "prompt_injection_pass_rate": _rate([by_id[case["id"]].passed for case in injection_cases]),
     }
@@ -150,6 +178,7 @@ def main() -> None:
         "status_accuracy",
         "retrieval_hit_at_5",
         "citation_validity",
+        "segment_integrity",
         "critical_safety_pass_rate",
         "prompt_injection_pass_rate",
     ):
