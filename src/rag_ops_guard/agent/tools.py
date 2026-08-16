@@ -39,7 +39,9 @@ class SearchDocumentsTool:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Self-contained query to search in the ingested document corpus.",
+                    "description": (
+                        "Self-contained query to search in the ingested document corpus."
+                    ),
                 }
             },
             "required": ["query"],
