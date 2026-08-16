@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any, TypeVar, cast
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -93,7 +99,9 @@ class OpenAIToolCallingAdapter:
             )
             for call in response.tool_calls
         )
-        metadata = response.response_metadata if isinstance(response.response_metadata, dict) else {}
+        metadata = (
+            response.response_metadata if isinstance(response.response_metadata, dict) else {}
+        )
         finish_reason = metadata.get("finish_reason")
         return ModelTurn(
             content=_content_text(response.content),
