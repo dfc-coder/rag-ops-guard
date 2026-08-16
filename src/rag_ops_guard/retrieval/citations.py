@@ -49,9 +49,7 @@ def validate_generated_segments(
         }
     else:
         available = {
-            citation.chunk_id: citation
-            for citation in admitted
-            if isinstance(citation, Citation)
+            citation.chunk_id: citation for citation in admitted if isinstance(citation, Citation)
         }
 
     requested = [citation_id for segment in segments for citation_id in segment.citation_ids]
