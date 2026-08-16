@@ -372,7 +372,7 @@ def _select_admitted_pairs(
 
     top_score = relevant[0][1].score
     near_tied = [pair for pair in relevant if top_score - pair[1].score <= _AUTHORITY_TIE_BAND]
-    near_tied.sort(key=lambda pair: (-pair[0].chunk.metadata.authority, -pair[1].score))
+    near_tied.sort(key=lambda pair: (-(pair[0].chunk.metadata.authority or 0), -pair[1].score))
 
     selected = near_tied[:limit]
     selected_ids = {item.chunk.id for item, _grade in selected}
@@ -437,14 +437,15 @@ def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> floa
 
 def _reranker_document(item: Evidence) -> str:
     chunk = item.chunk
+    meta = chunk.metadata
     section = " > ".join(chunk.header_path)
-    parts = [
-        f"Title: {chunk.title}",
-        f"System: {chunk.metadata.system}",
-        f"Environment: {chunk.metadata.environment}",
-        f"Version: {chunk.version}",
-        f"Document type: {chunk.metadata.document_type.value}",
-    ]
+    parts = [f"Title: {chunk.title}", f"Version: {chunk.version}"]
+    if meta.system:
+        parts.append(f"System: {meta.system}")
+    if meta.environment:
+        parts.append(f"Environment: {meta.environment}")
+    if meta.document_type:
+        parts.append(f"Document type: {meta.document_type.value}")
     if section:
         parts.append(f"Section: {section}")
     parts.append(chunk.text)
