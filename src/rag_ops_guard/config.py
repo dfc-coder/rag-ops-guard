@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     vector_distance_metric: Literal["cosine", "euclidean"] = "cosine"
     retrieval_top_k: int = Field(default=20, ge=1, le=100)
     retrieval_context_k: int = Field(default=4, ge=1, le=20)
+    retrieval_domain_min_relevance: float = Field(default=0.5, ge=0.0, le=1.0)
     retrieval_min_relevance: float = Field(default=0.5, ge=0.0, le=1.0)
 
     chunk_tokens: int = Field(default=400, ge=50, le=4000)
