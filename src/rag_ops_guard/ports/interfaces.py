@@ -5,7 +5,7 @@ from typing import Any, Literal, Protocol, Self, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from rag_ops_guard.domain.models import Chunk, Evidence, GroundedAnswer, QueryAnalysis
+from rag_ops_guard.domain.models import Chunk, Evidence
 
 T = TypeVar("T")
 MessageRole = Literal["system", "user", "assistant", "tool"]
@@ -64,29 +64,6 @@ class ToolCallingModel(Protocol):
     def invoke(self, messages: list[ModelMessage]) -> ModelTurn: ...
 
     def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T: ...
-
-
-class ChatModel(Protocol):
-    """Legacy structured-RAG interface retained only for evaluation utilities."""
-
-    def analyze_query(self, prompt: str) -> QueryAnalysis: ...
-
-    def rewrite_query(
-        self,
-        current_question: str,
-        previous_query: str,
-        source_titles: list[str],
-    ) -> str: ...
-
-    def generate_answer(
-        self,
-        prompt: str,
-        history: list[Any] | None = None,
-    ) -> GroundedAnswer: ...
-
-    def generate_grounded_text(self, prompt: str) -> str: ...
-
-    def generate_chat(self, messages: list[Any]) -> str: ...
 
 
 class EmbeddingProvider(Protocol):
