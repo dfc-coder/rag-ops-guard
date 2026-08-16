@@ -62,3 +62,9 @@ def test_measurement_only_ragas_requires_an_explicit_target() -> None:
     assert "eval-measure:" in makefile
     assert "RAGAS_REQUIRE_CALIBRATION=0" in makefile
     assert "RAGAS_REQUIRE_CALIBRATION: '0'" not in release
+
+
+def test_ragas_policy_has_no_dead_yaml_shadow_configuration() -> None:
+    thresholds = _read("evaluation/thresholds.yaml")
+
+    assert "ragas_judge:" not in thresholds
