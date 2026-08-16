@@ -86,14 +86,18 @@ def answer_prompt(question: str, evidence: list[Evidence]) -> str:
 
 def _serialize_evidence(item: Evidence, index: int) -> dict[str, object]:
     chunk = item.chunk
-    return {
+    metadata = chunk.metadata
+    payload: dict[str, object] = {
         "id": f"E{index}",
         "source": chunk.title,
         "version": chunk.version,
-        "status": chunk.metadata.status.value,
-        "effective_date": chunk.metadata.effective_date.isoformat(),
         "text": chunk.text,
     }
+    if metadata.status:
+        payload["status"] = metadata.status.value
+    if metadata.effective_date:
+        payload["effective_date"] = metadata.effective_date.isoformat()
+    return payload
 
 
 def _clean_question(question: str) -> str:
