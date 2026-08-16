@@ -55,6 +55,9 @@ class ScriptedModel:
 
     def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T:
         self.structured_calls += 1
+        last_user = next(
+            message.content for message in reversed(messages) if message.role == "user"
+        )
         serialized = "\n".join(message.content for message in messages)
         if CALYPSO_CHUNK_ID in serialized:
             payload = {
@@ -65,7 +68,7 @@ class ScriptedModel:
                     }
                 ]
             }
-        elif "SAP" in serialized:
+        elif "SAP" in last_user:
             payload = {
                 "segments": [
                     {
@@ -74,14 +77,10 @@ class ScriptedModel:
                     }
                 ]
             }
-        elif "documents are available" in serialized:
-            payload = {
-                "segments": [{"text": "Payment Retry Policy", "citation_ids": []}]
-            }
+        elif "documents are available" in last_user:
+            payload = {"segments": [{"text": "Payment Retry Policy", "citation_ids": []}]}
         else:
-            payload = {
-                "segments": [{"text": "Direct final answer.", "citation_ids": []}]
-            }
+            payload = {"segments": [{"text": "Direct final answer.", "citation_ids": []}]}
         return schema.model_validate(payload)  # type: ignore[attr-defined,no-any-return]
 
 
