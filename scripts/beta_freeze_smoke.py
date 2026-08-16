@@ -44,7 +44,7 @@ def main() -> None:
 
     rag_thread = f"freeze-rag-{uuid4()}"
     grounded = _run("Cuantos reintentos permite Calypso?", thread_id=rag_thread)
-    if grounded.status != QueryStatus.ANSWERED or grounded.route != "knowledge":
+    if grounded.status != QueryStatus.ANSWERED_GROUNDED or grounded.route != "knowledge":
         raise SystemExit("Calypso case must be a grounded knowledge answer")
     if grounded.tool_calls < 1 or not grounded.citations:
         raise SystemExit("Calypso case must call search_documents and expose citations")
@@ -52,7 +52,7 @@ def main() -> None:
         raise SystemExit("Calypso grounded answer lost the three-retry rule")
 
     followup = _run("Y despues del tercero?", thread_id=rag_thread)
-    if followup.status != QueryStatus.ANSWERED or followup.tool_calls < 1:
+    if followup.status != QueryStatus.ANSWERED_GROUNDED or followup.tool_calls < 1:
         raise SystemExit("grounded follow-up must re-query documents through the agent tool loop")
     if "treasury integrations" not in followup.answer.casefold():
         raise SystemExit("grounded follow-up lost the Treasury Integrations escalation")
@@ -61,8 +61,8 @@ def main() -> None:
         "Cual es el timeout exacto de SAP en produccion segun nuestros documentos?",
         thread_id=f"freeze-missing-{uuid4()}",
     )
-    if missing.status != QueryStatus.INSUFFICIENT_EVIDENCE:
-        raise SystemExit("corpus-specific unsupported fact must end as insufficient_evidence")
+    if missing.status != QueryStatus.ANSWERED_UNGROUNDED:
+        raise SystemExit("unsupported corpus fact must return an ungrounded answer")
     if missing.tool_calls < 1 or missing.citations:
         raise SystemExit(
             "unsupported corpus fact must search once or more and return zero citations"
