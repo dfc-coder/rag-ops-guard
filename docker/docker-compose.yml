@@ -2,7 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:-rag-ops-guard}
 
 services:
   floci:
-    image: docker.io/floci/floci:1.5.34
+    image: docker.io/floci/floci:1.6.0
     container_name: ${FLOCI_CONTAINER_NAME:-rag-ops-floci}
     ports:
       - "127.0.0.1:${FLOCI_HOST_PORT:-4566}:4566"
