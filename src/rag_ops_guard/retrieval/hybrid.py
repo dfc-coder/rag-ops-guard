@@ -181,9 +181,9 @@ class KnowledgeSearch:
         admitted_pairs = _select_admitted_pairs(
             ranked,
             limit=self._context_k,
-            min_relevance=self._min_relevance,
+            min_relevance=max(self._min_relevance, self._domain_min_relevance),
         )
-        admitted = [item for item, _grade in admitted_pairs]
+        admitted = [item for item, _grade in admitted_pairs] if domain_related else []
 
         return KnowledgeSearchResult(
             dense=dense,
