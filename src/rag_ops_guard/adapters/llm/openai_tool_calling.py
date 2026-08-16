@@ -12,13 +12,7 @@ from langchain_core.messages import (
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from rag_ops_guard.ports.interfaces import (
-    ModelMessage,
-    ModelTurn,
-    Tool,
-    ToolCall,
-    ToolCallingModel,
-)
+from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
 
