@@ -10,7 +10,7 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.retrieval_context_k == 4
     assert settings.retrieval_domain_min_relevance == 0.5
     assert settings.retrieval_min_relevance == 0.5
-    assert settings.llm_model == "qwen35-2b-rag"
+    assert settings.llm_model == "qwen3-4b-rag"
     assert settings.llm_analysis_max_tokens == 128
     assert settings.llm_answer_max_tokens == 512
     assert settings.llm_analysis_max_tokens < settings.llm_answer_max_tokens
