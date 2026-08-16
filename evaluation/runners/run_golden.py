@@ -90,13 +90,22 @@ def _segment_integrity(payload: dict[str, Any]) -> bool:
     return not segments
 
 
+def require_success(response: httpx.Response, *, case_id: str) -> None:
+    if response.is_success:
+        return
+    body = response.text[:2000]
+    raise SystemExit(
+        f"golden case {case_id} failed: HTTP {response.status_code}: {body or '<empty body>'}"
+    )
+
+
 def run_case(base_url: str, case: dict[str, Any]) -> Result:
     response = httpx.post(
         f"{base_url}/v1/query",
         json={"question": case["question"], "context": case.get("context", {})},
         timeout=180,
     )
-    response.raise_for_status()
+    require_success(response, case_id=str(case["id"]))
     payload = response.json()
     citations = [Citation.model_validate(item) for item in payload.get("citations", [])]
     actual_source_ids = (
