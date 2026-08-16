@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from rag_ops_guard.app import query_workflow
+from rag_ops_guard.app import conversation_agent
 from rag_ops_guard.domain.models import QueryRequest
 from rag_ops_guard.observability.runtime import (
     QUERY_LOGGER,
@@ -24,7 +24,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         request = QueryRequest.model_validate(payload)
-        response = query_workflow().invoke(request)
+        response = conversation_agent().invoke(request)
         add_count(QUERY_METRICS, f"{response.status.value.title().replace('_', '')}Count")
         QUERY_LOGGER.info(
             "query_completed",
