@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_ops_guard.domain.models import Citation, QueryResponse, QueryStatus
+from rag_ops_guard.domain.models import (
+    Citation,
+    QueryResponse,
+    QueryStatus,
+    ResponseOutcome,
+    ResponseSegment,
+)
 
 
 def _citation() -> Citation:
@@ -16,60 +22,58 @@ def _citation() -> Citation:
     )
 
 
-def test_grounded_answer_requires_citations() -> None:
-    with pytest.raises(ValidationError, match="grounded answered responses require citations"):
-        QueryResponse(
-            request_id="r1",
-            status=QueryStatus.ANSWERED,
-            route="knowledge",
-            answer="Three retries.",
-            citations=[],
-        )
+def test_answer_requires_at_least_one_segment() -> None:
+    with pytest.raises(ValidationError, match="at least one segment"):
+        QueryResponse(request_id="r1", outcome=ResponseOutcome.ANSWER)
 
 
-def test_ungrounded_answer_cannot_carry_citations() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="answered_ungrounded responses cannot carry citations",
-    ):
+def test_non_answer_outcome_cannot_carry_segments() -> None:
+    with pytest.raises(ValidationError, match="cannot carry answer segments"):
         QueryResponse(
             request_id="r2",
-            status=QueryStatus.ANSWERED_UNGROUNDED,
-            route="chat",
-            answer="Here is the Perl code.",
-            citations=[_citation()],
+            outcome=ResponseOutcome.ERROR,
+            segments=[ResponseSegment(text="Impossible")],
         )
 
 
-def test_direct_answer_without_citations_is_valid() -> None:
+def test_safety_response_derives_status_without_answer_segments() -> None:
     response = QueryResponse(
         request_id="r3",
-        status=QueryStatus.ANSWERED_UNGROUNDED,
-        route="chat",
-        answer="def fib(n): ...",
+        outcome=ResponseOutcome.SAFETY_BLOCKED,
+        message="Blocked by deterministic safety.",
+        route="safety",
     )
 
+    assert response.status is QueryStatus.SAFETY_BLOCKED
+    assert response.answer == "Blocked by deterministic safety."
     assert response.citations == []
 
 
-def test_grounded_answer_with_citations_is_valid() -> None:
+def test_grounded_answer_derives_status_answer_and_citations() -> None:
     response = QueryResponse(
         request_id="r4",
-        status=QueryStatus.ANSWERED,
+        outcome=ResponseOutcome.ANSWER,
         route="knowledge",
-        answer="Calypso allows three automated retries.",
-        citations=[_citation()],
+        segments=[
+            ResponseSegment(
+                text="Calypso allows three automated retries.",
+                citations=[_citation()],
+            )
+        ],
     )
 
-    assert len(response.citations) == 1
+    assert response.status is QueryStatus.ANSWERED_GROUNDED
+    assert response.answer == "Calypso allows three automated retries."
+    assert response.citations == [_citation()]
 
 
-def test_non_answered_states_cannot_carry_citations() -> None:
-    with pytest.raises(ValidationError, match="non-answered responses cannot carry citations"):
-        QueryResponse(
-            request_id="r5",
-            status=QueryStatus.INSUFFICIENT_EVIDENCE,
-            route="knowledge",
-            answer="Not enough evidence.",
-            citations=[_citation()],
-        )
+def test_route_does_not_control_grounding_contract() -> None:
+    response = QueryResponse(
+        request_id="r5",
+        outcome=ResponseOutcome.ANSWER,
+        route="chat",
+        segments=[ResponseSegment(text="General answer")],
+    )
+
+    assert response.status is QueryStatus.ANSWERED_UNGROUNDED
+    assert response.citations == []

@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 class DocumentStatus(StrEnum):
@@ -23,9 +30,16 @@ class DocumentType(StrEnum):
 
 
 class QueryStatus(StrEnum):
-    ANSWERED = "answered"
+    ANSWERED_GROUNDED = "answered_grounded"
+    ANSWERED_MIXED = "answered_mixed"
     ANSWERED_UNGROUNDED = "answered_ungrounded"
-    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    CLARIFICATION_REQUIRED = "clarification_required"
+    SAFETY_BLOCKED = "safety_blocked"
+    ERROR = "error"
+
+
+class ResponseOutcome(StrEnum):
+    ANSWER = "answer"
     CLARIFICATION_REQUIRED = "clarification_required"
     SAFETY_BLOCKED = "safety_blocked"
     ERROR = "error"
@@ -78,6 +92,61 @@ class Citation(BaseModel):
     s3_key: str
 
 
+class GeneratedSegment(BaseModel):
+    """Model-produced segment before citation IDs are validated/materialized."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    citation_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def normalize_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("citation_ids")
+    @classmethod
+    def dedupe_citation_ids(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
+
+
+class StructuredAnswer(BaseModel):
+    """Canonical structured-generation schema for public answer segments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    segments: list[GeneratedSegment] = Field(min_length=1)
+
+
+class ResponseSegment(BaseModel):
+    """Validated public segment. Grounding is derived exclusively from citations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    citations: list[Citation] = Field(default_factory=list)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def normalize_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @property
+    def grounded(self) -> bool:
+        return bool(self.citations)
+
+    @model_serializer(mode="wrap")
+    def serialize_with_grounding(self, handler: Any) -> dict[str, Any]:
+        data = dict(handler(self))
+        data["grounded"] = self.grounded
+        return data
+
+
 class QueryContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,10 +174,14 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
+    """Public response contract; answer status/citations are derived from validated segments."""
+
     model_config = ConfigDict(extra="forbid")
 
     request_id: str
-    status: QueryStatus
+    outcome: ResponseOutcome = ResponseOutcome.ANSWER
+    segments: list[ResponseSegment] = Field(default_factory=list)
+    message: str | None = None
     route: (
         Literal[
             "chat",
@@ -122,9 +195,7 @@ class QueryResponse(BaseModel):
         ]
         | None
     ) = None
-    answer: str | None = None
     clarification_question: str | None = None
-    citations: list[Citation] = Field(default_factory=list)
     timings_ms: dict[str, float] = Field(default_factory=dict)
     route_confidence: float | None = None
     route_margin: float | None = None
@@ -133,30 +204,55 @@ class QueryResponse(BaseModel):
     rewritten_query: str | None = None
 
     @model_validator(mode="after")
-    def validate_status_contract(self) -> QueryResponse:
-        answered_statuses = {QueryStatus.ANSWERED, QueryStatus.ANSWERED_UNGROUNDED}
-        if self.status in answered_statuses and not self.answer:
-            raise ValueError("answered responses require an answer")
-
-        if self.status == QueryStatus.ANSWERED_UNGROUNDED and self.citations:
-            raise ValueError("answered_ungrounded responses cannot carry citations")
-
-        if self.route not in {"knowledge", None} and self.citations:
-            raise ValueError("only knowledge responses may carry citations")
-
+    def validate_outcome_contract(self) -> QueryResponse:
+        if self.outcome == ResponseOutcome.ANSWER and not self.segments:
+            raise ValueError("answer responses require at least one segment")
+        if self.outcome != ResponseOutcome.ANSWER and self.segments:
+            raise ValueError("non-answer responses cannot carry answer segments")
         if (
-            self.status == QueryStatus.ANSWERED
-            and self.route in {"knowledge", None}
-            and not self.citations
+            self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED
+            and not self.clarification_question
         ):
-            raise ValueError("grounded answered responses require citations")
-
-        if self.status not in answered_statuses and self.citations:
-            raise ValueError("non-answered responses cannot carry citations")
-
-        if self.status == QueryStatus.CLARIFICATION_REQUIRED and not self.clarification_question:
             raise ValueError("clarification_required requires clarification_question")
         return self
+
+    @property
+    def status(self) -> QueryStatus:
+        if self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED:
+            return QueryStatus.CLARIFICATION_REQUIRED
+        if self.outcome == ResponseOutcome.SAFETY_BLOCKED:
+            return QueryStatus.SAFETY_BLOCKED
+        if self.outcome == ResponseOutcome.ERROR:
+            return QueryStatus.ERROR
+
+        grounded = sum(1 for segment in self.segments if segment.grounded)
+        if grounded == len(self.segments):
+            return QueryStatus.ANSWERED_GROUNDED
+        if grounded:
+            return QueryStatus.ANSWERED_MIXED
+        return QueryStatus.ANSWERED_UNGROUNDED
+
+    @property
+    def answer(self) -> str | None:
+        if self.outcome == ResponseOutcome.ANSWER:
+            return "\n\n".join(segment.text for segment in self.segments)
+        return self.message
+
+    @property
+    def citations(self) -> list[Citation]:
+        unique: dict[str, Citation] = {}
+        for segment in self.segments:
+            for citation in segment.citations:
+                unique.setdefault(citation.chunk_id, citation)
+        return list(unique.values())
+
+    @model_serializer(mode="wrap")
+    def serialize_with_derived_contract(self, handler: Any) -> dict[str, Any]:
+        data = dict(handler(self))
+        data["status"] = self.status.value
+        data["answer"] = self.answer
+        data["citations"] = [citation.model_dump(mode="json") for citation in self.citations]
+        return data
 
 
 class IngestRequest(BaseModel):
@@ -204,6 +300,8 @@ class QueryAnalysis(BaseModel):
 
 
 class GroundedAnswer(BaseModel):
+    """Legacy evaluation schema retained until U5 realigns RAGAS."""
+
     model_config = ConfigDict(extra="forbid")
 
     status: Literal[
