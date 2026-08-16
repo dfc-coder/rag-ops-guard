@@ -55,7 +55,10 @@ def test_release_supersedes_obsolete_physical_runs() -> None:
     assert "cancel-in-progress: true" in release
 
 
-def test_ragas_without_human_policy_is_measurement_not_failure() -> None:
-    runner = _read("evaluation/runners/run_ragas.py")
+def test_measurement_only_ragas_requires_an_explicit_target() -> None:
+    makefile = _read("Makefile")
+    release = _read(".github/workflows/release-validation.yml")
 
-    assert "RAGAS calibration absent; metrics are informational" in runner
+    assert "eval-measure:" in makefile
+    assert "RAGAS_REQUIRE_CALIBRATION=0" in makefile
+    assert "RAGAS_REQUIRE_CALIBRATION: '0'" not in release
