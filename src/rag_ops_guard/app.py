@@ -4,6 +4,7 @@ from rag_ops_guard.adapters.aws.s3_store import S3ObjectStore
 from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
 from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
+from rag_ops_guard.adapters.llm.openai_tool_calling import OpenAIToolCallingAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
@@ -65,7 +66,7 @@ def vector_store() -> S3VectorsStore:
 
 @lru_cache(maxsize=1)
 def chat_model() -> LlamaCppChatAdapter:
-    """Legacy structured-RAG adapter retained for non-conversational evaluation utilities."""
+    """Legacy structured-RAG adapter retained for evaluation utilities until U3/U5."""
     settings = get_settings()
     configure_langsmith(settings)
     return LlamaCppChatAdapter(
@@ -82,6 +83,25 @@ def chat_model() -> LlamaCppChatAdapter:
         repeat_penalty=settings.llm_repeat_penalty,
         answer_system_prompt=GROUNDING_SYSTEM_PROMPT,
         chat_system_prompt=CONVERSATIONAL_SYSTEM_PROMPT,
+    )
+
+
+@lru_cache(maxsize=1)
+def conversation_model() -> OpenAIToolCallingAdapter:
+    """Framework adapter for the canonical framework-neutral ConversationAgent."""
+    settings = get_settings()
+    configure_langsmith(settings)
+    return OpenAIToolCallingAdapter(
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
+        top_k=settings.llm_top_k,
+        min_p=settings.llm_min_p,
+        presence_penalty=settings.llm_presence_penalty,
+        repeat_penalty=settings.llm_repeat_penalty,
+        max_completion_tokens=settings.llm_answer_max_tokens,
+        timeout_seconds=settings.llm_timeout_seconds,
     )
 
 
@@ -122,12 +142,11 @@ def knowledge_catalog() -> KnowledgeCatalog:
 
 @lru_cache(maxsize=1)
 def conversation_agent() -> ConversationAgent:
-    """Canonical application agent. Every UI/transport must resolve this same core."""
-    settings = get_settings()
-    configure_langsmith(settings)
+    """Canonical application agent. Every UI/transport resolves this same core."""
     return ConversationAgent(
         knowledge=knowledge_search(),
         catalog=knowledge_catalog(),
+        model=conversation_model(),
     )
 
 

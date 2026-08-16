@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from typing import Any, TypeVar
 
 from rag_ops_guard.agent.conversation import ConversationAgent, ConversationResponse
 from rag_ops_guard.domain.models import QueryContext, QueryStatus
+from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 from rag_ops_guard.retrieval.hybrid import KnowledgeSearchResult
 from tests.fixtures.builders import evidence, metadata
+
+T = TypeVar("T")
 
 
 class ScriptedModel:
@@ -15,52 +16,41 @@ class ScriptedModel:
         self.calls = 0
         self.bound_tool_names: set[str] = set()
 
-    def bind_tools(self, tools: list[Any], *, parallel_tool_calls: bool) -> ScriptedModel:
-        assert parallel_tool_calls is False
+    def bind_tools(self, tools: list[Tool]) -> ScriptedModel:
         self.bound_tool_names = {tool.name for tool in tools}
         return self
 
-    def invoke(self, messages: list[BaseMessage]) -> AIMessage:
+    def invoke(self, messages: list[ModelMessage]) -> ModelTurn:
         self.calls += 1
-        last_user = next(
-            message.content for message in reversed(messages) if isinstance(message, HumanMessage)
-        )
+        last_user = next(message.content for message in reversed(messages) if message.role == "user")
         current_has_tool_result = False
         for message in reversed(messages):
-            if isinstance(message, HumanMessage):
+            if message.role == "user":
                 break
-            if isinstance(message, ToolMessage):
+            if message.role == "tool":
                 current_has_tool_result = True
 
         if current_has_tool_result:
-            return AIMessage(content="Grounded answer from the returned document evidence.")
+            return ModelTurn(content="Grounded answer from the returned document evidence.")
 
-        text = str(last_user)
-        if "Calypso" in text or "SAP" in text:
-            return AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "search_documents",
-                        "args": {"query": text},
-                        "id": "search-1",
-                        "type": "tool_call",
-                    }
-                ],
+        if "Calypso" in last_user or "SAP" in last_user:
+            return ModelTurn(
+                tool_calls=(
+                    ToolCall(
+                        id="search-1",
+                        name="search_documents",
+                        arguments={"query": last_user},
+                    ),
+                )
             )
-        if "documents are available" in text:
-            return AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "list_documents",
-                        "args": {},
-                        "id": "list-1",
-                        "type": "tool_call",
-                    }
-                ],
+        if "documents are available" in last_user:
+            return ModelTurn(
+                tool_calls=(ToolCall(id="list-1", name="list_documents", arguments={}),)
             )
-        return AIMessage(content="Direct answer without document retrieval.")
+        return ModelTurn(content="Direct answer without document retrieval.")
+
+    def invoke_structured(self, _messages: list[ModelMessage], _schema: type[T]) -> T:
+        raise AssertionError("structured generation is not used by U1a tests")
 
 
 class FakeKnowledge:

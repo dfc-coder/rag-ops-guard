@@ -17,6 +17,7 @@ LAMBDA_ENTRYPOINTS = {
 }
 UNREACHABLE_BUDGET_LINES = 2105  # U1a target; may only decrease in later units.
 PIPELINE_DIRS = ("agent", "graph", "retrieval", "ports")
+PIPELINE_PREFIXES = tuple(f"rag_ops_guard.{package}" for package in PIPELINE_DIRS)
 
 
 def _module_for(path: Path) -> str:
@@ -41,11 +42,12 @@ def _module_files() -> dict[str, Path]:
     return files
 
 
-def _resolve_from(module: str, node: ast.ImportFrom) -> str | None:
+def _resolve_from(module: str, node: ast.ImportFrom, files: dict[str, Path]) -> str | None:
     if node.level == 0:
         return node.module
     current = module.split(".")
-    if module in _module_files() and _module_files()[module].name != "__init__.py":
+    path = files.get(module)
+    if path is not None and path.name != "__init__.py":
         current = current[:-1]
     if node.level > len(current):
         return None
@@ -55,14 +57,14 @@ def _resolve_from(module: str, node: ast.ImportFrom) -> str | None:
     return ".".join(prefix)
 
 
-def _imports(module: str, path: Path) -> set[str]:
+def _imports(module: str, path: Path, files: dict[str, Path]) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     result: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             result.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            resolved = _resolve_from(module, node)
+            resolved = _resolve_from(module, node, files)
             if resolved:
                 result.add(resolved)
     return result
@@ -80,19 +82,21 @@ def _reachable() -> set[str]:
         path = files.get(module)
         if path is None:
             continue
-        for imported in _imports(module, path):
-            candidates = [m for m in files if m == imported or m.startswith(imported + ".")]
-            queue.extend(candidates)
+        for imported in _imports(module, path, files):
+            queue.extend(
+                candidate
+                for candidate in files
+                if candidate == imported or candidate.startswith(imported + ".")
+            )
     return reachable
 
 
 def test_core_does_not_import_langchain_or_langgraph() -> None:
     """SPEC-1a.4: framework dependencies belong to adapters, not the core."""
+    files = _module_files()
     source = SRC / "agent/conversation.py"
-    imports = _imports("rag_ops_guard.agent.conversation", source)
-    leaked = sorted(
-        item for item in imports if item.startswith(("langchain", "langgraph"))
-    )
+    imports = _imports("rag_ops_guard.agent.conversation", source, files)
+    leaked = sorted(item for item in imports if item.startswith(("langchain", "langgraph")))
     assert not leaked, f"framework imports leaked into core: {leaked}"
 
 
@@ -103,7 +107,7 @@ def test_unreachable_code_only_shrinks() -> None:
     dead = {
         module: path
         for module, path in files.items()
-        if module.startswith("rag_ops_guard." + PIPELINE_DIRS)
+        if module.startswith(PIPELINE_PREFIXES)
         and module not in reachable
         and module not in LAMBDA_ENTRYPOINTS
     }

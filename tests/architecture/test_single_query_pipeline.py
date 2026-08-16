@@ -58,10 +58,10 @@ def test_api_query_workflow_is_only_a_compatibility_alias_to_canonical_agent() -
     assert "response = query_workflow().invoke(request)" in handler
 
 
-def test_canonical_agent_binds_tools_to_the_model() -> None:
+def test_canonical_agent_uses_tool_calling_port_without_fabricated_calls() -> None:
     source = (ROOT / "src/rag_ops_guard/agent/conversation.py").read_text(encoding="utf-8")
 
-    assert "bind_tools(tools, parallel_tool_calls=False)" in source
+    assert "model.bind_tools(tools)" in source
     assert '"name": "search_documents"' not in source
     assert "TurnPolicyEngine" not in source
     assert "SemanticGroundingGate" not in source
