@@ -1,80 +1,57 @@
-# Chainlit migration / unified beta
+# Chainlit UI
 
-## Decision
+Chainlit is the primary local client for the canonical `ConversationAgent`.
 
-Chainlit is the client-facing UI for the next beta, but it owns no agent policy.
+## Invariants
 
-All clients resolve the same application core:
+Changing the UI must not create another agent or retrieval pipeline.
 
 ```text
-Chainlit ---------\
-Gradio -----------+--> rag_ops_guard.app.conversation_agent()
-REST /v1/query ---/
-                         |
-                         v
-                  ConversationAgent
-                         |
-                 LangGraph ReAct loop
-                         |
-             search_documents / list_documents
+Chainlit ───────┐
+Gradio ─────────┼──> rag_ops_guard.app.conversation_agent()
+REST /v1/query ─┘                 |
+                                  v
+                           ConversationAgent
 ```
 
-The UI is an adapter: it renders status, streamed tokens, terminal response metadata and the exact
-sources returned by the canonical agent. It does not inspect private agent memory or run a second
-retrieval pass.
+The UI may render status, streamed text, sources and failure states. It does not own routing, safety, retrieval, memory or citation policy.
 
-## Runtime
+## Runtime profile
 
-- Qwen 3.5 2B generation on CPU
-- LangGraph orchestration on CPU
-- Floci + BM25/RRF
-- OpenVINO embeddings and reranking on Intel Iris Xe
-- transactional per-thread in-process conversation memory
-- deterministic safety before model/tool execution
-- deterministic post-retrieval evidence admission
+Target local split:
 
-## Grounding behavior
+- CPU: Python orchestration, Floci, BM25/RRF and Qwen3-4B generation/tool calling.
+- Intel Iris Xe/OpenVINO: Qwen3 embedding and reranker workloads.
 
-The model is bound to two document tools:
+`make beta-react` starts the local dependencies and runs Chainlit on port 8000 by default.
 
-- `search_documents(query)`
-- `list_documents()`
+## Streaming contract
 
-Normal chat, public knowledge and self-contained code should use zero document tools. Corpus-specific
-questions use `search_documents`; unsupported corpus facts end as `insufficient_evidence` with no
-citations. Grounded answers expose the exact admitted chunks as source cards.
+The application core exposes `ConversationAgent.stream()`. Chainlit consumes its framework-neutral events:
 
-## Freeze validation
+- `status`
+- `token` where available
+- `done`
+- `error`
 
-Run on the target Fedora/Tiger Lake machine:
+Tool execution remains owned by the core. The UI must never infer a route from text or fabricate a document tool call.
 
-```bash
-make chainlit-gate
-```
+## Grounding/source rendering
 
-`make chainlit-gate` delegates to `scripts/beta_freeze_gate.sh` and validates the single-pipeline
-architecture, response contract, local runtime, retrieval admission, direct/no-tool behavior, grounded
-Calypso behavior, unsupported corpus behavior, safety and Chainlit import.
+Final answer segments carry validated citations. Chainlit renders source metadata from the terminal event but does not decide whether a claim is grounded.
 
-Then run:
+`search_documents` source text is untrusted document data. Rendering it in the UI does not change that security boundary.
 
-```bash
-make chainlit-beta
-```
+## Failure behavior
 
-Manual checks before freezing:
+A failed/partial turn does not commit corrupted conversation history. The UI may show the error, but transactional history behavior is implemented by `ConversationAgent`.
 
-1. a short Python coding request streams without document tools or citations;
-2. `¿Cuántos reintentos permite Calypso?` uses documents, answers three and shows source cards;
-3. `¿Y después del tercero?` re-queries documents and answers Treasury Integrations;
-4. a SAP-specific fact absent from the corpus returns insufficient evidence rather than Calypso data;
-5. Stop does not corrupt the previous successful conversation;
-6. Retry works after a recoverable model/backend failure;
-7. environment filtering still affects document retrieval.
+## Migration status
 
-## Scope boundary for this beta
+The migration is complete at the architecture level:
 
-This freeze unifies orchestration and tool/RAG behavior. It intentionally does **not** replace the
-existing Markdown/YAML ingestion contract with multi-format PDF/DOCX/HTML ingestion. Generic ingestion
-is the next isolated migration after this client beta is frozen; mixing it into the orchestration
-freeze would make failures harder to attribute.
+- Chainlit and Gradio resolve the same singleton application core as REST.
+- legacy `ReactAgent`, semantic router/gate and `graph/` orchestration have been removed.
+- no UI-specific RAG policy exists.
+
+The remaining release prerequisites are target-machine Qwen3-4B/OpenVINO validation and real 10-case judge-human calibration; they are not UI migration tasks.
