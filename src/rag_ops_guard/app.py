@@ -125,8 +125,3 @@ def conversation_agent() -> ConversationAgent:
         catalog=knowledge_catalog(),
         model=conversation_model(),
     )
-
-
-def query_workflow() -> ConversationAgent:
-    """Compatibility name for API callers; no second workflow is constructed."""
-    return conversation_agent()
