@@ -42,6 +42,18 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     assert "/execute-api/{api_id}/" in provision
 
 
+def test_physical_floci_matches_documented_rootless_podman_contract() -> None:
+    compose = _read("docker/docker-compose.yml")
+
+    assert 'FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock' in compose
+    assert 'FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
+    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
+    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci' in compose
+    assert '"${PODMAN_SOCKET}:/var/run/docker.sock:z"' in compose
+    assert "security_opt:" in compose
+    assert "- label=disable" in compose
+
+
 def test_physical_smokes_use_segmented_status_contract() -> None:
     smoke = _read("scripts/smoke.py")
     e2e = _read("tests/e2e/test_real_local_beta.py")
