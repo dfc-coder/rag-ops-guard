@@ -9,3 +9,11 @@ ragas:
   context_precision: 0.80
   context_recall: 0.85
   response_relevancy: 0.80
+ragas_per_case:
+  faithfulness: 0.60
+  context_precision: 0.30
+ragas_judge:
+  required_model_family: Qwen3-4B
+  human_calibration_cases: 10
+  strong_agreement: 0.90
+  minimum_gating_agreement: 0.70
