@@ -26,7 +26,6 @@ from rag_ops_guard.evaluation.gates import (
     JudgePolicy,
     enforce_metric_thresholds,
     grounded_segment_text,
-    require_qwen3_4b_judge,
 )
 
 JUDGE_POLICY_PATH = Path("artifacts/evaluation/judge-policy.json")
@@ -70,8 +69,7 @@ def _context_text(s3: Any, bucket: str, key: str) -> str:
 
 
 def _is_answer_case(case: dict[str, Any]) -> bool:
-    status = str(case.get("expected_status") or "")
-    return status == "answered" or status.startswith("answered_")
+    return str(case.get("expected_status") or "").startswith("answered_")
 
 
 def _collect_samples() -> list[RagasSample]:
@@ -92,7 +90,7 @@ def _collect_samples() -> list[RagasSample]:
         response.raise_for_status()
         payload = response.json()
         actual_status = str(payload.get("status") or "")
-        if not actual_status.startswith("answered"):
+        if not actual_status.startswith("answered_"):
             raise SystemExit(
                 f"RAGAS collection expected an answered response for {case['id']}, "
                 f"got {actual_status or '<missing>'}"
@@ -147,7 +145,7 @@ def enforce_thresholds(
     per_case: dict[str, float],
     gating_enabled: bool,
 ) -> None:
-    """SPEC-5.1: enforce both aggregate and catastrophic-case floors when RAGAS may gate."""
+    """SPEC-5.1: enforce aggregate and catastrophic-case floors only after calibration."""
     if not gating_enabled:
         return
     failures: list[str] = []
@@ -170,12 +168,8 @@ def _runtime_judge_model() -> str:
     judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
     if judge != runtime:
         raise SystemExit(
-            "SPEC-5.3 forbids a second judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
+            "SPEC-5.3 requires one runtime/judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
         )
-    try:
-        require_qwen3_4b_judge(judge)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
     return judge
 
 
@@ -185,7 +179,7 @@ def _load_judge_policy(model: str) -> JudgePolicy | None:
     payload = json.loads(JUDGE_POLICY_PATH.read_text(encoding="utf-8"))
     if str(payload.get("model")) != model:
         raise SystemExit(
-            "judge calibration model does not match runtime model; recalibrate on the active Qwen3-4B"
+            "judge calibration model does not match runtime model; recalibrate on the active runtime model"
         )
     return JudgePolicy(
         agreement=float(payload["agreement"]),
@@ -311,10 +305,11 @@ def main() -> None:
     print(json.dumps(summary, indent=2))
 
     if policy is None:
-        raise SystemExit(
-            "SPEC-5.3 calibration required: label exactly 10 cases and run "
-            "scripts/calibrate_ragas_judge.py against artifacts/evaluation/ragas-results.json"
+        print(
+            "RAGAS calibration absent; metrics are informational. "
+            "Label exactly 10 cases and run scripts/calibrate_ragas_judge.py before enabling RAGAS gating."
         )
+        return
 
     means = {name: float(value) for name, value in thresholds["ragas"].items()}
     if policy.mean_floor is not None:

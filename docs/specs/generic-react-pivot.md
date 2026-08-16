@@ -70,12 +70,14 @@ Status: implemented, including the final domain-floor admission invariant.
 
 - **SPEC-5.1** — Release evaluation enforces per-case floors in addition to aggregate means. Current per-case floors: faithfulness `0.60`, context precision `0.30`.
 - **SPEC-5.2** — Faithfulness is evaluated only on grounded segments.
-- **SPEC-5.3** — Runtime and judge are the same Qwen3-4B model. Agreement uses exactly 10 real human labels:
+- **SPEC-5.3** — Runtime and judge use the same configured generation-model alias. Model family and parameter count are configuration, not release invariants. Agreement uses exactly 10 real human labels:
   - 9–10/10: RAGAS may gate at aggregate faithfulness floor `0.85` plus per-case floor;
   - 7–8/10: use a lower threshold derived from measured labels plus per-case floor;
   - <=6/10: RAGAS is informational and cannot block release.
 
-Status: mechanism implemented and runtime aligned to Qwen3-4B. The repository deliberately does **not** claim a human-agreement score before a real target-machine run and ten real labels exist.
+Before a human calibration policy exists, RAGAS produces measurement artifacts but remains informational; absence of that policy is not a physical-runtime failure.
+
+Status: mechanism implemented. The repository deliberately does **not** claim a human-agreement score before a real target-machine run and ten real labels exist.
 
 ## U6 — Evaluation corpus and final replacement
 
@@ -133,12 +135,12 @@ Software pivot DoD:
 - double relevance + three-class calibration;
 - zero unreachable pipeline code;
 - no legacy graph/router path;
-- Qwen3-4B runtime/judge alignment;
+- one configured runtime/judge generation-model alias;
 - hosted correctness/security CI green.
 
 External release DoD, deliberately not fabricated:
 
-1. run the target Fedora/Tiger Lake Qwen3-4B + OpenVINO gate;
+1. run the target Fedora/Tiger Lake physical gate with the configured generation model plus OpenVINO embeddings/reranker;
 2. produce real RAGAS scores and exactly ten human labels;
 3. calibrate judge agreement and apply the resulting policy;
 4. only then claim final release readiness.

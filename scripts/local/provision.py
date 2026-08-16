@@ -20,6 +20,7 @@ VECTOR_BUCKET = os.environ.get("S3_VECTOR_BUCKET", "rag-ops-guard-vectors-local"
 VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_CODE_PATH = Path(os.environ.get("LAMBDA_CODE_PATH", ".local/lambda-package")).resolve()
 LOCAL_API_ID = os.environ.get("RAG_LOCAL_API_ID", "rag-ops-guard")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
 
 
 def client(service: str, **kwargs: object) -> Any:
@@ -113,7 +114,7 @@ def lambda_environment() -> dict[str, str]:
         "CHUNK_TOKENS": "400",
         "CHUNK_OVERLAP": "60",
         "LLM_BASE_URL": "http://llama-gen:8080/v1",
-        "LLM_MODEL": "qwen35-2b-rag",
+        "LLM_MODEL": LLM_MODEL,
         "LLM_ANSWER_MAX_TOKENS": "512",
         "LLM_TIMEOUT_SECONDS": "60",
         "LLM_TEMPERATURE": "0.7",

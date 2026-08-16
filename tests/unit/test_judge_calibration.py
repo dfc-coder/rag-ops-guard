@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_ops_guard.evaluation.gates import (
-    HumanJudgeCase,
-    calibrate_judge_policy,
-    require_qwen3_4b_judge,
-)
+from rag_ops_guard.evaluation.gates import HumanJudgeCase, calibrate_judge_policy
 
 
 def _cases(matches: int) -> list[HumanJudgeCase]:
@@ -59,10 +55,3 @@ def test_low_agreement_makes_ragas_informational() -> None:
     assert policy.agreement == 0.6
     assert policy.gating_enabled is False
     assert policy.mean_floor is None
-
-
-def test_ragas_judge_must_be_qwen3_4b() -> None:
-    """SPEC-5.3"""
-    require_qwen3_4b_judge("Qwen3-4B-Q4_K_M")
-    with pytest.raises(ValueError, match="Qwen3-4B"):
-        require_qwen3_4b_judge("qwen35-2b-rag")

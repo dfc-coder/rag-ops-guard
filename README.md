@@ -79,12 +79,12 @@ Retrieved document content is marked `UNTRUSTED_DOCUMENT_DATA`. It is preserved 
 
 ## Local model split
 
-- generation/runtime/judge: **Qwen3-4B**, llama.cpp CPU
+- generation/runtime/judge: one configured llama.cpp model alias on CPU; the current default is **Qwen3-4B**
 - embeddings: Qwen3-Embedding-0.6B, OpenVINO on Intel iGPU for the target profile
 - reranker: Qwen3-Reranker-0.6B, OpenVINO on Intel iGPU
 - object/vector infrastructure: Floci + S3/S3 Vectors-compatible adapters
 
-The generation model artifact is pinned by SHA256 in `scripts/download_models.py`.
+Runtime and RAGAS judge must use the same generation-model alias. Model family or parameter count is not a release invariant. The current default generation artifact is pinned by SHA256 in `scripts/download_models.py`.
 
 ## Evaluation
 
@@ -101,7 +101,7 @@ Blocking deterministic gates cover:
 
 Ruff formatting/lint remains visible but is **advisory during the architecture pivot**; it does not block architecture work.
 
-RAGAS adds mean and per-case gates, but it may become a release gate only after exactly 10 real human-labelled cases are compared with the same Qwen3-4B judge. If agreement is 6/10 or lower, RAGAS is informational and deterministic gates remain authoritative. The repository deliberately does not fabricate that calibration result.
+RAGAS always produces measurement artifacts during physical validation. It may become a release gate only after exactly 10 real human-labelled cases are compared with the same configured runtime/judge model. Without that calibration, or when agreement is 6/10 or lower, RAGAS is informational and deterministic gates remain authoritative. The repository deliberately does not fabricate that calibration result.
 
 ## Evaluation fixtures are not product logic
 
@@ -119,15 +119,13 @@ make beta-react
 make eval
 make eval-judge-calibrate
 make release-check
+make chainlit-gate
 ```
 
 `make lint` is available as a strict manual style check. `make ci` and `make release-check` use advisory lint plus blocking correctness checks.
 
-## Release caveat
+## Physical validation
 
-Hosted CI can validate software contracts, but two target-machine gates remain external to this repository state:
+Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout, while `make chainlit-gate` validates the canonical agent with the configured generation model plus OpenVINO embeddings/reranker on the target Fedora/Tiger Lake machine.
 
-1. run the full Qwen3-4B + OpenVINO local gate on the target Fedora/Tiger Lake machine;
-2. produce the real 10-case human/judge calibration artifact.
-
-Do not claim final release readiness until those two measurements pass.
+RAGAS calibration remains a separate release-policy measurement: produce the real 10-case human/judge calibration artifact before allowing RAGAS scores to become blocking.

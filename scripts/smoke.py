@@ -34,7 +34,7 @@ def main() -> None:
     query.raise_for_status()
     payload = query.json()
     print("query:", json.dumps(payload, indent=2))
-    if payload["status"] != "answered" or not payload["citations"]:
+    if payload["status"] != "answered_grounded" or not payload["citations"]:
         raise SystemExit("smoke test failed")
 
 

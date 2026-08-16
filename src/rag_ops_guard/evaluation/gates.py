@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from statistics import fmean
 from typing import Any
-
-_QWEN3_4B_RE = re.compile(r"qwen3(?:[-_. ]?)4b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -69,14 +66,6 @@ def enforce_metric_thresholds(
 
     if failures:
         raise ValueError("; ".join(failures))
-
-
-def require_qwen3_4b_judge(model: str) -> None:
-    """SPEC-5.3: RAGAS uses the same Qwen3-4B family chosen for runtime."""
-    if not _QWEN3_4B_RE.search(model):
-        raise ValueError(
-            f"SPEC-5.3 requires Qwen3-4B as the runtime/judge model; got {model!r}"
-        )
 
 
 def calibrate_judge_policy(cases: list[HumanJudgeCase]) -> JudgePolicy:

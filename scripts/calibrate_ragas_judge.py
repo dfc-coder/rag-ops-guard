@@ -5,11 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from rag_ops_guard.evaluation.gates import (
-    HumanJudgeCase,
-    calibrate_judge_policy,
-    require_qwen3_4b_judge,
-)
+from rag_ops_guard.evaluation.gates import HumanJudgeCase, calibrate_judge_policy
 
 BASELINE_JUDGE_CUTOFF = 0.85
 
@@ -19,12 +15,8 @@ def _runtime_model() -> str:
     judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
     if judge != runtime:
         raise SystemExit(
-            "SPEC-5.3 forbids a second judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
+            "SPEC-5.3 requires one runtime/judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
         )
-    try:
-        require_qwen3_4b_judge(judge)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
     return judge
 
 
