@@ -15,7 +15,7 @@ LAMBDA_ENTRYPOINTS = {
     "rag_ops_guard.handlers.ingest",
     "rag_ops_guard.handlers.health",
 }
-UNREACHABLE_BUDGET_LINES = 2105  # U1a target; may only decrease in later units.
+UNREACHABLE_BUDGET_LINES = 1580  # U1 target; may only decrease in later units.
 PIPELINE_DIRS = ("agent", "graph", "retrieval", "ports")
 PIPELINE_PREFIXES = tuple(f"rag_ops_guard.{package}" for package in PIPELINE_DIRS)
 
@@ -101,7 +101,7 @@ def test_core_does_not_import_langchain_or_langgraph() -> None:
 
 
 def test_unreachable_code_only_shrinks() -> None:
-    """R-2/R-3: U1a must reduce the unreachable pipeline budget to <=2105 lines."""
+    """R-2/R-3: U1 must reduce the unreachable pipeline budget to <=1580 lines."""
     files = _module_files()
     reachable = _reachable()
     dead = {
@@ -116,3 +116,9 @@ def test_unreachable_code_only_shrinks() -> None:
         f"unreachable pipeline code is {total} lines; budget is {UNREACHABLE_BUDGET_LINES}: "
         f"{sorted(dead)}"
     )
+
+
+def test_citation_validator_is_on_the_canonical_path() -> None:
+    """SPEC-1.2: citation validation must execute on the canonical ConversationAgent path."""
+    reachable = _reachable()
+    assert "rag_ops_guard.retrieval.citations" in reachable
