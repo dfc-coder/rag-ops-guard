@@ -22,7 +22,9 @@ class ScriptedModel:
 
     def invoke(self, messages: list[ModelMessage]) -> ModelTurn:
         self.calls += 1
-        last_user = next(message.content for message in reversed(messages) if message.role == "user")
+        last_user = next(
+            message.content for message in reversed(messages) if message.role == "user"
+        )
         current_has_tool_result = False
         for message in reversed(messages):
             if message.role == "user":
