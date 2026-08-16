@@ -29,6 +29,18 @@ def test_floci_execution_endpoint_uses_real_api_id_and_path_style_data_plane() -
     )
 
 
+def test_lambda_packaging_python_is_pinned_to_runtime() -> None:
+    provision = _load_provision()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    package_script = (ROOT / "scripts/package_lambda.sh").read_text(encoding="utf-8")
+
+    assert provision.LAMBDA_PYTHON_VERSION == "3.12"
+    assert "LAMBDA_PYTHON_VERSION ?= 3.12" in makefile
+    assert 'LAMBDA_PYTHON_VERSION="${LAMBDA_PYTHON_VERSION:-3.12}"' in package_script
+    assert 'uv pip install --python "$LAMBDA_PYTHON_VERSION" --target "$BUILD_DIR" .' in package_script
+    assert ".local/lambda-package.zip" in package_script
+
+
 def test_api_probe_accepts_lambda_invalid_request_response() -> None:
     provision = _load_provision()
     response = httpx.Response(
