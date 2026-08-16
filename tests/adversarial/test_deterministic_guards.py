@@ -9,8 +9,7 @@ from tests.fixtures.builders import evidence
 
 
 class NeverCalledModel:
-    def bind_tools(self, _tools: list[Any], *, parallel_tool_calls: bool) -> NeverCalledModel:
-        assert parallel_tool_calls is False
+    def bind_tools(self, _tools: list[Any]) -> NeverCalledModel:
         return self
 
     def invoke(self, _messages: Any) -> Any:
