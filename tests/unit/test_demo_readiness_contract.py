@@ -3,16 +3,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_final_demo_targets_use_canonical_agent_and_qwen3_4b() -> None:
+def test_final_demo_targets_use_canonical_agent_and_configured_model_alias() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     compose = (ROOT / "docker/docker-compose.yml").read_text(encoding="utf-8")
+    env_lines = (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
+    model_alias = next(line.split("=", 1)[1] for line in env_lines if line.startswith("LLM_MODEL="))
 
     assert "beta-react:" in makefile
     assert "chainlit-gate:" in makefile
     assert "eval-judge-calibrate:" in makefile
-    assert "MODEL_FILES=Qwen3-4B-Q4_K_M.gguf" in makefile
-    assert "Qwen3-4B-Q4_K_M.gguf" in compose
-    assert "qwen3-4b-rag" in compose
+    assert f"- {model_alias}" in compose
 
 
 def test_obsolete_react_smoke_shims_are_not_release_targets() -> None:
