@@ -15,7 +15,7 @@ LAMBDA_ENTRYPOINTS = {
     "rag_ops_guard.handlers.ingest",
     "rag_ops_guard.handlers.health",
 }
-UNREACHABLE_BUDGET_LINES = 1212  # U2 target; may only decrease in later units.
+UNREACHABLE_BUDGET_LINES = 1108  # U3 target; may only decrease in later units.
 PIPELINE_DIRS = ("agent", "graph", "retrieval", "ports")
 PIPELINE_PREFIXES = tuple(f"rag_ops_guard.{package}" for package in PIPELINE_DIRS)
 
@@ -101,7 +101,7 @@ def test_core_does_not_import_langchain_or_langgraph() -> None:
 
 
 def test_unreachable_code_only_shrinks() -> None:
-    """R-2/R-3: U2 keeps reducing the unreachable pipeline budget."""
+    """R-2/R-3: U3 keeps reducing the unreachable pipeline budget."""
     files = _module_files()
     reachable = _reachable()
     dead = {
