@@ -25,7 +25,7 @@ def test_real_local_query_is_grounded() -> None:
     )
     response.raise_for_status()
     payload = response.json()
-    assert payload["status"] == "answered"
+    assert payload["status"] == "answered_grounded"
     assert payload["citations"]
     assert "three" in payload["answer"].lower() or "3" in payload["answer"]
 
@@ -45,7 +45,7 @@ def test_broad_named_entity_question_is_answered_in_spanish() -> None:
     answer = str(payload.get("answer") or "")
     citation_titles = " ".join(str(item.get("title", "")) for item in payload.get("citations", []))
 
-    assert payload["status"] == "answered"
+    assert payload["status"] == "answered_grounded"
     assert payload["citations"]
     assert "calypso" in answer.lower()
     assert (
@@ -71,6 +71,6 @@ def test_duplicate_payment_incident_id_is_answered() -> None:
     answer = str(payload.get("answer") or "").lower()
     citation_titles = " ".join(str(item.get("title", "")) for item in payload.get("citations", []))
 
-    assert payload["status"] == "answered"
+    assert payload["status"] == "answered_grounded"
     assert payload["citations"]
     assert "inc-002" in answer or "inc-002" in citation_titles.lower()
