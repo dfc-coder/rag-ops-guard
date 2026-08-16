@@ -1,5 +1,10 @@
 from rag_ops_guard.domain.errors import CitationValidationError
-from rag_ops_guard.domain.models import Citation, Evidence
+from rag_ops_guard.domain.models import (
+    Citation,
+    Evidence,
+    GeneratedSegment,
+    ResponseSegment,
+)
 
 
 def validate_citations(citation_ids: list[str], evidence: list[Evidence]) -> list[Citation]:
@@ -24,3 +29,17 @@ def validate_citations(citation_ids: list[str], evidence: list[Evidence]) -> lis
             )
         )
     return citations
+
+
+def validate_generated_segments(
+    segments: list[GeneratedSegment],
+    admitted_evidence: list[Evidence],
+) -> list[ResponseSegment]:
+    """Materialize public segments only after every model citation ID is admitted."""
+    return [
+        ResponseSegment(
+            text=segment.text,
+            citations=validate_citations(segment.citation_ids, admitted_evidence),
+        )
+        for segment in segments
+    ]
