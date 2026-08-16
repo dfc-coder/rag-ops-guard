@@ -43,7 +43,7 @@ export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWO
 
 OPENVINO_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 
-.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-judge-calibrate eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -191,6 +191,10 @@ ci: lint-advisory types test test-integration
 eval:
 	uv run --extra eval python evaluation/runners/run_golden.py
 	uv run --extra eval python evaluation/runners/run_ragas.py
+
+eval-measure:
+	uv run --extra eval python evaluation/runners/run_golden.py
+	RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
 
 eval-judge-calibrate:
 	uv run --extra eval python scripts/calibrate_ragas_judge.py

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from rag_ops_guard.evaluation.gates import HumanJudgeCase, calibrate_judge_policy
+from rag_ops_guard.evaluation.gates import (
+    HumanJudgeCase,
+    JudgePolicy,
+    calibrate_judge_policy,
+    require_calibration_policy,
+)
 
 
 def _cases(matches: int) -> list[HumanJudgeCase]:
@@ -55,3 +60,26 @@ def test_low_agreement_makes_ragas_informational() -> None:
     assert policy.agreement == 0.6
     assert policy.gating_enabled is False
     assert policy.mean_floor is None
+
+
+def test_missing_calibration_policy_fails_when_release_requires_it() -> None:
+    """SPEC-5.3: missing calibration is a release failure by default."""
+    with pytest.raises(ValueError, match="calibration absent"):
+        require_calibration_policy(None, required=True)
+
+
+def test_missing_calibration_policy_is_allowed_only_by_explicit_measurement_mode() -> None:
+    """SPEC-5.3: bootstrap measurement must opt out explicitly."""
+    assert require_calibration_policy(None, required=False) is None
+
+
+def test_existing_calibration_policy_is_returned_unchanged() -> None:
+    """SPEC-5.3"""
+    policy = JudgePolicy(
+        agreement=0.9,
+        gating_enabled=True,
+        mean_floor=0.85,
+        calibrated_cutoff=0.8,
+    )
+
+    assert require_calibration_policy(policy, required=True) is policy
