@@ -46,12 +46,7 @@ class ResponseOutcome(StrEnum):
 
 
 class DocumentMetadata(BaseModel):
-    """Document identity plus optional governance metadata.
-
-    Generic documents require only identity/title/version. Rich operational metadata remains
-    available and activates resolver policy when present. Extra front-matter keys are preserved
-    rather than rejected so ingestion is not coupled to one business domain.
-    """
+    """Document identity plus optional governance metadata."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -135,16 +130,12 @@ class GeneratedSegment(BaseModel):
 
 
 class StructuredAnswer(BaseModel):
-    """Canonical structured-generation schema for public answer segments."""
-
     model_config = ConfigDict(extra="forbid")
 
     segments: list[GeneratedSegment] = Field(min_length=1)
 
 
 class ResponseSegment(BaseModel):
-    """Validated public segment. Grounding is derived exclusively from citations."""
-
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1)
@@ -221,6 +212,8 @@ class QueryResponse(BaseModel):
     route_confidence: float | None = None
     route_margin: float | None = None
     relevance_score: float | None = None
+    domain_relevance_score: float | None = None
+    grounded_relevance_score: float | None = None
     retrieval_query: str | None = None
     rewritten_query: str | None = None
 

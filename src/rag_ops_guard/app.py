@@ -66,7 +66,7 @@ def vector_store() -> S3VectorsStore:
 
 @lru_cache(maxsize=1)
 def chat_model() -> LlamaCppChatAdapter:
-    """Legacy structured-RAG adapter retained for evaluation utilities until U3/U5."""
+    """Legacy structured-RAG adapter retained for evaluation utilities until U5/U6."""
     settings = get_settings()
     configure_langsmith(settings)
     return LlamaCppChatAdapter(
@@ -132,6 +132,7 @@ def knowledge_search() -> ResilientKnowledgeSearch:
         candidate_k=settings.retrieval_top_k,
         context_k=settings.retrieval_context_k,
         min_relevance=settings.retrieval_min_relevance,
+        domain_min_relevance=settings.retrieval_domain_min_relevance,
     )
 
 

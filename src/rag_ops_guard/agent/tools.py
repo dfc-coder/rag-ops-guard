@@ -44,9 +44,7 @@ class SearchDocumentsTool:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": (
-                        "Self-contained query to search in the ingested document corpus."
-                    ),
+                    "description": "Self-contained query to search in the ingested document corpus.",
                 }
             },
             "required": ["query"],
@@ -67,11 +65,7 @@ class SearchDocumentsTool:
             )
         except Exception:
             logger.exception("search_documents backend failure query=%r", query)
-            return ToolResult(
-                ok=False,
-                payload={"query": query},
-                reason="retrieval_error",
-            )
+            return ToolResult(ok=False, payload={"query": query}, reason="retrieval_error")
 
         sources: list[dict[str, Any]] = []
         for item in result.admitted:
@@ -100,7 +94,10 @@ class SearchDocumentsTool:
                 "data_boundary": UNTRUSTED_DOCUMENT_BOUNDARY,
                 "instruction_policy": DOCUMENT_INSTRUCTION_POLICY,
                 "query": query,
-                "relevance": result.relevance,
+                "relevance": result.grounded_relevance,
+                "domain_relevance": result.domain_relevance,
+                "grounded_relevance": result.grounded_relevance,
+                "domain_related": result.domain_related,
                 "candidate_count": len(result.fused),
                 "sources": sources,
             },
@@ -120,11 +117,7 @@ class ListDocumentsTool:
         self._context_provider = context_provider
 
     def schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        }
+        return {"type": "object", "properties": {}, "additionalProperties": False}
 
     def invoke(self, _arguments: dict[str, Any]) -> ToolResult:
         try:

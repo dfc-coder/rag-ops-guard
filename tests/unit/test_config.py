@@ -8,6 +8,7 @@ def test_settings_defaults_define_local_reproducible_profile() -> None:
     assert settings.vector_dimension == 1024
     assert settings.retrieval_top_k == 20
     assert settings.retrieval_context_k == 4
+    assert settings.retrieval_domain_min_relevance == 0.5
     assert settings.retrieval_min_relevance == 0.5
     assert settings.llm_model == "qwen35-2b-rag"
     assert settings.llm_analysis_max_tokens == 128

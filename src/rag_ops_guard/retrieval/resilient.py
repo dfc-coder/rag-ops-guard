@@ -9,13 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResilientKnowledgeSearch(KnowledgeSearch):
-    """Knowledge search with observable stages and a fail-safe recall fallback.
-
-    The normal path keeps the instruction-wrapped Qwen embedding query. If that path finds no
-    admissible evidence, the exact same query is retried once with the raw query embedding. The
-    fallback does not lower reranker thresholds, bypass the resolver, or admit unsupported facts;
-    it only gives short/multilingual/entity-heavy queries a second recall path before abstaining.
-    """
+    """Knowledge search with observable stages and one raw-query recall fallback."""
 
     def search(
         self,
@@ -69,8 +63,9 @@ def _log_attempt(
 ) -> None:
     logger.info(
         "knowledge-search attempt=%s mode=%s query=%r ranking_query=%r system=%r "
-        "environment=%r api_version=%r supported=%s relevance=%.4f dense=%s lexical=%s "
-        "fused=%s reranker=%s admitted=%s",
+        "environment=%r api_version=%r supported=%s domain_related=%s "
+        "domain_relevance=%.4f grounded_relevance=%.4f dense=%s lexical=%s fused=%s "
+        "reranker=%s admitted=%s",
         attempt,
         mode,
         query,
@@ -79,7 +74,9 @@ def _log_attempt(
         context.environment,
         context.api_version,
         result.supported,
-        result.relevance,
+        result.domain_related,
+        result.domain_relevance,
+        result.grounded_relevance,
         _evidence_names(result.dense),
         _evidence_names(result.lexical),
         _evidence_names(result.fused),

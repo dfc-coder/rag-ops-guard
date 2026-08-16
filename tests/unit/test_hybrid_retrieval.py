@@ -66,10 +66,7 @@ def test_rrf_can_promote_lexical_result_missed_by_dense_top_rank() -> None:
         distance=0.1,
     )
 
-    fused = reciprocal_rank_fusion(
-        dense=[payments, sendgrid],
-        lexical=[sendgrid, payments],
-    )
+    fused = reciprocal_rank_fusion(dense=[payments, sendgrid], lexical=[sendgrid, payments])
 
     assert {item.chunk.logical_id for item in fused[:2]} == {
         "sendgrid-failure",
@@ -178,9 +175,7 @@ def test_hybrid_search_refresh_rebuilds_lexical_corpus() -> None:
     objects.put_text(key, sendgrid.chunk.model_dump_json())
     search.refresh()
 
-    assert (
-        search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id == "sendgrid-failure"
-    )
+    assert search.search("SendGrid", QueryContext()).lexical[0].chunk.logical_id == "sendgrid-failure"
 
 
 def test_learned_grader_admits_cross_language_retry_policy() -> None:
@@ -260,7 +255,7 @@ def test_contextual_retrieval_reranks_with_standalone_and_literal_followup() -> 
     assert result.relevance == 0.2
 
 
-def test_named_target_guard_rejects_unknown_target_before_reranking() -> None:
+def test_named_target_guard_rejects_unknown_target_after_domain_scoring() -> None:
     payments = _named_evidence(
         "Payment Retry Policy",
         "Payment timeouts allow three automated retries.",
@@ -284,14 +279,16 @@ def test_named_target_guard_rejects_unknown_target_before_reranking() -> None:
         query_mode="probe",
     )
 
+    assert result.domain_relevance == 0.99
+    assert result.grounded_relevance == 0.0
     assert result.supported is False
     assert result.relevance == 0.0
     assert result.admitted == []
-    assert result.reranker_scores == {}
-    assert reranker.calls == []
+    assert result.reranker_scores
+    assert reranker.calls
 
 
-def test_named_target_guard_rejects_semantically_similar_candidate() -> None:
+def test_named_target_guard_rejects_semantically_similar_candidate_after_domain_scoring() -> None:
     payments = _named_evidence(
         "Payment DLQ Replay Runbook",
         "Replay failed payment messages from the payment DLQ.",
@@ -311,10 +308,12 @@ def test_named_target_guard_rejects_semantically_similar_candidate() -> None:
 
     result = search.search("How do I replay a Kafka DLQ?", QueryContext(), query_mode="probe")
 
+    assert result.domain_relevance == 0.91
+    assert result.grounded_relevance == 0.0
     assert result.supported is False
     assert result.relevance == 0.0
     assert result.admitted == []
-    assert reranker.calls == []
+    assert reranker.calls
 
 
 def test_generic_operation_acronym_does_not_block_known_target() -> None:

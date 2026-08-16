@@ -20,198 +20,36 @@ _RRF_K = 60
 _AUTHORITY_TIE_BAND = 0.05
 _TOKEN_RE = re.compile(r"\w{2,}", re.UNICODE)
 _STOPWORDS = {
-    "the",
-    "and",
-    "what",
-    "which",
-    "who",
-    "where",
-    "when",
-    "why",
-    "how",
-    "about",
-    "this",
-    "that",
-    "does",
-    "with",
-    "from",
-    "tell",
-    "explain",
-    "give",
-    "show",
-    "write",
-    "implement",
-    "summarize",
-    "summary",
-    "continue",
-    "expand",
-    "describe",
-    "me",
-    "can",
-    "could",
-    "should",
-    "would",
-    "is",
-    "are",
-    "do",
-    "did",
-    "has",
-    "have",
-    "there",
-    "any",
-    "after",
-    "then",
-    "next",
-    "third",
-    "previous",
-    "current",
-    "maximum",
-    "default",
-    "automatic",
-    "automated",
-    "manual",
-    "allowed",
-    "number",
-    "production",
-    "staging",
-    "para",
-    "por",
-    "que",
-    "qué",
-    "cual",
-    "cuál",
-    "cuales",
-    "cuáles",
-    "como",
-    "cómo",
-    "cuando",
-    "cuándo",
-    "donde",
-    "dónde",
-    "quien",
-    "quién",
-    "quienes",
-    "quiénes",
-    "cuantos",
-    "cuántos",
-    "cuantas",
-    "cuántas",
-    "hay",
-    "existe",
-    "existen",
-    "algun",
-    "algún",
-    "alguna",
-    "puede",
-    "puedo",
-    "debe",
-    "dame",
-    "explica",
-    "explicame",
-    "explícame",
-    "resume",
-    "resumilo",
-    "resumelo",
-    "reformula",
-    "reescribe",
-    "escribe",
-    "implementa",
-    "continua",
-    "continúa",
-    "amplia",
-    "amplía",
-    "muestra",
-    "este",
-    "esta",
-    "esto",
-    "del",
-    "las",
-    "los",
-    "una",
-    "uno",
-    "se",
-    "entonces",
-    "despues",
-    "después",
-    "luego",
-    "tercero",
-    "tercera",
-    "siguiente",
-    "anterior",
-    "maximo",
-    "máximo",
-    "maxima",
-    "máxima",
-    "automatico",
-    "automático",
-    "automatica",
-    "automática",
-    "cantidad",
-    "produccion",
-    "producción",
-    "con",
-    "sobre",
-    "pasa",
-    "sucede",
-    "hace",
-    "sabes",
-    "dime",
-    "decime",
+    "the", "and", "what", "which", "who", "where", "when", "why", "how", "about",
+    "this", "that", "does", "with", "from", "tell", "explain", "give", "show", "write",
+    "implement", "summarize", "summary", "continue", "expand", "describe", "me", "can",
+    "could", "should", "would", "is", "are", "do", "did", "has", "have", "there", "any",
+    "after", "then", "next", "third", "previous", "current", "maximum", "default",
+    "automatic", "automated", "manual", "allowed", "number", "production", "staging", "para",
+    "por", "que", "qué", "cual", "cuál", "cuales", "cuáles", "como", "cómo", "cuando",
+    "cuándo", "donde", "dónde", "quien", "quién", "quienes", "quiénes", "cuantos",
+    "cuántos", "cuantas", "cuántas", "hay", "existe", "existen", "algun", "algún",
+    "alguna", "puede", "puedo", "debe", "dame", "explica", "explicame", "explícame",
+    "resume", "resumilo", "resumelo", "reformula", "reescribe", "escribe", "implementa",
+    "continua", "continúa", "amplia", "amplía", "muestra", "este", "esta", "esto", "del",
+    "las", "los", "una", "uno", "se", "entonces", "despues", "después", "luego",
+    "tercero", "tercera", "siguiente", "anterior", "maximo", "máximo", "maxima", "máxima",
+    "automatico", "automático", "automatica", "automática", "cantidad", "produccion",
+    "producción", "con", "sobre", "pasa", "sucede", "hace", "sabes", "dime", "decime",
     "contame",
 }
 _GENERIC_OPERATION_TOKENS = {
-    "api",
-    "dlq",
-    "http",
-    "https",
-    "id",
-    "ids",
-    "json",
-    "p1",
-    "p2",
-    "p3",
-    "p4",
-    "rest",
-    "sla",
-    "sql",
-    "xml",
+    "api", "dlq", "http", "https", "id", "ids", "json", "p1", "p2", "p3", "p4", "rest",
+    "sla", "sql", "xml",
 }
 _STRUCTURAL_TOKENS = {
-    "follow",
-    "followup",
-    "source",
-    "sources",
-    "query",
-    "context",
-    "user",
-    "assistant",
-    "turn",
-    "message",
-    "previous",
-    "current",
-    "client",
-    "cliente",
-    "system",
-    "sistema",
-    "service",
-    "servicio",
-    "the",
-    "el",
-    "la",
+    "follow", "followup", "source", "sources", "query", "context", "user", "assistant", "turn",
+    "message", "previous", "current", "client", "cliente", "system", "sistema", "service",
+    "servicio", "the", "el", "la",
 }
 _OPERATIONAL_ANCHOR_CONTEXT = {
-    "retry",
-    "retries",
-    "reintento",
-    "reintentos",
-    "timeout",
-    "timeouts",
-    "incident",
-    "incidente",
-    "runbook",
-    "sla",
-    "api",
-    "dlq",
+    "retry", "retries", "reintento", "reintentos", "timeout", "timeouts", "incident",
+    "incidente", "runbook", "sla", "api", "dlq",
 }
 _LOWERCASE_TARGET_PATTERNS = (
     re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
@@ -238,13 +76,16 @@ class KnowledgeSearchResult:
     fused: list[Evidence]
     admitted: list[Evidence]
     relevance: float = 0.0
+    domain_relevance: float = 0.0
+    grounded_relevance: float = 0.0
+    domain_related: bool = False
     lexical_relevance: float = 0.0
     supported: bool = False
     reranker_scores: dict[str, float] = field(default_factory=dict)
 
 
 class KnowledgeSearch:
-    """Dense + BM25 + RRF + resolver + learned relevance grading."""
+    """Dense + BM25 + RRF with distinct corpus-affinity and grounded-evidence scores."""
 
     def __init__(
         self,
@@ -257,6 +98,7 @@ class KnowledgeSearch:
         candidate_k: int = 20,
         context_k: int = 4,
         min_relevance: float = 0.5,
+        domain_min_relevance: float = 0.5,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
@@ -266,6 +108,7 @@ class KnowledgeSearch:
         self._candidate_k = candidate_k
         self._context_k = context_k
         self._min_relevance = min_relevance
+        self._domain_min_relevance = domain_min_relevance
         self._bm25: BM25Index | None = None
 
     def search(
@@ -276,17 +119,12 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve broadly, then grade candidates against the resolved user intent."""
+        """Measure corpus affinity before policy resolution, then evidence support after it."""
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
         dense = self._vectors.query(dense_vector, self._candidate_k)
         lexical = self._lexical_index().search(query, limit=self._candidate_k)
         fused = reciprocal_rank_fusion(dense=dense, lexical=lexical)
-
-        fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
-        resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
-        resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
-        candidates = resolved
 
         standalone_query = query.strip()
         literal_query = (ranking_query or "").strip()
@@ -296,45 +134,69 @@ class KnowledgeSearch:
             else standalone_query
         )
 
-        if not _candidates_cover_explicit_anchors(standalone_query, candidates):
+        raw_grades = self._reranker.grade(
+            relevance_query,
+            [_reranker_document(item) for item in fused],
+        )
+        if len(raw_grades) != len(fused):
+            raise ValueError("reranker returned a grade count that does not match raw candidates")
+        raw_grade_by_id = {
+            item.chunk.id: grade for item, grade in zip(fused, raw_grades, strict=True)
+        }
+        domain_relevance = max((grade.score for grade in raw_grades), default=0.0)
+        domain_related = domain_relevance >= self._domain_min_relevance
+        raw_scores = {
+            item.chunk.id: round(grade.score, 6)
+            for item, grade in zip(fused, raw_grades, strict=True)
+        }
+
+        fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
+        resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
+        resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
+
+        if not _candidates_cover_explicit_anchors(standalone_query, resolved):
             return KnowledgeSearchResult(
                 dense=dense,
                 lexical=lexical,
                 fused=fused,
                 admitted=[],
                 relevance=0.0,
+                domain_relevance=round(domain_relevance, 6),
+                grounded_relevance=0.0,
+                domain_related=domain_related,
                 lexical_relevance=0.0,
                 supported=False,
-                reranker_scores={},
+                reranker_scores=raw_scores,
             )
 
-        grades = self._reranker.grade(
-            relevance_query,
-            [_reranker_document(item) for item in candidates],
-        )
-        if len(grades) != len(candidates):
-            raise ValueError("reranker returned a grade count that does not match candidates")
-
         ranked = sorted(
-            zip(candidates, grades, strict=True),
+            (
+                (item, raw_grade_by_id[item.chunk.id])
+                for item in resolved
+                if item.chunk.id in raw_grade_by_id
+            ),
             key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
         )
+        grounded_relevance = ranked[0][1].score if ranked else 0.0
         admitted_pairs = _select_admitted_pairs(
-            ranked, limit=self._context_k, min_relevance=self._min_relevance
+            ranked,
+            limit=self._context_k,
+            min_relevance=self._min_relevance,
         )
         admitted = [item for item, _grade in admitted_pairs]
-        top_score = ranked[0][1].score if ranked else 0.0
-        reranker_scores = {item.chunk.id: round(grade.score, 6) for item, grade in ranked}
 
         return KnowledgeSearchResult(
             dense=dense,
             lexical=lexical,
             fused=fused,
             admitted=admitted,
-            relevance=round(top_score, 6),
+            relevance=round(grounded_relevance, 6),
+            domain_relevance=round(domain_relevance, 6),
+            grounded_relevance=round(grounded_relevance, 6),
+            domain_related=domain_related,
             lexical_relevance=retrieval_lexical_relevance(relevance_query, admitted=admitted),
             supported=bool(admitted),
-            reranker_scores=reranker_scores,
+            reranker_scores=raw_scores,
         )
 
     def refresh(self) -> None:
@@ -361,11 +223,7 @@ def _select_admitted_pairs(
     limit: int,
     min_relevance: float = 0.5,
 ) -> list[tuple[Evidence, RerankGrade]]:
-    """Prefer authority only when reranker relevance is effectively tied.
-
-    Authority never rescues an irrelevant candidate. Within a small score band of the strongest
-    relevant hit, document authority wins before the remaining slots fall back to learned relevance.
-    """
+    """Prefer authority only when reranker relevance is effectively tied."""
     relevant = [pair for pair in ranked if pair[1].score >= min_relevance]
     if not relevant or limit <= 0:
         return []
@@ -472,11 +330,7 @@ def _explicit_query_anchors(text: str) -> set[str]:
     for index, match in enumerate(matches):
         token = match.group(0)
         folded = token.casefold()
-        if (
-            folded in _STOPWORDS
-            or folded in _GENERIC_OPERATION_TOKENS
-            or folded in _STRUCTURAL_TOKENS
-        ):
+        if folded in _STOPWORDS or folded in _GENERIC_OPERATION_TOKENS or folded in _STRUCTURAL_TOKENS:
             continue
 
         has_letter = any(char.isalpha() for char in token)
