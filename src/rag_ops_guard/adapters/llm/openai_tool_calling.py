@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 from langchain_core.messages import (
@@ -15,6 +16,20 @@ from pydantic import SecretStr
 from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class _AdapterConfig:
+    base_url: str
+    model: str
+    temperature: float
+    top_p: float
+    top_k: int
+    min_p: float
+    presence_penalty: float
+    repeat_penalty: float
+    max_completion_tokens: int
+    timeout_seconds: float
 
 
 class OpenAIToolCallingAdapter:
@@ -35,18 +50,18 @@ class OpenAIToolCallingAdapter:
         timeout_seconds: float,
         runnable: Any | None = None,
     ) -> None:
-        self._config = {
-            "base_url": base_url,
-            "model": model,
-            "temperature": temperature,
-            "top_p": top_p,
-            "top_k": top_k,
-            "min_p": min_p,
-            "presence_penalty": presence_penalty,
-            "repeat_penalty": repeat_penalty,
-            "max_completion_tokens": max_completion_tokens,
-            "timeout_seconds": timeout_seconds,
-        }
+        self._config = _AdapterConfig(
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            presence_penalty=presence_penalty,
+            repeat_penalty=repeat_penalty,
+            max_completion_tokens=max_completion_tokens,
+            timeout_seconds=timeout_seconds,
+        )
         self._model = ChatOpenAI(
             base_url=base_url,
             api_key=SecretStr("local"),
@@ -79,7 +94,20 @@ class OpenAIToolCallingAdapter:
             for tool in tools
         ]
         runnable = self._model.bind_tools(definitions, parallel_tool_calls=False)
-        return OpenAIToolCallingAdapter(runnable=runnable, **self._config)
+        config = self._config
+        return OpenAIToolCallingAdapter(
+            base_url=config.base_url,
+            model=config.model,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            min_p=config.min_p,
+            presence_penalty=config.presence_penalty,
+            repeat_penalty=config.repeat_penalty,
+            max_completion_tokens=config.max_completion_tokens,
+            timeout_seconds=config.timeout_seconds,
+            runnable=runnable,
+        )
 
     def invoke(self, messages: list[ModelMessage]) -> ModelTurn:
         response = self._runnable.invoke(_to_langchain_messages(messages))
