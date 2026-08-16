@@ -49,11 +49,11 @@ jobs:
           --cov-fail-under=80
           --cov-report=term-missing
           --cov-report=xml:artifacts/coverage.xml
-      - name: Architecture and deterministic safety contracts
+      - name: Architecture and adversarial security contracts
         run: >-
           uv run pytest
           tests/architecture
-          tests/adversarial/test_deterministic_guards.py
+          tests/adversarial
           -q
       - uses: actions/upload-artifact@v4
         if: always()
