@@ -15,7 +15,8 @@ LAMBDA_ENTRYPOINTS = {
     "rag_ops_guard.handlers.ingest",
     "rag_ops_guard.handlers.health",
 }
-UNREACHABLE_BUDGET_LINES = 638  # U4/U5 target; U6 must reach zero.
+PIPELINE_OWNERS = {"app", "agent.conversation"}
+UNREACHABLE_BUDGET_LINES = 0
 PIPELINE_DIRS = ("agent", "graph", "retrieval", "ports")
 PIPELINE_PREFIXES = tuple(f"rag_ops_guard.{package}" for package in PIPELINE_DIRS)
 
@@ -91,8 +92,22 @@ def _reachable() -> set[str]:
     return reachable
 
 
+def test_final_pipeline_owners_are_only_app_and_conversation_agent() -> None:
+    """SPEC-6 / R-3"""
+    assert PIPELINE_OWNERS == {"app", "agent.conversation"}
+    app = (SRC / "app.py").read_text(encoding="utf-8")
+    conversation = (SRC / "agent/conversation.py").read_text(encoding="utf-8")
+    assert "def conversation_agent()" in app
+    assert "class ConversationAgent" in conversation
+
+
+def test_graph_package_is_physically_removed() -> None:
+    """SPEC-6 / R-1"""
+    assert not (SRC / "graph").exists()
+
+
 def test_core_does_not_import_langchain_or_langgraph() -> None:
-    """SPEC-1a.4: framework dependencies belong to adapters, not the core."""
+    """SPEC-1a.4"""
     files = _module_files()
     source = SRC / "agent/conversation.py"
     imports = _imports("rag_ops_guard.agent.conversation", source, files)
@@ -100,8 +115,8 @@ def test_core_does_not_import_langchain_or_langgraph() -> None:
     assert not leaked, f"framework imports leaked into core: {leaked}"
 
 
-def test_unreachable_code_only_shrinks() -> None:
-    """R-2/R-3: U4 keeps the unreachable pipeline at or below 638 lines."""
+def test_unreachable_pipeline_code_is_zero() -> None:
+    """SPEC-6 / R-2 / R-3"""
     files = _module_files()
     reachable = _reachable()
     dead = {
@@ -112,13 +127,12 @@ def test_unreachable_code_only_shrinks() -> None:
         and module not in LAMBDA_ENTRYPOINTS
     }
     total = sum(len(path.read_text(encoding="utf-8").splitlines()) for path in dead.values())
-    assert total <= UNREACHABLE_BUDGET_LINES, (
-        f"unreachable pipeline code is {total} lines; budget is {UNREACHABLE_BUDGET_LINES}: "
-        f"{sorted(dead)}"
+    assert total == UNREACHABLE_BUDGET_LINES, (
+        f"unreachable pipeline code is {total} lines; expected zero: {sorted(dead)}"
     )
 
 
 def test_citation_validator_is_on_the_canonical_path() -> None:
-    """SPEC-1.2: citation validation must execute on the canonical ConversationAgent path."""
+    """SPEC-1.2"""
     reachable = _reachable()
     assert "rag_ops_guard.retrieval.citations" in reachable
