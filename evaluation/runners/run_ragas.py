@@ -157,9 +157,7 @@ def enforce_thresholds(
                 metric,
                 metric_values[metric],
                 mean_floor=float(mean_floor),
-                per_case_floor=(
-                    float(per_case[metric]) if metric in per_case else None
-                ),
+                per_case_floor=(float(per_case[metric]) if metric in per_case else None),
             )
         except ValueError as exc:
             failures.append(str(exc))
@@ -168,7 +166,7 @@ def enforce_thresholds(
 
 
 def _runtime_judge_model() -> str:
-    runtime = os.environ.get("LLM_MODEL", "qwen35-2b-rag")
+    runtime = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
     judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
     if judge != runtime:
         raise SystemExit(
