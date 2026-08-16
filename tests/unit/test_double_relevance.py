@@ -70,7 +70,10 @@ class ProbeKnowledge:
             lexical=[],
             fused=[],
             admitted=[],
-            relevance=0.12,
+            relevance=0.0,
+            domain_relevance=0.12,
+            grounded_relevance=0.0,
+            domain_related=False,
             supported=False,
         )
 
