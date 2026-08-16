@@ -4,7 +4,6 @@ from rag_ops_guard.evaluation.gates import (
     calibrate_judge_policy,
     enforce_metric_thresholds,
     grounded_segment_text,
-    require_qwen3_4b_judge,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "calibrate_judge_policy",
     "enforce_metric_thresholds",
     "grounded_segment_text",
-    "require_qwen3_4b_judge",
 ]
