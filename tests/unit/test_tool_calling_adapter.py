@@ -15,9 +15,7 @@ def test_framework_adapter_maps_core_messages_to_langchain_messages() -> None:
         ModelMessage(
             role="assistant",
             content="",
-            tool_calls=(
-                ToolCall(id="call-1", name="search_documents", arguments={"query": "x"}),
-            ),
+            tool_calls=(ToolCall(id="call-1", name="search_documents", arguments={"query": "x"}),),
         ),
         ModelMessage(
             role="tool",
