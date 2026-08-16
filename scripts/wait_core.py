@@ -52,9 +52,7 @@ def wait_for(name: str, url: str, container: str, timeout_seconds: int = 180) ->
         except httpx.HTTPError as exc:
             last_error = str(exc)
         time.sleep(2)
-    raise SystemExit(
-        f"{name} did not become ready: {last_error}\n{container_logs(container)}"
-    )
+    raise SystemExit(f"{name} did not become ready: {last_error}\n{container_logs(container)}")
 
 
 def main() -> None:

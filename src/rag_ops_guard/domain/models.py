@@ -24,9 +24,11 @@ class DocumentType(StrEnum):
 
 class QueryStatus(StrEnum):
     ANSWERED = "answered"
+    ANSWERED_UNGROUNDED = "answered_ungrounded"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
     CLARIFICATION_REQUIRED = "clarification_required"
     SAFETY_BLOCKED = "safety_blocked"
+    ERROR = "error"
 
 
 class DocumentMetadata(BaseModel):
@@ -116,6 +118,7 @@ class QueryResponse(BaseModel):
             "out_of_scope",
             "uncertain",
             "safety",
+            "error",
         ]
         | None
     ) = None
@@ -131,22 +134,26 @@ class QueryResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_status_contract(self) -> QueryResponse:
-        if self.status == QueryStatus.ANSWERED and not self.answer:
+        answered_statuses = {QueryStatus.ANSWERED, QueryStatus.ANSWERED_UNGROUNDED}
+        if self.status in answered_statuses and not self.answer:
             raise ValueError("answered responses require an answer")
-        ungrounded_routes = {
-            "chat",
-            "capabilities",
-            "catalog",
-            "out_of_scope",
-            "uncertain",
-            "safety",
-        }
+
+        if self.status == QueryStatus.ANSWERED_UNGROUNDED and self.citations:
+            raise ValueError("answered_ungrounded responses cannot carry citations")
+
+        if self.route not in {"knowledge", None} and self.citations:
+            raise ValueError("only knowledge responses may carry citations")
+
         if (
             self.status == QueryStatus.ANSWERED
-            and self.route not in ungrounded_routes
+            and self.route in {"knowledge", None}
             and not self.citations
         ):
             raise ValueError("grounded answered responses require citations")
+
+        if self.status not in answered_statuses and self.citations:
+            raise ValueError("non-answered responses cannot carry citations")
+
         if self.status == QueryStatus.CLARIFICATION_REQUIRED and not self.clarification_question:
             raise ValueError("clarification_required requires clarification_question")
         return self

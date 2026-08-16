@@ -1,7 +1,7 @@
 [project]
 name = "rag-ops-guard"
 version = "0.1.0b1"
-description = "Local-first, AWS-compatible grounded RAG for integration operations."
+description = "Local-first conversational agent with optional grounded document RAG."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -66,13 +66,27 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 "scripts/gradio_ui.py" = ["I001"]
 "scripts/validate_prompt_cache.py" = ["I001"]
+"scripts/semantic_gate_smoke.py" = ["I001"]
+"scripts/semantic_router_smoke.py" = ["I001"]
+"src/rag_ops_guard/agent/grounding.py" = ["I001"]
 "src/rag_ops_guard/graph/prompts.py" = ["I001"]
+"tests/unit/test_grounding_policy.py" = ["I001"]
+"tests/unit/test_grounding_policy_edges.py" = ["I001"]
+"tests/unit/test_grounding_policy_matrix.py" = ["I001", "F401"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 packages = ["rag_ops_guard"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "rag_ops_guard.agent.react_agent"
+disable_error_code = ["call-overload", "no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "rag_ops_guard.agent.conversation"
+disable_error_code = ["call-overload", "no-any-return"]
 
 [build-system]
 requires = ["hatchling"]

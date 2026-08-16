@@ -1,0 +1,49 @@
+:root {
+  --loading-cursor-color: hsl(var(--primary));
+  --loading-cursor-size: 1rem;
+  --loading-cursor-animation: rag-breathe 1.7s ease-in-out infinite;
+}
+
+@keyframes rag-breathe {
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50% { opacity: 0.38; transform: scale(0.88); }
+}
+
+body {
+  letter-spacing: -0.012em;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 14% 5%, hsl(var(--primary) / 0.10), transparent 32rem),
+    radial-gradient(circle at 88% 94%, hsl(var(--primary) / 0.05), transparent 30rem);
+}
+
+pre {
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px !important;
+  box-shadow: 0 12px 34px rgb(0 0 0 / 0.10);
+}
+
+textarea {
+  border-radius: 18px !important;
+}
+
+button {
+  border-radius: 12px;
+}
+
+/* Keep the assistant surface calm: operational details live in Steps/sidebar, not the chat body. */
+[data-testid="step"] {
+  opacity: 0.9;
+}
+
+/* Source elements should read like lightweight evidence cards. */
+[data-testid="element"] {
+  border-radius: 14px;
+}

@@ -69,9 +69,7 @@ def default_model_dir() -> Path:
 
 def selected_models() -> tuple[Model, ...]:
     requested = {
-        item.strip()
-        for item in os.environ.get("MODEL_FILES", "").split(",")
-        if item.strip()
+        item.strip() for item in os.environ.get("MODEL_FILES", "").split(",") if item.strip()
     }
     if not requested:
         return MODELS

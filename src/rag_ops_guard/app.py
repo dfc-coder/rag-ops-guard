@@ -7,9 +7,8 @@ from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
-from rag_ops_guard.agent.router import SemanticRouter
+from rag_ops_guard.agent.conversation import ConversationAgent
 from rag_ops_guard.config import get_settings
-from rag_ops_guard.graph.conversational_agent import ConversationalAgent
 from rag_ops_guard.graph.prompts import CONVERSATIONAL_SYSTEM_PROMPT, GROUNDING_SYSTEM_PROMPT
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
@@ -66,6 +65,7 @@ def vector_store() -> S3VectorsStore:
 
 @lru_cache(maxsize=1)
 def chat_model() -> LlamaCppChatAdapter:
+    """Legacy structured-RAG adapter retained for non-conversational evaluation utilities."""
     settings = get_settings()
     configure_langsmith(settings)
     return LlamaCppChatAdapter(
@@ -93,9 +93,6 @@ def ingestion_service() -> IngestionService:
         vector_store=vector_store(),
         embeddings=embeddings(),
         chunker=MarkdownChunker(
-            # Token counting is lightweight orchestration work and stays on the CPU-side
-            # llama.cpp server. OpenVINO owns only embeddings and reranking; its v3 API is
-            # not wire-compatible with llama.cpp's /tokenize endpoint used by this adapter.
             token_counter=LlamaCppTokenCounter(settings.llm_base_url),
             target_tokens=settings.chunk_tokens,
             overlap_tokens=settings.chunk_overlap,
@@ -114,6 +111,7 @@ def knowledge_search() -> ResilientKnowledgeSearch:
         reranker=reranker(),
         candidate_k=settings.retrieval_top_k,
         context_k=settings.retrieval_context_k,
+        min_relevance=settings.retrieval_min_relevance,
     )
 
 
@@ -123,16 +121,16 @@ def knowledge_catalog() -> KnowledgeCatalog:
 
 
 @lru_cache(maxsize=1)
-def query_workflow() -> ConversationalAgent:
+def conversation_agent() -> ConversationAgent:
+    """Canonical application agent. Every UI/transport must resolve this same core."""
     settings = get_settings()
     configure_langsmith(settings)
-    return ConversationalAgent(
-        chat=chat_model(),
-        router=SemanticRouter(
-            embeddings(),
-            min_score=settings.router_min_score,
-            min_margin=settings.router_min_margin,
-        ),
+    return ConversationAgent(
         knowledge=knowledge_search(),
         catalog=knowledge_catalog(),
     )
+
+
+def query_workflow() -> ConversationAgent:
+    """Compatibility name for API callers; no second workflow is constructed."""
+    return conversation_agent()

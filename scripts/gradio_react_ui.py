@@ -6,11 +6,11 @@ from uuid import uuid4
 
 import gradio as gr
 
-from rag_ops_guard.agent.react_agent import ReactAgent
+from rag_ops_guard.app import conversation_agent
 from rag_ops_guard.domain.models import QueryContext
 
 logger = logging.getLogger(__name__)
-AGENT = ReactAgent()
+AGENT = conversation_agent()
 
 CSS = """
 html, body, .gradio-container { min-height: 100vh !important; }
@@ -33,13 +33,13 @@ def _render_terminal(text: str, *, tool_calls: int, elapsed_ms: int, failed: boo
     return (
         f"{text}\n\n"
         f"<details><summary>Detalles</summary>\n\n"
-        f"<small>ReAct · tools {tool_calls} · {elapsed_ms / 1000:.1f}s · {state}</small>"
+        f"<small>ConversationAgent · tools {tool_calls} · "
+        f"{elapsed_ms / 1000:.1f}s · {state}</small>"
         f"\n\n</details>"
     )
 
 
 def chat(message: str, _history: list, environment: str, thread_id: str) -> Iterator[str]:
-    """Yield replacement responses so Gradio paints progress and model tokens immediately."""
     del _history
     env = environment if environment in {"production", "staging"} else None
     last_visible = ""
@@ -73,8 +73,9 @@ def chat(message: str, _history: list, environment: str, thread_id: str) -> Iter
             last_visible = rendered
             yield rendered
     except Exception:
-        # Last UI boundary: never replace already-streamed model text with a generic red error.
-        logger.exception("Unhandled ReAct UI bridge failure; preserving streamed output")
+        logger.exception(
+            "Unhandled ConversationAgent UI bridge failure; preserving streamed output"
+        )
         notice = (
             "No pude cerrar este turno por un error inesperado. "
             "La conversación anterior se conservó; podés volver a intentarlo."
@@ -91,13 +92,13 @@ def clear(thread_id: str) -> str:
 
 
 with (
-    gr.Blocks(title="RAG Ops Guard · ReAct Beta", fill_width=True, fill_height=True) as demo,
+    gr.Blocks(title="RAG Ops Guard · Unified Beta", fill_width=True, fill_height=True) as demo,
     gr.Column(elem_id="shell"),
 ):
     thread_id = gr.State(lambda: str(uuid4()))
     gr.Markdown(
-        "# RAG Ops Guard · ReAct Beta\n"
-        "Agente conversacional con memoria de hilo y RAG como herramienta."
+        "# RAG Ops Guard · Unified Beta\n"
+        "Un único agente conversacional con memoria y documentos como herramienta opcional."
     )
 
     with gr.Row(elem_id="workspace"):
@@ -116,14 +117,14 @@ with (
                 "- LLM: Qwen 3.5 2B / CPU\n"
                 "- Embeddings: OpenVINO / Intel GPU\n"
                 "- Reranker: OpenVINO / Intel GPU\n"
-                "- RAG: `search_knowledge` tool"
+                "- RAG: `search_documents` tool"
             )
 
         with gr.Column(scale=5, min_width=500):
             chatbot = gr.Chatbot(
                 placeholder=(
                     "<strong>Conversá normalmente.</strong><br>"
-                    "El agente decide cuándo consultar la knowledge base."
+                    "El agente decide cuándo necesita consultar documentos."
                 ),
                 height="calc(100vh - 210px)",
                 show_label=False,

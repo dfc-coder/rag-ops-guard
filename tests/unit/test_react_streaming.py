@@ -6,6 +6,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 
+from rag_ops_guard.agent.grounding import ConversationState, TurnPlan, TurnPolicy
 from rag_ops_guard.agent.react_agent import ReactAgent
 from rag_ops_guard.domain.models import QueryContext
 
@@ -63,11 +64,24 @@ class TimeoutGraph:
         raise APITimeoutError("model stalled")
 
 
+class DirectPolicy:
+    def plan(
+        self,
+        message: str,
+        state: ConversationState,
+        context: QueryContext,
+    ) -> TurnPlan:
+        del message, state, context
+        return TurnPlan(TurnPolicy.DIRECT, "streaming unit test")
+
+
 def make_agent(graph: Any) -> ReactAgent:
     agent = object.__new__(ReactAgent)
     agent._history_guard = Lock()
     agent._histories = {}
+    agent._grounding_states = {}
     agent._thread_locks = {}
+    agent._turn_policy = DirectPolicy()
     agent._agent = graph
     return agent
 
@@ -94,19 +108,18 @@ def test_stream_yields_immediate_status_tokens_and_terminal_response() -> None:
     assert token_events[-1].text == "Hola mundo"
     assert events[-1].kind == "done"
     assert events[-1].text == "Hola mundo"
+    assert events[-1].policy == "direct"
     assert text_content(agent._histories["thread-1"]) == ["Hola", "Hola mundo"]
+    assert agent.grounding_state("thread-1").turn_index == 1
 
 
 def test_stream_survives_resumption_in_different_contexts() -> None:
-    """Model Gradio resuming a sync generator under different ContextVar contexts."""
     agent = make_agent(SuccessGraph("Hola contexto"))
     stream = agent.stream("Hola", thread_id="thread-context", context=QueryContext())
     events = []
 
     while True:
         try:
-            # A fresh Context for every next() reproduces the class of failure seen when a UI
-            # framework resumes a generator outside the context that produced the previous yield.
             events.append(contextvars.Context().run(next, stream))
         except StopIteration:
             break
@@ -134,6 +147,7 @@ def test_timeout_is_friendly_and_does_not_commit_failed_turn() -> None:
     assert "respuesta parcial" in terminal.text
     assert "conversación anterior sigue intacta" in terminal.text
     assert text_content(agent._histories["thread-1"]) == text_content(previous)
+    assert agent.grounding_state("thread-1").turn_index == 0
 
 
 def test_truncated_turn_is_recoverable_and_not_committed() -> None:
@@ -154,6 +168,7 @@ def test_truncated_turn_is_recoverable_and_not_committed() -> None:
     assert terminal.finish_reason == "length"
     assert "alcanzó el límite de generación" in terminal.text
     assert text_content(agent._histories["thread-1"]) == text_content(previous)
+    assert agent.grounding_state("thread-1").turn_index == 0
 
 
 def test_next_turn_continues_from_last_successful_history_after_failure() -> None:
@@ -189,6 +204,7 @@ def test_next_turn_continues_from_last_successful_history_after_failure() -> Non
         "Continuemos",
         "Seguimos",
     ]
+    assert agent.grounding_state("thread-1").turn_index == 1
 
 
 def test_invoke_reports_recoverable_failure_without_raising() -> None:
@@ -197,4 +213,5 @@ def test_invoke_reports_recoverable_failure_without_raising() -> None:
     response = agent.invoke("falla", thread_id="thread-1", context=QueryContext())
 
     assert response.failed is True
+    assert response.policy == "direct"
     assert "conversación anterior sigue intacta" in response.answer

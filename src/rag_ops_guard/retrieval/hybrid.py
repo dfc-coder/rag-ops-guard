@@ -5,12 +5,19 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from rag_ops_guard.domain.models import Chunk, Evidence, QueryContext
-from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, Reranker, VectorStore
+from rag_ops_guard.ports import (
+    EmbeddingProvider,
+    ObjectStore,
+    Reranker,
+    RerankGrade,
+    VectorStore,
+)
 from rag_ops_guard.retrieval.bm25 import BM25Index
 from rag_ops_guard.retrieval.query_instruction import embedding_query
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 
 _RRF_K = 60
+_AUTHORITY_TIE_BAND = 0.05
 _TOKEN_RE = re.compile(r"\w{2,}", re.UNICODE)
 _STOPWORDS = {
     "the",
@@ -29,6 +36,16 @@ _STOPWORDS = {
     "with",
     "from",
     "tell",
+    "explain",
+    "give",
+    "show",
+    "write",
+    "implement",
+    "summarize",
+    "summary",
+    "continue",
+    "expand",
+    "describe",
     "me",
     "can",
     "could",
@@ -38,6 +55,25 @@ _STOPWORDS = {
     "are",
     "do",
     "did",
+    "has",
+    "have",
+    "there",
+    "any",
+    "after",
+    "then",
+    "next",
+    "third",
+    "previous",
+    "current",
+    "maximum",
+    "default",
+    "automatic",
+    "automated",
+    "manual",
+    "allowed",
+    "number",
+    "production",
+    "staging",
     "para",
     "por",
     "que",
@@ -60,6 +96,31 @@ _STOPWORDS = {
     "cuántos",
     "cuantas",
     "cuántas",
+    "hay",
+    "existe",
+    "existen",
+    "algun",
+    "algún",
+    "alguna",
+    "puede",
+    "puedo",
+    "debe",
+    "dame",
+    "explica",
+    "explicame",
+    "explícame",
+    "resume",
+    "resumilo",
+    "resumelo",
+    "reformula",
+    "reescribe",
+    "escribe",
+    "implementa",
+    "continua",
+    "continúa",
+    "amplia",
+    "amplía",
+    "muestra",
     "este",
     "esta",
     "esto",
@@ -70,6 +131,24 @@ _STOPWORDS = {
     "uno",
     "se",
     "entonces",
+    "despues",
+    "después",
+    "luego",
+    "tercero",
+    "tercera",
+    "siguiente",
+    "anterior",
+    "maximo",
+    "máximo",
+    "maxima",
+    "máxima",
+    "automatico",
+    "automático",
+    "automatica",
+    "automática",
+    "cantidad",
+    "produccion",
+    "producción",
     "con",
     "sobre",
     "pasa",
@@ -97,6 +176,57 @@ _GENERIC_OPERATION_TOKENS = {
     "sql",
     "xml",
 }
+_STRUCTURAL_TOKENS = {
+    "follow",
+    "followup",
+    "source",
+    "sources",
+    "query",
+    "context",
+    "user",
+    "assistant",
+    "turn",
+    "message",
+    "previous",
+    "current",
+    "client",
+    "cliente",
+    "system",
+    "sistema",
+    "service",
+    "servicio",
+    "the",
+    "el",
+    "la",
+}
+_OPERATIONAL_ANCHOR_CONTEXT = {
+    "retry",
+    "retries",
+    "reintento",
+    "reintentos",
+    "timeout",
+    "timeouts",
+    "incident",
+    "incidente",
+    "runbook",
+    "sla",
+    "api",
+    "dlq",
+}
+_LOWERCASE_TARGET_PATTERNS = (
+    re.compile(r"\b(?:permite|permiten)\s+([a-z][\w-]+)\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+([a-z][\w-]+)\s+(?:allow|permit)\b", re.IGNORECASE),
+    re.compile(
+        r"^(?:los\s+|las\s+)?([a-z][\w-]+)\s+"
+        r"(?:retry|retries|reintento|reintentos|timeout|timeouts)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:retry|retries|reintento|reintentos|timeout|timeouts)\s+"
+        r"(?:de|del|for|of)\s+([a-z][\w-]+)\b",
+        re.IGNORECASE,
+    ),
+)
 
 QueryMode = Literal["knowledge", "probe"]
 
@@ -126,6 +256,7 @@ class KnowledgeSearch:
         reranker: Reranker,
         candidate_k: int = 20,
         context_k: int = 4,
+        min_relevance: float = 0.5,
     ) -> None:
         self._embeddings = embeddings
         self._vectors = vectors
@@ -134,6 +265,7 @@ class KnowledgeSearch:
         self._reranker = reranker
         self._candidate_k = candidate_k
         self._context_k = context_k
+        self._min_relevance = min_relevance
         self._bm25: BM25Index | None = None
 
     def search(
@@ -144,12 +276,7 @@ class KnowledgeSearch:
         query_mode: QueryMode = "knowledge",
         ranking_query: str | None = None,
     ) -> KnowledgeSearchResult:
-        """Retrieve broadly, then grade candidates against the resolved user intent.
-
-        For contextual follow-ups, ``query`` is the standalone rewrite used for recall and
-        ``ranking_query`` is the literal current turn. The reranker receives both so it keeps
-        the resolved topic without losing what the user actually asked in the follow-up.
-        """
+        """Retrieve broadly, then grade candidates against the resolved user intent."""
         dense_query = embedding_query(query) if query_mode == "knowledge" else query.strip()
         dense_vector = self._embeddings.embed_query(dense_query)
         dense = self._vectors.query(dense_vector, self._candidate_k)
@@ -159,7 +286,7 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
-        candidates = resolved[: self._candidate_k]
+        candidates = resolved
 
         standalone_query = query.strip()
         literal_query = (ranking_query or "").strip()
@@ -168,7 +295,8 @@ class KnowledgeSearch:
             if literal_query and literal_query != standalone_query
             else standalone_query
         )
-        if not _candidates_cover_explicit_anchors(relevance_query, candidates):
+
+        if not _candidates_cover_explicit_anchors(standalone_query, candidates):
             return KnowledgeSearchResult(
                 dense=dense,
                 lexical=lexical,
@@ -191,7 +319,9 @@ class KnowledgeSearch:
             zip(candidates, grades, strict=True),
             key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
         )
-        admitted_pairs = [pair for pair in ranked if pair[1].relevant][: self._context_k]
+        admitted_pairs = _select_admitted_pairs(
+            ranked, limit=self._context_k, min_relevance=self._min_relevance
+        )
         admitted = [item for item, _grade in admitted_pairs]
         top_score = ranked[0][1].score if ranked else 0.0
         reranker_scores = {item.chunk.id: round(grade.score, 6) for item, grade in ranked}
@@ -225,6 +355,37 @@ class KnowledgeSearch:
         return BM25Index(evidence)
 
 
+def _select_admitted_pairs(
+    ranked: list[tuple[Evidence, RerankGrade]],
+    *,
+    limit: int,
+    min_relevance: float = 0.5,
+) -> list[tuple[Evidence, RerankGrade]]:
+    """Prefer authority only when reranker relevance is effectively tied.
+
+    Authority never rescues an irrelevant candidate. Within a small score band of the strongest
+    relevant hit, document authority wins before the remaining slots fall back to learned relevance.
+    """
+    relevant = [pair for pair in ranked if pair[1].score >= min_relevance]
+    if not relevant or limit <= 0:
+        return []
+
+    top_score = relevant[0][1].score
+    near_tied = [pair for pair in relevant if top_score - pair[1].score <= _AUTHORITY_TIE_BAND]
+    near_tied.sort(key=lambda pair: (-pair[0].chunk.metadata.authority, -pair[1].score))
+
+    selected = near_tied[:limit]
+    selected_ids = {item.chunk.id for item, _grade in selected}
+    for pair in relevant:
+        if len(selected) >= limit:
+            break
+        if pair[0].chunk.id in selected_ids:
+            continue
+        selected.append(pair)
+        selected_ids.add(pair[0].chunk.id)
+    return selected
+
+
 def reciprocal_rank_fusion(
     *,
     dense: list[Evidence],
@@ -247,7 +408,6 @@ def reciprocal_rank_fusion(
 
 
 def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Legacy diagnostic score; production admission is decided by learned grading."""
     semantic = 0.0
     distances = [item.distance for item in admitted if item.distance is not None]
     if distances:
@@ -264,7 +424,6 @@ def retrieval_relevance(query: str, *, admitted: list[Evidence]) -> float:
 
 
 def retrieval_lexical_relevance(query: str, *, admitted: list[Evidence]) -> float:
-    """Diagnostic informative-token overlap against admitted evidence."""
     query_tokens = _informative_tokens(query)
     if not query_tokens:
         return 0.0
@@ -304,16 +463,45 @@ def _candidates_cover_explicit_anchors(query: str, candidates: list[Evidence]) -
 
 
 def _explicit_query_anchors(text: str) -> set[str]:
+    matches = list(_TOKEN_RE.finditer(text))
+    normalized_tokens = [match.group(0).casefold() for match in matches]
+    has_operational_context = bool(set(normalized_tokens).intersection(_OPERATIONAL_ANCHOR_CONTEXT))
+
     anchors: set[str] = set()
-    for match in _TOKEN_RE.finditer(text):
+    for index, match in enumerate(matches):
         token = match.group(0)
         folded = token.casefold()
-        if folded in _STOPWORDS or folded in _GENERIC_OPERATION_TOKENS:
+        if (
+            folded in _STOPWORDS
+            or folded in _GENERIC_OPERATION_TOKENS
+            or folded in _STRUCTURAL_TOKENS
+        ):
             continue
+
         has_letter = any(char.isalpha() for char in token)
+        if not has_letter:
+            continue
+
         has_internal_upper = any(char.isupper() for char in token[1:])
-        if has_letter and (token.isupper() or has_internal_upper or token[:1].isupper()):
+        has_digit = any(char.isdigit() for char in token)
+        strong_identifier = token.isupper() or has_internal_upper or has_digit
+        titlecase_entity = token[:1].isupper() and (
+            index > 0 or has_operational_context or len(matches) <= 3
+        )
+        if strong_identifier or titlecase_entity:
             anchors.add(folded)
+
+    normalized = text.casefold()
+    for pattern in _LOWERCASE_TARGET_PATTERNS:
+        target_match = pattern.search(normalized)
+        if target_match:
+            target = target_match.group(1)
+            if (
+                target not in _STOPWORDS
+                and target not in _GENERIC_OPERATION_TOKENS
+                and target not in _STRUCTURAL_TOKENS
+            ):
+                anchors.add(target)
     return anchors
 
 

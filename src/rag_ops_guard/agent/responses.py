@@ -25,6 +25,14 @@ _ENGLISH_MARKERS = {
     "help",
     "hello",
     "thanks",
+    "ignore",
+    "give",
+    "production",
+    "credential",
+    "credentials",
+    "secret",
+    "secrets",
+    "bypass",
 }
 
 

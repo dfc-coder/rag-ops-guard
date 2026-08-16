@@ -1,0 +1,24 @@
+{
+  "policy": "learned-cross-encoder-gate",
+  "target_legacy_string_literals": 0,
+  "target_legacy_regex_patterns": 0,
+  "max_legacy_string_literals": 0,
+  "max_legacy_regex_patterns": 0,
+  "routing_modules": [
+    "src/rag_ops_guard/agent/grounding.py",
+    "src/rag_ops_guard/agent/semantic_gate.py"
+  ],
+  "allowed_top_level_string_constants": [],
+  "allowed_semantic_maps": [
+    "POLICY_HYPOTHESES"
+  ],
+  "rules": [
+    "Production routing code must not contain dialogue phrase catalogs or entity allowlists.",
+    "Production routing code must not contain regex-based conversational intent or entity routing.",
+    "The only semantic map may define one abstract policy hypothesis per action; it may not contain utterance examples.",
+    "Natural-language examples belong in evaluation data and tests, never in production routing rules.",
+    "The learned cross-encoder may choose only direct, retrieve, catalog, or uncertain; uncertain must fail closed to retrieval.",
+    "Retrieval queries must preserve the literal current turn as the ranking query.",
+    "Generative models must not create routing decisions or standalone retrieval queries in the hot path."
+  ]
+}
