@@ -101,7 +101,11 @@ Blocking deterministic gates cover:
 
 Ruff formatting/lint remains visible but is **advisory during the architecture pivot**; it does not block architecture work.
 
-RAGAS always produces measurement artifacts during physical validation. It may become a release gate only after exactly 10 real human-labelled cases are compared with the same configured runtime/judge model. Without that calibration, or when agreement is 6/10 or lower, RAGAS is informational and deterministic gates remain authoritative. The repository deliberately does not fabricate that calibration result.
+RAGAS writes `ragas-results.json` and `ragas.json` before release-policy enforcement, so physical measurements are preserved even when the gate fails. Release evaluation is **fail-closed by default**: if `judge-policy.json` is absent, `make eval` exits non-zero after writing those measurements. Bootstrap-only measurement must opt out explicitly with `make eval-measure`, which sets `RAGAS_REQUIRE_CALIBRATION=0` for that invocation only.
+
+RAGAS faithfulness is computed only over segments the response marks as grounded. It is therefore not a universal hallucination detector for ungrounded prose. The segmented response contract must keep unsupported prose visibly ungrounded, while citation validity and segment integrity prevent claims from being presented as grounded with invented or non-admitted citations.
+
+After exactly 10 real human-labelled cases are calibrated against the same configured runtime/judge model, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by release evaluation.
 
 ## Evaluation fixtures are not product logic
 
@@ -116,16 +120,17 @@ make local-up
 make test
 make types
 make beta-react
-make eval
+make eval-measure
 make eval-judge-calibrate
+make eval
 make release-check
 make chainlit-gate
 ```
 
-`make lint` is available as a strict manual style check. `make ci` and `make release-check` use advisory lint plus blocking correctness checks.
+`make eval-measure` is the explicit bootstrap path before human calibration. `make eval` and `make release-check` are strict. `make lint` is available as a strict manual style check. `make ci` and `make release-check` use advisory lint plus blocking correctness checks.
 
 ## Physical validation
 
 Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout, while `make chainlit-gate` validates the canonical agent with the configured generation model plus OpenVINO embeddings/reranker on the target Fedora/Tiger Lake machine.
 
-RAGAS calibration remains a separate release-policy measurement: produce the real 10-case human/judge calibration artifact before allowing RAGAS scores to become blocking.
+A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for bootstrap and diagnostics, not release approval.
