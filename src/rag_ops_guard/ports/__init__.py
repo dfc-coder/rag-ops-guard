@@ -1,5 +1,4 @@
 from rag_ops_guard.ports.interfaces import (
-    ChatModel,
     EmbeddingProvider,
     ModelMessage,
     ModelTurn,
@@ -14,7 +13,6 @@ from rag_ops_guard.ports.interfaces import (
 )
 
 __all__ = [
-    "ChatModel",
     "EmbeddingProvider",
     "ModelMessage",
     "ModelTurn",

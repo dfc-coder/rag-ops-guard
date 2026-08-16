@@ -1,52 +1,36 @@
-from __future__ import annotations
+from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
-from rag_ops_guard.agent.responses import (
-    capabilities_response,
-    insufficient_evidence_response,
-    out_of_scope_response,
-    runtime_error_response,
-)
-from rag_ops_guard.domain.models import QueryRequest
+ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("message", ["ok", "si", "no", "hi", "a"])
-def test_short_conversational_messages_are_valid(message: str) -> None:
-    request = QueryRequest(question=message)
-    assert request.question == message
+def test_final_demo_targets_use_canonical_agent_and_qwen3_4b() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    compose = (ROOT / "docker/docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "beta-react:" in makefile
+    assert "chainlit-gate:" in makefile
+    assert "eval-judge-calibrate:" in makefile
+    assert "MODEL_FILES=Qwen3-4B-Q4_K_M.gguf" in makefile
+    assert "Qwen3-4B-Q4_K_M.gguf" in compose
+    assert "qwen3-4b-rag" in compose
 
 
-def test_question_is_trimmed() -> None:
-    request = QueryRequest(question="  hola  ")
-    assert request.question == "hola"
+def test_obsolete_react_smoke_shims_are_not_release_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    for obsolete in (
+        "react-smoke:",
+        "react-rag-smoke:",
+        "react-direct-stream-smoke:",
+        "react-direct-ui-smoke:",
+    ):
+        assert obsolete not in makefile
 
 
-def test_whitespace_only_question_is_rejected() -> None:
-    with pytest.raises(ValidationError):
-        QueryRequest(question="   ")
+def test_release_check_keeps_style_advisory_but_correctness_blocking() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-
-@pytest.mark.parametrize(
-    ("question", "renderer"),
-    [
-        ("dime que sabes hacer", capabilities_response),
-        ("algo fuera de alcance", out_of_scope_response),
-        ("no encuentro ese dato", insufficient_evidence_response),
-        ("fallo inesperado", runtime_error_response),
-    ],
-)
-def test_spanish_control_responses_default_to_spanish_without_accents(
-    question: str,
-    renderer,
-) -> None:
-    text = renderer(question).lower()
-    assert "i can" not in text
-    assert "available documentation" not in text
-    assert "could not" not in text
-    assert "unexpected error" not in text
-
-
-def test_clear_english_control_question_stays_english() -> None:
-    assert capabilities_response("What can you do?").startswith("I can")
+    assert "release-check: lint-advisory types test test-integration test-e2e eval" in makefile
+    assert "lint-advisory:" in makefile
+    assert "types:" in makefile
+    assert "test-unit:" in makefile

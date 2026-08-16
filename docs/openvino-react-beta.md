@@ -1,101 +1,71 @@
-# OpenVINO ReAct beta
+# Local Qwen3-4B + OpenVINO profile
 
-This beta keeps orchestration and generation on CPU while moving the two repeated RAG inference workloads to the Intel iGPU.
+This is the target local hardware profile after the generic ReAct pivot.
 
-```text
-CPU
-├── Python / LangGraph
-├── ReAct orchestration
-├── BM25 / RRF
-├── Floci / S3 vectors
-└── Qwen 3.5 2B generation (llama.cpp)
+## Workload split
 
-Intel Iris Xe / OpenVINO Model Server
-├── Qwen3 Embedding 0.6B
-└── Qwen3 Reranker 0.6B
-```
+CPU:
 
-The ReAct agent exposes RAG as `search_knowledge` and documentation inventory as `list_knowledge`. Conversation state is stored by `thread_id` using the LangGraph checkpointer. Additional tools can be added to the tool list without changing the RAG implementation.
+- Python `ConversationAgent` orchestration and memory
+- Floci / local AWS-compatible services
+- BM25 + reciprocal-rank fusion
+- Qwen3-4B Q4_K_M generation and tool calling through llama.cpp
 
-The client-validated recovery point is `baseline/beta-react-v0.1` at commit `a16c1cc5b66fc7c83890760c5658e16699ca1264`.
+Intel Iris Xe / OpenVINO:
 
-## Normal start
+- Qwen3-Embedding-0.6B
+- Qwen3-Reranker-0.6B
 
-From the repository root:
+The retrieval probe and the document tool share the same embedding/reranking infrastructure; the probe is telemetry and never decides whether the model calls a tool.
+
+## Model preparation
 
 ```bash
-git switch develop
-git pull --ff-only
+make generation-model
+make openvino-models
+```
+
+The generation download is SHA256-verified by `scripts/download_models.py`. OpenVINO assets are cached under the configured OpenVINO model directory.
+
+## Start local runtime
+
+```bash
+make local-core-up
+make openvino-up
+make local-data
+```
+
+Then run the primary UI:
+
+```bash
 make beta-react
 ```
 
-`make beta-react` is the stable primary entrypoint. It verifies the generation model, starts the CPU-side services, prepares/starts OpenVINO, ensures the OpenVINO vector index is valid, and launches Gradio.
+Chainlit, Gradio and REST all resolve the same `rag_ops_guard.app.conversation_agent()`.
 
-The browser UI is served at `http://127.0.0.1:8000`.
+## Correctness gates
 
-## First-run / diagnostic commands
-
-The normal beta command already chains these steps, but they remain useful when diagnosing the runtime:
+Before treating the target-machine profile as release-ready, run:
 
 ```bash
-ls -l /dev/dri/render*
-make openvino-models
-make openvino-up
-make openvino-smoke
-make react-smoke
+make types
+make test
+make test-integration
+make chainlit-gate
+make eval
 ```
 
-`openvino-models` is the expensive first-run step. It downloads/prepares the embedding and reranking models into `~/.cache/rag-ops-guard/openvino-models`. Later runs reuse that cache.
+Ruff/formatting are advisory for the architecture pivot and are not a reason to block this hardware validation.
 
-## What each command validates
+The evaluation path also requires:
 
-`make openvino-up` starts OpenVINO Model Server with `/dev/dri` exposed and waits until both `/v3/embeddings` and `/v3/rerank` respond.
+1. double-relevance calibration on the target corpus/runtime;
+2. RAGAS with the same Qwen3-4B runtime/judge;
+3. exactly ten real human labels;
+4. `make eval-judge-calibrate` to produce the judge policy.
 
-`make openvino-smoke` prints measured embedding/reranking latency against the Intel GPU backend.
+If judge-human agreement is <=6/10, RAGAS remains informational and deterministic citation/segment/security gates stay authoritative.
 
-`make react-smoke` checks three product behaviors without Gradio:
+## What hosted CI cannot prove
 
-1. a greeting must not call RAG;
-2. a Calypso retry question must call RAG and answer the documented retry count;
-3. a follow-up must preserve conversational context and answer the Treasury escalation.
-
-`make beta-react` launches the interactive conversational agent.
-
-## Runtime endpoints
-
-- Floci: `127.0.0.1:4566`
-- Qwen 3.5 2B generation: `127.0.0.1:8080`
-- OpenVINO embeddings/reranker: `127.0.0.1:8083/v3`
-- Gradio: `127.0.0.1:8000`
-
-The legacy llama.cpp embedding and reranking containers are intentionally stopped in this beta.
-
-## Separate vector index
-
-The OpenVINO path uses `ops-knowledge-openvino-v1` instead of the legacy vector index. This forces the corpus to be embedded with the same backend used at query time and prevents vectors from different embedding runtimes from being mixed accidentally.
-
-## Useful diagnostics
-
-```bash
-make openvino-status
-podman ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-podman stats
-podman logs --tail 100 rag-ops-ovms-rag
-podman logs --tail 100 rag-ops-llama-gen
-sudo intel_gpu_top
-```
-
-## Stop
-
-Stop the complete beta runtime with:
-
-```bash
-make local-down
-```
-
-The stable operator contract is therefore:
-
-```text
-start: make beta-react
-stop:  make local-down
-```
+Hosted CI verifies software contracts, but it does not prove Intel Iris Xe/OpenVINO behavior or the real Qwen3-4B latency/accuracy profile on the target Fedora/Tiger Lake machine. Those checks remain explicit external release gates.

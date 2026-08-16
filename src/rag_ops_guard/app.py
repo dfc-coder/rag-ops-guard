@@ -3,14 +3,12 @@ from functools import lru_cache
 from rag_ops_guard.adapters.aws.s3_store import S3ObjectStore
 from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
 from rag_ops_guard.adapters.embeddings.llamacpp_embeddings import LlamaCppEmbeddingAdapter
-from rag_ops_guard.adapters.llm.llamacpp_chat import LlamaCppChatAdapter
 from rag_ops_guard.adapters.llm.openai_tool_calling import OpenAIToolCallingAdapter
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
 from rag_ops_guard.agent.conversation import ConversationAgent
 from rag_ops_guard.config import get_settings
-from rag_ops_guard.graph.prompts import CONVERSATIONAL_SYSTEM_PROMPT, GROUNDING_SYSTEM_PROMPT
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.observability.langsmith import configure_langsmith
@@ -61,28 +59,6 @@ def vector_store() -> S3VectorsStore:
         region_name=settings.aws_region,
         access_key=settings.aws_access_key_id,
         secret_key=settings.aws_secret_access_key,
-    )
-
-
-@lru_cache(maxsize=1)
-def chat_model() -> LlamaCppChatAdapter:
-    """Legacy structured-RAG adapter retained for evaluation utilities until U5/U6."""
-    settings = get_settings()
-    configure_langsmith(settings)
-    return LlamaCppChatAdapter(
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        temperature=settings.llm_temperature,
-        analysis_max_tokens=settings.llm_analysis_max_tokens,
-        answer_max_tokens=settings.llm_answer_max_tokens,
-        timeout_seconds=settings.llm_timeout_seconds,
-        top_p=settings.llm_top_p,
-        top_k=settings.llm_top_k,
-        min_p=settings.llm_min_p,
-        presence_penalty=settings.llm_presence_penalty,
-        repeat_penalty=settings.llm_repeat_penalty,
-        answer_system_prompt=GROUNDING_SYSTEM_PROMPT,
-        chat_system_prompt=CONVERSATIONAL_SYSTEM_PROMPT,
     )
 
 

@@ -1,74 +1,107 @@
-# Architecture — v0.1.0-beta.1
+# Architecture
 
-## Goal
+## Canonical ownership
 
-RAG Ops Guard answers operational questions from approved runbooks, API documentation, SLAs, incidents, postmortems and architecture notes. The system must prefer abstention over an unsupported answer.
+Only two modules own the conversational pipeline:
 
-## Local architecture
+- `rag_ops_guard.app`: dependency composition and the singleton `conversation_agent()` factory.
+- `rag_ops_guard.agent.conversation`: conversation state, deterministic safety boundary, non-routing relevance probe, model-driven tool loop, streaming and response assembly.
 
-![RAG Ops Guard local-first architecture](diagrams/architecture.svg)
+Chainlit, Gradio and REST are adapters to that same core. There is no `rag_ops_guard.graph` package and no alternate `ReactAgent`/router workflow.
 
-## Execution profiles
-
-### `local`
-
-Fully local. Floci + two llama.cpp servers. No AWS account or remote inference.
-
-### `local-observed`
-
-Same local inference and storage, with optional LangSmith tracing and experiments.
-
-### `ci`
-
-Floci is real, AI is deterministic. Synthetic embeddings and fake LLM results keep every PR fast and reproducible.
-
-### `aws`
-
-Future profile. Real S3/S3 Vectors/Lambda/API Gateway and Bedrock adapters. It is not part of Beta 1 acceptance.
-
-## Core architectural boundary
-
-The domain depends on Ports, not concrete cloud/AI implementations:
-
-![Ports and adapters boundary](diagrams/ports-adapters.svg)
-
-This boundary is the migration seam for future Bedrock adapters.
-
-## Query state machine
-
-![LangGraph query decision flow](diagrams/langgraph-flow.svg)
-
-A normal query uses at most two generation-model calls: one query-analysis call and one grounded-answer call.
-
-## Evidence policy
-
-The LLM does not choose which document version is authoritative. The deterministic resolver:
-
-1. excludes `deprecated` and `draft` documents for current operational answers;
-2. applies explicit system/environment/version context;
-3. applies `supersedes` metadata;
-4. favors later `effective_date`, then higher `authority`, then newer semantic version;
-5. abstains when remaining conflict cannot be resolved safely.
-
-## Storage model
-
-S3 stores source documents, chunk JSON and manifests. S3 Vectors stores 1024-dimensional float vectors and retrieval metadata. Vector metadata contains a pointer back to the authoritative chunk object in S3 rather than duplicating full document text.
-
-Vector key:
+## Turn flow
 
 ```text
-{logical_id}:{version}:{chunk_index}:{content_hash_8}
+User request
+    |
+    v
+SafetyGuard  ---- blocked ----> safety_blocked
+    |
+    v
+silent relevance probe
+(domain_relevance + grounded_relevance telemetry; never routes the turn)
+    |
+    v
+Qwen3-4B tool-calling model
+    |
+    +------ direct response --------------------+
+    |                                           |
+    +------ search_documents                    |
+    |          |                                |
+    |          v                                |
+    |      dense + BM25                         |
+    |          |                                |
+    |          v                                |
+    |         RRF                               |
+    |          |                                |
+    |          +--> domain_relevance            |
+    |          |                                |
+    |          v                                |
+    |   optional governance resolver            |
+    |          |                                |
+    |          v                                |
+    |   reranker / anchor checks                |
+    |          |                                |
+    |          +--> grounded_relevance          |
+    |          |                                |
+    |          v                                |
+    |     admitted evidence --------------------+
+    |
+    +------ list_documents ---------------------+
+                                                |
+                                                v
+                                      structured segments
+                                                |
+                                                v
+                                     citation validation
+                                                |
+                                                v
+                                      QueryResponse status
 ```
 
-## Ingestion idempotency
+The model decides whether document tools are required. No deterministic semantic router fabricates tool calls.
 
-Each source document has a SHA256 manifest. Re-ingesting identical content returns `no_op`. Changed content under the same logical id/version deletes old vectors and replaces chunks/vectors/manifest.
+## Relevance semantics
 
-## Security boundaries
+`domain_relevance` measures affinity to the corpus before governance resolution. `grounded_relevance` measures support after resolver/target checks. The admission threshold is constrained by both floors: corpus affinity below the domain floor cannot produce grounded evidence.
 
-- Evidence is explicitly treated as untrusted data in generation prompts.
-- Citation IDs must belong to resolved evidence.
-- Direct secret extraction/policy-bypass requests route to `safety_blocked`.
-- Operationally risky questions (for example DLQ replay) are not blindly blocked; they are answered from approved runbooks.
-- Local endpoints bind only to `127.0.0.1` on the host.
-- Real credentials are not required for the local profile.
+The non-tool probe runs on every safe turn so direct answers still produce relevance telemetry; it is not inserted into conversation history and does not count as a tool call.
+
+## Document model
+
+Generic ingestion requires only derived/basic document identity. Markdown and text documents may omit YAML front matter. Optional governance metadata activates status/environment/version/authority/supersession rules when present.
+
+Current pipeline:
+
+```text
+.md / .txt
+    -> parse_document
+    -> DocumentMetadata + body
+    -> MarkdownChunker
+    -> embeddings
+    -> S3 Vectors-compatible store
+```
+
+## Trust boundary
+
+1. User secret-extraction/policy-bypass patterns are checked before model and retrieval.
+2. Retrieved text is marked `UNTRUSTED_DOCUMENT_DATA` and treated only as source data.
+3. Only admitted chunks enter the model's document observation.
+4. Grounded segments may cite only admitted chunk IDs from the current turn.
+5. The public status is derived from validated segment citations.
+
+## Infrastructure boundary
+
+Runtime code depends on ports for object storage, vectors, embeddings, reranking and tool calling. Local adapters use Floci, llama.cpp and OpenVINO-compatible endpoints. AWS/CDK infrastructure remains outside conversational decision logic.
+
+## Architecture fitness
+
+`tests/architecture/test_pivot_replacement.py` enforces:
+
+- canonical owners are `app` + `agent.conversation`;
+- the old `graph/` package is absent;
+- the core has no LangChain/LangGraph imports;
+- unreachable pipeline code is exactly zero;
+- citation validation remains reachable from the canonical path.
+
+Ruff is advisory. Architecture, mypy, unit/property/integration, adversarial security and dependency/security checks are blocking.

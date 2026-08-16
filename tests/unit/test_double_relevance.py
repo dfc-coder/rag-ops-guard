@@ -21,7 +21,13 @@ class KeepResolver:
         return items[:limit]
 
 
-def _search(resolver: Any) -> KnowledgeSearch:
+def _search(
+    resolver: Any,
+    *,
+    score: float = 0.91,
+    domain_floor: float = 0.5,
+    grounded_floor: float = 0.5,
+) -> KnowledgeSearch:
     item = evidence(text="Widget policy contains the internal deployment rules.")
     item.chunk.title = "Widget Policy"
     objects = FakeObjectStore()
@@ -34,10 +40,11 @@ def _search(resolver: Any) -> KnowledgeSearch:
         vectors=FakeVectorStore(evidence=[item]),
         objects=objects,
         resolver=resolver,
-        reranker=FakeReranker(default_score=0.91, default_relevant=True),
+        reranker=FakeReranker(default_score=score, default_relevant=True),
         candidate_k=5,
         context_k=2,
-        min_relevance=0.5,
+        min_relevance=grounded_floor,
+        domain_min_relevance=domain_floor,
     )
 
 
@@ -57,6 +64,22 @@ def test_grounded_relevance_is_measured_after_resolution() -> None:
     assert result.domain_relevance == 0.91
     assert result.grounded_relevance == 0.91
     assert result.supported is True
+
+
+def test_domain_floor_prohibits_grounding_even_when_grounded_floor_is_lower() -> None:
+    """SPEC-4.2"""
+    result = _search(
+        KeepResolver(),
+        score=0.70,
+        domain_floor=0.80,
+        grounded_floor=0.60,
+    ).search("widget policy", QueryContext())
+
+    assert result.domain_relevance == 0.70
+    assert result.grounded_relevance == 0.70
+    assert result.domain_related is False
+    assert result.admitted == []
+    assert result.supported is False
 
 
 class ProbeKnowledge:

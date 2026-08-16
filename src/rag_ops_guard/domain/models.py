@@ -285,63 +285,6 @@ class IngestResponse(BaseModel):
     chunks: int = Field(ge=0)
 
 
-class QueryAnalysis(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    normalized_question: str = Field(min_length=1)
-    systems: list[str] = Field(default_factory=list)
-    environment: Literal["production", "staging"] | None = None
-    api_version: str | None = None
-    requires_clarification: bool
-    clarification_question: str | None = None
-    safety_category: Literal["normal", "secret_extraction", "policy_bypass"]
-    fallback_message: str | None = Field(default=None, min_length=1, max_length=180)
-    safety_blocked_message: str | None = Field(default=None, min_length=1, max_length=180)
-    insufficient_evidence_message: str | None = Field(default=None, min_length=1, max_length=180)
-
-    @model_validator(mode="after")
-    def normalize_fallback_messages(self) -> QueryAnalysis:
-        fallback = (
-            self.fallback_message
-            or self.insufficient_evidence_message
-            or self.safety_blocked_message
-            or "The available documentation does not provide enough evidence to answer safely."
-        )
-        self.fallback_message = fallback
-        self.safety_blocked_message = self.safety_blocked_message or fallback
-        self.insufficient_evidence_message = self.insufficient_evidence_message or fallback
-        return self
-
-
-class GroundedAnswer(BaseModel):
-    """Legacy evaluation schema retained until U5 realigns RAGAS."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal[
-        "answered",
-        "insufficient_evidence",
-        "clarification_required",
-        "safety_blocked",
-    ]
-    answer: str = Field(min_length=1)
-    citation_ids: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_grounding_contract(self) -> GroundedAnswer:
-        normalized = self.answer.strip().lower()
-        looks_like_backend_timeout = "timed out" in normalized and "shorter message" in normalized
-
-        if self.status == "answered" and (not self.citation_ids or looks_like_backend_timeout):
-            self.status = "insufficient_evidence"
-            self.citation_ids = []
-
-        if self.status != "answered":
-            self.citation_ids = []
-
-        return self
-
-
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
