@@ -46,19 +46,40 @@ class ResponseOutcome(StrEnum):
 
 
 class DocumentMetadata(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """Document identity plus optional governance metadata.
+
+    Generic documents require only identity/title/version. Rich operational metadata remains
+    available and activates resolver policy when present. Extra front-matter keys are preserved
+    rather than rejected so ingestion is not coupled to one business domain.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     id: str = Field(min_length=1)
     logical_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     version: str = Field(min_length=1)
-    status: DocumentStatus
-    effective_date: date
-    system: str = Field(min_length=1)
-    environment: Literal["production", "staging", "all"]
-    document_type: DocumentType
-    authority: int = Field(ge=0, le=100)
+    status: DocumentStatus | None = None
+    effective_date: date | None = None
+    system: str | None = Field(default=None, min_length=1)
+    environment: Literal["production", "staging", "all"] | None = None
+    document_type: DocumentType | None = None
+    authority: int | None = Field(default=None, ge=0, le=100)
     supersedes: list[str] = Field(default_factory=list)
+
+    @property
+    def has_governance_metadata(self) -> bool:
+        return any(
+            (
+                self.status is not None,
+                self.effective_date is not None,
+                self.system is not None,
+                self.environment is not None,
+                self.document_type is not None,
+                self.authority is not None,
+                bool(self.supersedes),
+            )
+        )
 
 
 class Chunk(BaseModel):
