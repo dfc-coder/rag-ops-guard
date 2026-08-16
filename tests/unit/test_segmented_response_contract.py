@@ -5,13 +5,16 @@ from pydantic import ValidationError
 
 from rag_ops_guard.domain.models import (
     Citation,
+    GeneratedSegment,
     QueryResponse,
     QueryStatus,
     ResponseOutcome,
     ResponseSegment,
 )
-from rag_ops_guard.retrieval.citations import CitationValidationError, validate_generated_segments
-from rag_ops_guard.domain.models import GeneratedSegment
+from rag_ops_guard.retrieval.citations import (
+    CitationValidationError,
+    validate_generated_segments,
+)
 from tests.fixtures.builders import evidence, metadata
 
 
