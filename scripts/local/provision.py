@@ -21,6 +21,7 @@ VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_CODE_PATH = Path(os.environ.get("LAMBDA_CODE_PATH", ".local/lambda-package")).resolve()
 LOCAL_API_ID = os.environ.get("RAG_LOCAL_API_ID", "rag-ops-guard")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
+LAMBDA_PYTHON_VERSION = os.environ.get("LAMBDA_PYTHON_VERSION", "3.12")
 DEFAULT_API_STAGE = "$default"
 
 
@@ -140,7 +141,7 @@ def recreate_lambda(name: str, handler: str, role_arn: str) -> str:
         lamb.delete_function(FunctionName=name)
     response = lamb.create_function(
         FunctionName=name,
-        Runtime="python3.12",
+        Runtime=f"python{LAMBDA_PYTHON_VERSION}",
         Role=role_arn,
         Handler=handler,
         Code={"S3Bucket": "hot-reload", "S3Key": str(LAMBDA_CODE_PATH)},
