@@ -54,26 +54,23 @@ def test_domain_calibration_treats_unanswerable_corpus_queries_as_in_domain() ->
     assert observation.should_be_grounded is False
 
 
-def test_grounded_calibration_scores_only_expected_admissible_evidence() -> None:
-    expected = SimpleNamespace(chunk=SimpleNamespace(id="expected", title="Payment Retry Policy"))
-    wrong = SimpleNamespace(chunk=SimpleNamespace(id="wrong", title="Vendor Troubleshooting Note"))
+def test_expected_grounded_score_uses_only_expected_admitted_evidence() -> None:
+    correct = SimpleNamespace(chunk=SimpleNamespace(title="Payment Retry Policy", id="correct"))
+    wrong = SimpleNamespace(chunk=SimpleNamespace(title="Vendor Troubleshooting Note", id="wrong"))
     result = SimpleNamespace(
-        admitted=[wrong, expected],
-        reranker_scores={"wrong": 0.99, "expected": 0.61},
+        admitted=[wrong, correct],
+        reranker_scores={"wrong": 0.99, "correct": 0.71},
     )
 
     score, matched = expected_grounded_score(result, {"Payment Retry Policy"})
 
-    assert score == pytest.approx(0.61)
+    assert score == 0.71
     assert matched == ["Payment Retry Policy"]
 
 
-def test_grounded_calibration_does_not_credit_high_scoring_wrong_document() -> None:
-    wrong = SimpleNamespace(chunk=SimpleNamespace(id="wrong", title="Vendor Troubleshooting Note"))
-    result = SimpleNamespace(
-        admitted=[wrong],
-        reranker_scores={"wrong": 0.99},
-    )
+def test_expected_grounded_score_is_zero_when_only_wrong_evidence_survives() -> None:
+    wrong = SimpleNamespace(chunk=SimpleNamespace(title="Vendor Troubleshooting Note", id="wrong"))
+    result = SimpleNamespace(admitted=[wrong], reranker_scores={"wrong": 0.99})
 
     score, matched = expected_grounded_score(result, {"Payment Retry Policy"})
 
