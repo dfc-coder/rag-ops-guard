@@ -5,6 +5,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASET = ROOT / "evaluation/datasets/retrieval-calibration-v2.json"
@@ -63,6 +64,26 @@ def calibrate_floors(observations: list[Observation]) -> CalibrationFloors:
     )
 
 
+def expected_grounded_score(result: Any, expected_titles: set[str]) -> tuple[float, list[str]]:
+    """Score only expected evidence that is eligible for admission with zero floors.
+
+    Calibration runs with both relevance floors forced to zero. Therefore ``admitted``
+    represents the evidence that survives candidate retrieval, resolver/anchor policy,
+    reranking and the configured context-k cap before a relevance threshold is applied.
+    A high score on the wrong document must never count as a grounded true positive.
+    """
+    matched_titles: list[str] = []
+    scores: list[float] = []
+    for item in result.admitted:
+        if item.chunk.title not in expected_titles:
+            continue
+        matched_titles.append(item.chunk.title)
+        raw_score = result.reranker_scores.get(item.chunk.id)
+        if raw_score is not None:
+            scores.append(float(raw_score))
+    return max(scores, default=0.0), sorted(set(matched_titles))
+
+
 def _require_domain_class_separation(observations: list[Observation]) -> None:
     in_domain_unanswerable = [
         item.domain_score
@@ -116,6 +137,8 @@ def main() -> None:
     parser.add_argument("--env-file", type=Path)
     args = parser.parse_args()
 
+    # Measure the backend before applying any admission threshold. This is labelled,
+    # offline calibration; it is not online self-calibration from user traffic.
     os.environ["RETRIEVAL_DOMAIN_MIN_RELEVANCE"] = "0.0"
     os.environ["RETRIEVAL_MIN_RELEVANCE"] = "0.0"
 
@@ -126,17 +149,28 @@ def main() -> None:
     cases = json.loads(DATASET.read_text(encoding="utf-8"))
     for case in cases:
         result = knowledge_search().search(case["query"], QueryContext(), query_mode="probe")
+        case_class = str(case["class"])
+        expected_titles = {str(title) for title in case.get("expected_titles", [])}
+        matched_titles: list[str] = []
+        if case_class == "grounded":
+            grounded_score, matched_titles = expected_grounded_score(result, expected_titles)
+        else:
+            grounded_score = float(result.grounded_relevance)
+
         observation = Observation(
             case_id=case["id"],
-            case_class=case["class"],
+            case_class=case_class,
             domain_score=float(result.domain_relevance),
-            grounded_score=float(result.grounded_relevance),
+            grounded_score=grounded_score,
         )
         observations.append(observation)
+        expected_note = (
+            f" expected_matched={matched_titles}" if case_class == "grounded" else ""
+        )
         print(
             f"{observation.case_id}: class={observation.case_class} "
             f"domain={observation.domain_score:.6f} "
-            f"grounded={observation.grounded_score:.6f}"
+            f"grounded={observation.grounded_score:.6f}{expected_note}"
         )
 
     try:
@@ -166,7 +200,9 @@ def main() -> None:
         f"export RETRIEVAL_MIN_RELEVANCE={floors.grounded_floor:.6f}\n"
     )
     if args.env_file:
+        args.env_file.parent.mkdir(parents=True, exist_ok=True)
         args.env_file.write_text(output, encoding="utf-8")
+        print(f"wrote calibrated relevance environment: {args.env_file}")
     else:
         print(output, end="")
 
