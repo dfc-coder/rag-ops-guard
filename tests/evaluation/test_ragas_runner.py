@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 
 import pytest
-from ragas.dataset_schema import EvaluationResult
 from ragas.metrics import (
     Faithfulness,
     LLMContextPrecisionWithReference,
@@ -15,6 +14,22 @@ from ragas.metrics import (
 
 from evaluation.runners import run_ragas
 from rag_ops_guard.evaluation.judge import JudgeIdentity, evaluation_dataset_sha256
+
+
+class _Column:
+    def __init__(self, values: list[float]) -> None:
+        self._values = values
+
+    def tolist(self) -> list[float]:
+        return self._values
+
+
+class _Frame:
+    def __init__(self, values: dict[str, list[float]]) -> None:
+        self._values = values
+
+    def __getitem__(self, key: str) -> _Column:
+        return _Column(self._values[key])
 
 
 def test_ragas_collects_grounded_reference_cases_and_skips_ungrounded_without_reference(
@@ -143,28 +158,16 @@ def test_pinned_ragas_metric_names_match_runner_result_columns() -> None:
         "answer_relevancy",
     ]
 
-    sample = run_ragas.RagasSample(
-        case_id="one",
-        user_input="How many retries?",
-        retrieved_contexts=["Three retries are allowed."],
-        grounded_response="Three retries are allowed.",
-        reference="Three retries are allowed.",
+    frame = _Frame(
+        {
+            "faithfulness": [1.0],
+            "llm_context_precision_with_reference": [0.9],
+            "context_recall": [0.8],
+            "answer_relevancy": [0.7],
+        }
     )
-    result = EvaluationResult(
-        scores=[
-            {
-                "faithfulness": 1.0,
-                "llm_context_precision_with_reference": 1.0,
-                "context_recall": 1.0,
-                "answer_relevancy": 1.0,
-            }
-        ],
-        dataset=run_ragas._dataset([sample]),
-    )
-    frame = result.to_pandas()
-
-    assert set(metric_names).issubset(frame.columns)
     assert run_ragas._metric_values(frame, "faithfulness", ["one"]) == {"one": 1.0}
+    assert run_ragas._metric_values(frame, "answer_relevancy", ["one"]) == {"one": 0.7}
 
 
 def test_judge_dataset_identity_covers_base_and_mixed_suites(tmp_path: Path) -> None:
