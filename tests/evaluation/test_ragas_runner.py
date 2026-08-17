@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -88,3 +89,25 @@ def test_ragas_run_config_environment_must_be_bounded(monkeypatch: pytest.Monkey
 
     with pytest.raises(SystemExit, match="RAGAS_MAX_WORKERS must be >= 1"):
         run_ragas._positive_int_env("RAGAS_MAX_WORKERS", 2)
+
+
+def test_ragas_suite_hard_timeout_bounds_complete_evaluation() -> None:
+    if not hasattr(run_ragas.signal, "setitimer"):
+        pytest.skip("hard wall timeout requires POSIX setitimer")
+
+    with pytest.raises(TimeoutError, match="RAGAS suite exceeded"):
+        with run_ragas.suite_wall_timeout(0.02):
+            time.sleep(0.10)
+
+
+def test_repository_golden_grounded_cases_have_references() -> None:
+    rows = json.loads(Path("evaluation/datasets/golden-v1.json").read_text(encoding="utf-8"))
+    missing = [
+        str(row["id"])
+        for row in rows
+        if str(row.get("expected_status")) in {"answered_grounded", "answered_mixed"}
+        and row.get("expected_source_ids")
+        and not str(row.get("reference_answer") or "").strip()
+    ]
+
+    assert missing == []
