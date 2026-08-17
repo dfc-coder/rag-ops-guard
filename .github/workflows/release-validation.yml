@@ -10,13 +10,13 @@ permissions:
 
 concurrency:
   group: rag-e2e-runner
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   real-e2e:
     name: release/e2e
     runs-on: [self-hosted, linux, x64, rag-e2e]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       APP_ENV: ci
       RUN_REAL_E2E: '1'
@@ -26,10 +26,12 @@ jobs:
       LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-gen
       LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-embed
       LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-rerank
+      OVMS_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-ovms
       FLOCI_HOST_PORT: '24566'
       LLAMA_GEN_HOST_PORT: '28080'
       LLAMA_EMBED_HOST_PORT: '28081'
       LLAMA_RERANK_HOST_PORT: '28082'
+      OVMS_HOST_PORT: '28083'
       AWS_ENDPOINT_URL: http://localhost:24566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -37,9 +39,15 @@ jobs:
       LLM_BASE_URL: http://localhost:28080/v1
       LLM_MODEL: qwen3-4b-rag
       RAGAS_JUDGE_MODEL: qwen3-4b-rag
-      EMBEDDING_BASE_URL: http://localhost:28081/v1
-      RERANKER_BASE_URL: http://localhost:28082
+      S3_VECTOR_INDEX: ops-knowledge-openvino-v1
+      EMBEDDING_BASE_URL: http://localhost:28083/v3
+      EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
+      EMBEDDING_TIMEOUT_SECONDS: '60'
+      RERANKER_BASE_URL: http://localhost:28083/v3
+      RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
       RERANKER_TIMEOUT_SECONDS: '90'
+      GOLDEN_HTTP_TIMEOUT_SECONDS: '180'
+      GOLDEN_CASE_TIMEOUT_SECONDS: '240'
     steps:
       - name: Remove legacy Floci bind-mount data
         run: |
@@ -49,15 +57,14 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - run: make doctor
       - run: make setup
-      - run: make models
-      - run: make local-up
-      - run: make local-data
-      - run: make retrieval-validate
-      - run: make local-provision
-      - run: make ingest-corpus
+      - name: Prepare canonical physical runtime
+        run: make physical-ready
       - run: uv run pytest -m e2e tests/e2e
       - run: uv run pytest tests/adversarial
-      - run: make eval
+      - name: Golden evaluation
+        run: uv run --extra eval python evaluation/runners/run_golden.py
+      - name: Strict RAGAS evaluation
+        run: uv run --extra eval python evaluation/runners/run_ragas.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,7 +76,7 @@ jobs:
   reproducibility:
     name: release/reproducibility
     runs-on: [self-hosted, linux, x64, rag-e2e]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       APP_ENV: ci
       COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro
@@ -78,10 +85,12 @@ jobs:
       LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-gen
       LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-embed
       LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-rerank
+      OVMS_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-ovms
       FLOCI_HOST_PORT: '34566'
       LLAMA_GEN_HOST_PORT: '38080'
       LLAMA_EMBED_HOST_PORT: '38081'
       LLAMA_RERANK_HOST_PORT: '38082'
+      OVMS_HOST_PORT: '38083'
       AWS_ENDPOINT_URL: http://localhost:34566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -89,9 +98,15 @@ jobs:
       LLM_BASE_URL: http://localhost:38080/v1
       LLM_MODEL: qwen3-4b-rag
       RAGAS_JUDGE_MODEL: qwen3-4b-rag
-      EMBEDDING_BASE_URL: http://localhost:38081/v1
-      RERANKER_BASE_URL: http://localhost:38082
+      S3_VECTOR_INDEX: ops-knowledge-openvino-v1
+      EMBEDDING_BASE_URL: http://localhost:38083/v3
+      EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
+      EMBEDDING_TIMEOUT_SECONDS: '60'
+      RERANKER_BASE_URL: http://localhost:38083/v3
+      RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
       RERANKER_TIMEOUT_SECONDS: '90'
+      GOLDEN_HTTP_TIMEOUT_SECONDS: '180'
+      GOLDEN_CASE_TIMEOUT_SECONDS: '240'
     steps:
       - name: Remove legacy Floci bind-mount data
         run: |
@@ -103,12 +118,8 @@ jobs:
           clean: true
       - run: make doctor
       - run: make setup
-      - run: make models
-      - run: make local-up
-      - run: make local-data
-      - run: make retrieval-validate
-      - run: make local-provision
-      - run: make ingest-corpus
+      - name: Prepare canonical physical runtime
+        run: make physical-ready
       - run: make smoke
       - if: always()
         run: make local-clean || true
