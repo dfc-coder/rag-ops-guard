@@ -75,6 +75,7 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     makefile = _read("Makefile")
     provision = _read("scripts/local/provision.py")
     release = _read(".github/workflows/release-validation.yml")
+    reranker = _read("src/rag_ops_guard/adapters/reranking/llamacpp_reranker.py")
 
     assert "physical-ready:" in makefile
     assert "OVMS_NETWORK=$(RAG_OPS_NETWORK)" in makefile
@@ -85,6 +86,8 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     assert "make physical-ready" in release
     assert "OpenVINO/Qwen3-Embedding-0.6B-int8-ov" in release
     assert "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov" in release
+    assert "_QWEN_SEQ_CLS_PREFIX" in reranker
+    assert "<Document>:" in reranker
     assert "make local-up" not in release
 
 
