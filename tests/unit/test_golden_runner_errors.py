@@ -142,16 +142,16 @@ def test_golden_suite_includes_four_explicit_mixed_cases() -> None:
     assert len({case["id"] for case in cases}) == len(cases)
 
 
-def test_declared_golden_gates_cover_facts_sources_and_overall_quality() -> None:
+def test_declared_golden_gates_require_all_34_cases_to_pass() -> None:
     thresholds = yaml.safe_load(
         (ROOT / "evaluation/thresholds.yaml").read_text(encoding="utf-8")
     )
 
     expected = {
-        "case_accuracy": 0.90,
-        "status_accuracy": 0.90,
-        "answer_fact_accuracy": 0.90,
-        "source_accuracy": 0.90,
+        "case_accuracy": 1.00,
+        "status_accuracy": 1.00,
+        "answer_fact_accuracy": 1.00,
+        "source_accuracy": 1.00,
         "citation_validity": 1.00,
         "segment_integrity": 1.00,
         "mixed_segment_integrity": 1.00,
