@@ -69,19 +69,20 @@ def test_unsloth_qwen35_profile_matches_non_thinking_agent_runtime() -> None:
     assert "--jinja" in compose
 
 
-def test_generation_contract_checks_structured_output_and_tool_calling_before_eval() -> None:
+def test_generation_contract_uses_one_function_calling_protocol_before_eval() -> None:
     makefile = _read("Makefile")
     contract = _read("scripts/validate_llama_contract.py")
     adapter = _read("src/rag_ops_guard/adapters/llm/openai_tool_calling.py")
 
     assert "physical-generation-contract: physical-up" in makefile
     assert "physical-relevance-calibrate: physical-generation-contract" in makefile
-    assert '"type": "json_schema", "schema": schema' in contract
     assert '"tool_choice": "auto"' in contract
-    assert "LLAMA GENERATION CONTRACT READY" in contract
+    assert "submit_structured_response" in contract
+    assert "LLAMA FUNCTION-CALLING CONTRACT READY" in contract
     assert "with_structured_output" not in adapter
-    assert '"response_format": {"type": "json_schema", "schema": schema_payload}' in adapter
-    assert "Failed to initialize samplers" in adapter
+    assert "response_format" not in adapter
+    assert "FINAL_RESPONSE_TOOL" in adapter
+    assert "tool_choice={" in adapter
 
 
 def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
@@ -171,11 +172,28 @@ def test_physical_validation_preserves_running_evidence() -> None:
 def test_physical_provisioning_propagates_langsmith_without_hardcoded_disable() -> None:
     provision = _read("scripts/local/provision.py")
     handler = _read("src/rag_ops_guard/handlers/query.py")
+    release = _read(".github/workflows/release-validation.yml")
+    loader = _read("scripts/local/configure_langsmith_ci.py")
 
     assert '_langsmith_environment()' in provision
     assert '"LANGSMITH_TRACING": "false"' not in provision
     assert '"LANGSMITH_API_KEY"' in provision
     assert '@traceable(name="rag_query", run_type="chain")' in handler
+    assert "configure_langsmith_ci.py" in release
+    assert "Documents/projects/rag-ops-guard/.env" in loader
+    assert "::add-mask::" in loader
+
+
+def test_automatic_physical_workflow_requires_34_golden_traces() -> None:
+    release = _read(".github/workflows/release-validation.yml")
+    verifier = _read("scripts/verify_langsmith_golden.py")
+    thresholds = _read("evaluation/thresholds.yaml")
+
+    assert "Run Golden 34 with LangSmith tracing" in release
+    assert "Verify all 34 Golden traces reached LangSmith" in release
+    assert "expected exactly 34 unique Golden questions" in verifier
+    assert "LANGSMITH GOLDEN READY: 34/34" in verifier
+    assert "case_accuracy: 1.00" in thresholds
 
 
 def test_automatic_physical_workflow_measures_ragas_without_claiming_release_readiness() -> None:

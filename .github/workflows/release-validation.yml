@@ -83,21 +83,7 @@ jobs:
         env:
           REPO_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           REPO_LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
-        shell: bash
-        run: |
-          key="${REPO_LANGSMITH_API_KEY:-${LANGSMITH_API_KEY:-}}"
-          if [[ -z "$key" ]]; then
-            echo "::error::Golden acceptance requires LANGSMITH_API_KEY as a repository secret or runner environment variable"
-            exit 1
-          fi
-          printf 'LANGSMITH_TRACING=true\n' >> "$GITHUB_ENV"
-          printf 'LANGSMITH_PROJECT=rag-ops-guard-physical-golden\n' >> "$GITHUB_ENV"
-          printf 'LANGSMITH_ENDPOINT=https://api.smith.langchain.com\n' >> "$GITHUB_ENV"
-          printf 'LANGSMITH_API_KEY=%s\n' "$key" >> "$GITHUB_ENV"
-          workspace="${REPO_LANGSMITH_WORKSPACE_ID:-${LANGSMITH_WORKSPACE_ID:-}}"
-          if [[ -n "$workspace" ]]; then
-            printf 'LANGSMITH_WORKSPACE_ID=%s\n' "$workspace" >> "$GITHUB_ENV"
-          fi
+        run: python3 scripts/local/configure_langsmith_ci.py
       - run: make doctor
       - run: make setup
       - name: Prepare physical runtime, calibration, Lambda/API and corpus

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
+from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from rag_ops_guard.adapters.llm.openai_tool_calling import (
+    FINAL_RESPONSE_TOOL,
+    OpenAIToolCallingAdapter,
     _content_text,
-    _json_content,
-    _structured_prompt,
     _to_langchain_messages,
 )
+from rag_ops_guard.domain.models import StructuredAnswer
 from rag_ops_guard.ports.interfaces import ModelMessage, ToolCall
 
 
@@ -56,22 +57,93 @@ def test_content_text_normalizes_supported_openai_content_shapes() -> None:
     assert _content_text({"text": "ignored"}) == ""
 
 
-def test_json_content_accepts_raw_json_and_strips_code_fences() -> None:
-    assert _json_content('{"segments": []}') == '{"segments": []}'
-    assert _json_content('```json\n{"segments": []}\n```') == '{"segments": []}'
+class _FakeRunnable:
+    def __init__(self, response: AIMessage) -> None:
+        self._response = response
+
+    def invoke(self, _messages: Any) -> AIMessage:
+        return self._response
 
 
-def test_structured_prompt_carries_exact_pydantic_schema_instruction() -> None:
-    schema = {
-        "type": "object",
-        "properties": {"status": {"type": "string"}},
-        "required": ["status"],
-        "additionalProperties": False,
+class _FakeModel:
+    def __init__(self, response: AIMessage) -> None:
+        self.response = response
+        self.definitions: list[dict[str, Any]] | None = None
+        self.tool_choice: Any = None
+        self.parallel_tool_calls: bool | None = None
+
+    def bind_tools(
+        self,
+        definitions: list[dict[str, Any]],
+        *,
+        tool_choice: Any,
+        parallel_tool_calls: bool,
+    ) -> _FakeRunnable:
+        self.definitions = definitions
+        self.tool_choice = tool_choice
+        self.parallel_tool_calls = parallel_tool_calls
+        return _FakeRunnable(self.response)
+
+
+def _adapter() -> OpenAIToolCallingAdapter:
+    return OpenAIToolCallingAdapter(
+        base_url="http://localhost:8080/v1",
+        model="test",
+        temperature=0.7,
+        top_p=0.8,
+        top_k=20,
+        min_p=0.0,
+        presence_penalty=1.5,
+        repeat_penalty=1.0,
+        max_completion_tokens=512,
+        timeout_seconds=60,
+    )
+
+
+def test_structured_response_reuses_forced_function_calling_and_pydantic_validation() -> None:
+    adapter = _adapter()
+    fake = _FakeModel(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "id": "submit-1",
+                    "name": FINAL_RESPONSE_TOOL,
+                    "args": {
+                        "segments": [
+                            {"text": "Three retries are allowed.", "citation_ids": ["chunk-1"]}
+                        ]
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+    )
+    adapter._model = fake  # type: ignore[assignment]
+
+    result = adapter.invoke_structured(
+        [ModelMessage(role="system", content="system"), ModelMessage(role="user", content="x")],
+        StructuredAnswer,
+    )
+
+    assert result.segments[0].text == "Three retries are allowed."
+    assert result.segments[0].citation_ids == ["chunk-1"]
+    assert fake.definitions is not None
+    assert fake.definitions[0]["function"]["name"] == FINAL_RESPONSE_TOOL
+    assert fake.definitions[0]["function"]["parameters"] == StructuredAnswer.model_json_schema()
+    assert fake.tool_choice == {
+        "type": "function",
+        "function": {"name": FINAL_RESPONSE_TOOL},
     }
-    messages = [ModelMessage(role="system", content="system"), ModelMessage(role="user", content="x")]
+    assert fake.parallel_tool_calls is False
 
-    prompted = _structured_prompt(messages, schema)
 
-    assert prompted[0].role == "system"
-    assert "Return only one JSON object" in prompted[0].content
-    assert json.dumps(schema, ensure_ascii=False, separators=(",", ":")) in prompted[0].content
+def test_structured_response_fails_closed_without_required_submission_tool() -> None:
+    adapter = _adapter()
+    adapter._model = _FakeModel(AIMessage(content="plain text"))  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match="submit_structured_response exactly once"):
+        adapter.invoke_structured(
+            [ModelMessage(role="user", content="x")],
+            StructuredAnswer,
+        )

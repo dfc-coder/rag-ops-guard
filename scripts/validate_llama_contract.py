@@ -10,7 +10,7 @@ BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1").rstrip("/"
 MODEL = os.environ.get("LLM_MODEL", "qwen3.5-2b-unsloth-ud-q4-k-xl")
 TIMEOUT = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
 
-TOOL = {
+SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "search_documents",
@@ -23,6 +23,37 @@ TOOL = {
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+SUBMIT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_structured_response",
+        "description": "Submit the final structured response.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "segments": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "citation_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["text", "citation_ids"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["segments"],
             "additionalProperties": False,
         },
     },
@@ -49,86 +80,82 @@ def _message(payload: dict[str, Any]) -> dict[str, Any]:
     return message
 
 
-def _tool_names(message: dict[str, Any]) -> list[str]:
+def _tool_calls(message: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     raw = message.get("tool_calls")
     if not isinstance(raw, list):
         return []
-    names: list[str] = []
+    result: list[tuple[str, dict[str, Any]]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
         function = item.get("function")
-        if isinstance(function, dict) and function.get("name"):
-            names.append(str(function["name"]))
-        elif item.get("name"):
-            names.append(str(item["name"]))
-    return names
+        if isinstance(function, dict):
+            name = str(function.get("name") or "")
+            arguments = function.get("arguments")
+        else:
+            name = str(item.get("name") or "")
+            arguments = item.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"tool arguments were not JSON: {arguments!r}") from exc
+            arguments = parsed
+        if not isinstance(arguments, dict):
+            arguments = {}
+        if name:
+            result.append((name, arguments))
+    return result
 
 
-def validate_structured_output() -> None:
-    schema = {
-        "type": "object",
-        "properties": {"status": {"type": "string", "enum": ["ok"]}},
-        "required": ["status"],
-        "additionalProperties": False,
-    }
-    base = {
-        "model": MODEL,
-        "messages": [{"role": "user", "content": "Return status ok."}],
-        "temperature": 0,
-    }
-    try:
-        response = _post(
-            {**base, "response_format": {"type": "json_schema", "schema": schema}}
-        )
-        mode = "json_schema"
-    except RuntimeError as exc:
-        if "Failed to initialize samplers" not in str(exc):
-            raise
-        response = _post(
-            {
-                **base,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Return only JSON matching this schema: "
-                            + json.dumps(schema, separators=(",", ":"))
-                        ),
-                    },
-                    *base["messages"],
-                ],
-                "response_format": {"type": "json_object"},
-            }
-        )
-        mode = "json_object-fallback"
-    content = str(_message(response).get("content") or "").strip()
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"structured output was not JSON: {content!r}") from exc
-    if parsed != {"status": "ok"}:
-        raise RuntimeError(f"structured output contract mismatch: {parsed!r}")
-    print(f"llama structured output: ready ({mode})")
+def validate_forced_structured_submission() -> None:
+    response = _post(
+        {
+            "model": MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Submit a final structured response using the required tool.",
+                },
+                {"role": "user", "content": "Say status ok."},
+            ],
+            "tools": [SUBMIT_TOOL],
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "submit_structured_response"},
+            },
+            "parallel_tool_calls": False,
+            "temperature": 0,
+        }
+    )
+    calls = _tool_calls(_message(response))
+    selected = [args for name, args in calls if name == "submit_structured_response"]
+    if len(selected) != 1:
+        raise RuntimeError(f"forced structured submission failed: {_message(response)!r}")
+    segments = selected[0].get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise RuntimeError(f"structured submission arguments invalid: {selected[0]!r}")
+    print("llama structured submission tool: ready")
 
 
-def validate_tool_protocol() -> None:
-    forced = _post(
+def validate_forced_search_protocol() -> None:
+    response = _post(
         {
             "model": MODEL,
             "messages": [{"role": "user", "content": "Search the internal retry policy."}],
-            "tools": [TOOL],
+            "tools": [SEARCH_TOOL],
             "tool_choice": {"type": "function", "function": {"name": "search_documents"}},
             "parallel_tool_calls": False,
             "temperature": 0,
         }
     )
-    if "search_documents" not in _tool_names(_message(forced)):
-        raise RuntimeError(f"forced tool-call protocol failed: {_message(forced)!r}")
-    print("llama forced tool calling: ready")
+    calls = _tool_calls(_message(response))
+    if not any(name == "search_documents" for name, _ in calls):
+        raise RuntimeError(f"forced tool-call protocol failed: {_message(response)!r}")
+    print("llama forced search tool calling: ready")
 
 
-def validate_tool_selection() -> None:
+def validate_automatic_tool_selection() -> None:
     response = _post(
         {
             "model": MODEL,
@@ -146,23 +173,24 @@ def validate_tool_selection() -> None:
                     "content": "How many times can a Calypso timeout be retried?",
                 },
             ],
-            "tools": [TOOL],
+            "tools": [SEARCH_TOOL],
             "tool_choice": "auto",
             "parallel_tool_calls": False,
             "temperature": 0,
         }
     )
     message = _message(response)
-    if "search_documents" not in _tool_names(message):
+    calls = _tool_calls(message)
+    if not any(name == "search_documents" for name, _ in calls):
         raise RuntimeError(f"automatic tool selection failed: {message!r}")
-    print("llama automatic tool selection: ready")
+    print("llama automatic search tool selection: ready")
 
 
 def main() -> None:
-    validate_structured_output()
-    validate_tool_protocol()
-    validate_tool_selection()
-    print("LLAMA GENERATION CONTRACT READY")
+    validate_forced_search_protocol()
+    validate_forced_structured_submission()
+    validate_automatic_tool_selection()
+    print("LLAMA FUNCTION-CALLING CONTRACT READY")
 
 
 if __name__ == "__main__":
