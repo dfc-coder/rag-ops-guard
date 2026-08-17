@@ -11,6 +11,12 @@ _DEFAULT_INSTRUCTION = (
     "target is not relevant merely because it describes a similar operation."
 )
 _DEFAULT_BATCH_SIZE = 8
+_QWEN_SEQ_CLS_PREFIX = (
+    '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query '
+    'and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n'
+    '<|im_start|>user\n'
+)
+_QWEN_SEQ_CLS_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
 class LlamaCppRerankerAdapter:
@@ -39,11 +45,17 @@ class LlamaCppRerankerAdapter:
         self._batch_size = batch_size
 
     def _query(self, query: str) -> str:
-        # OVMS prepares the Qwen sequence-classification reranker with its own task template.
-        # llama.cpp's native classifier still benefits from the explicit relevance instruction.
         if self._openvino:
-            return query.strip()
+            return (
+                f"{_QWEN_SEQ_CLS_PREFIX}<Instruct>: {self._instruction}\n"
+                f"<Query>: {query.strip()}\n"
+            )
         return f"Instruct: {self._instruction}\nQuery: {query.strip()}"
+
+    def _document(self, document: str) -> str:
+        if not self._openvino:
+            return document
+        return f"<Document>: {document}{_QWEN_SEQ_CLS_SUFFIX}"
 
     def _grade_batch(self, query: str, documents: list[str]) -> list[float]:
         response = httpx.post(
@@ -51,7 +63,7 @@ class LlamaCppRerankerAdapter:
             json={
                 "model": self._model,
                 "query": self._query(query),
-                "documents": documents,
+                "documents": [self._document(document) for document in documents],
                 "top_n": len(documents),
             },
             timeout=self._timeout_seconds,
