@@ -14,7 +14,7 @@ def _load_human_labels(path: Path) -> list[dict[str, object]]:
     if not path.exists():
         raise SystemExit(
             f"human calibration labels not found: {path}. "
-            "Create exactly 10 entries with case_id and human_pass after manual review."
+            "Run make eval-human-review, then fill exactly 10 human_pass values."
         )
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument(
         "--labels",
         type=Path,
-        default=Path("evaluation/datasets/judge-human-10.json"),
+        default=Path("artifacts/evaluation/judge-human-review.json"),
     )
     parser.add_argument(
         "--results",
