@@ -65,6 +65,46 @@ _EXTRACTION_TERMS = {
     "pásame",
 }
 
+_SAFE_SECRET_CONTEXT_TERMS = {
+    "rotate",
+    "rotating",
+    "rotation",
+    "policy",
+    "policies",
+    "manage",
+    "management",
+    "store",
+    "storage",
+    "protect",
+    "protection",
+    "format",
+    "example",
+    "examples",
+    "configure",
+    "configuration",
+    "rotar",
+    "rotacion",
+    "rotación",
+    "politica",
+    "política",
+    "politicas",
+    "políticas",
+    "gestionar",
+    "gestion",
+    "gestión",
+    "proteger",
+    "ejemplo",
+    "ejemplos",
+    "configurar",
+    "configuracion",
+    "configuración",
+}
+
+_DIRECT_SECRET_PATTERNS = (
+    re.compile(r"\b(?:what|which)\s+(?:is|are)\s+the\b.*\b(?:api key|password|secret token|credentials?)\b"),
+    re.compile(r"\b(?:cu[aá]l|cu[aá]les)\s+(?:es|son)\s+(?:la|el|las|los)\b.*\b(?:clave (?:de )?api|contrase(?:ñ|n)a|token secreto|credenciales?)\b"),
+)
+
 _BYPASS_PATTERNS = (
     "ignore policy",
     "ignore policies",
@@ -97,5 +137,10 @@ class SafetyGuard:
             phrase in normalized for phrase in _SECRET_PHRASES
         )
         asks_for_secret = contains_secret and bool(tokens.intersection(_EXTRACTION_TERMS))
+        direct_secret = (
+            contains_secret
+            and not tokens.intersection(_SAFE_SECRET_CONTEXT_TERMS)
+            and any(pattern.search(normalized) for pattern in _DIRECT_SECRET_PATTERNS)
+        )
         bypass = any(pattern in normalized for pattern in _BYPASS_PATTERNS)
-        return asks_for_secret or bypass
+        return asks_for_secret or direct_secret or bypass

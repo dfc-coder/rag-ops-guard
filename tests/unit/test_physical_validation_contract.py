@@ -30,25 +30,23 @@ def test_physical_runtime_uses_one_generation_model_alias() -> None:
 
     assert f"- {alias}" in compose
     assert '"LLM_MODEL": LLM_MODEL' in provision
-    assert "qwen35-2b-rag" not in provision
     assert f"LLM_MODEL: {alias}" in release
     assert f"RAGAS_JUDGE_MODEL: {alias}" in release
 
 
-def test_physical_generation_artifact_is_unsloth_qwen35_08b_dynamic_quant() -> None:
-    filename = "Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
-    expected_sha = "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
+def test_physical_generation_artifact_is_unsloth_qwen35_2b_dynamic_quant() -> None:
+    filename = "Qwen3.5-2B-UD-Q4_K_XL.gguf"
+    expected_sha = "0af96165ea615bea39a04118d63f0b6d35908aea850ee4a51aa6151d851b8b35"
     compose = _read("docker/docker-compose.yml")
     makefile = _read("Makefile")
     downloader = _read("scripts/download_models.py")
 
     assert f"/models/{filename}" in compose
     assert f"MODEL_FILES={filename}" in makefile
-    assert "huggingface.co/unsloth/Qwen3.5-0.8B-GGUF" in downloader
+    assert "huggingface.co/unsloth/Qwen3.5-2B-GGUF" in downloader
     assert filename in downloader
     assert expected_sha in downloader
-    assert "Qwen3.5-0.8B-Q8_0.gguf" not in compose
-    assert "ggml-org/Qwen3.5-0.8B-GGUF" not in downloader
+    assert "Qwen3.5-0.8B-UD-Q4_K_XL.gguf" not in compose
 
 
 def test_unsloth_qwen35_profile_matches_non_thinking_agent_runtime() -> None:
@@ -69,6 +67,21 @@ def test_unsloth_qwen35_profile_matches_non_thinking_agent_runtime() -> None:
     assert '--presence-penalty\n      - "1.5"' in compose
     assert '--repeat-penalty\n      - "1.0"' in compose
     assert "--jinja" in compose
+
+
+def test_generation_contract_checks_structured_output_and_tool_calling_before_eval() -> None:
+    makefile = _read("Makefile")
+    contract = _read("scripts/validate_llama_contract.py")
+    adapter = _read("src/rag_ops_guard/adapters/llm/openai_tool_calling.py")
+
+    assert "physical-generation-contract: physical-up" in makefile
+    assert "physical-relevance-calibrate: physical-generation-contract" in makefile
+    assert '"type": "json_schema", "schema": schema' in contract
+    assert '"tool_choice": "auto"' in contract
+    assert "LLAMA GENERATION CONTRACT READY" in contract
+    assert "with_structured_output" not in adapter
+    assert '"response_format": {"type": "json_schema", "schema": schema_payload}' in adapter
+    assert "Failed to initialize samplers" in adapter
 
 
 def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
@@ -123,7 +136,7 @@ def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -
     validator = _read("scripts/validate_retrieval.py")
     dataset_name = "retrieval-relevance-calibration.json"
 
-    assert "physical-relevance-calibrate: physical-up" in makefile
+    assert "physical-relevance-calibrate: physical-generation-contract" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
     assert "physical-ready: physical-relevance-calibrate package-lambda" in makefile
     assert makefile.index("source .local/relevance-floors.env") < makefile.index(
@@ -152,8 +165,17 @@ def test_physical_smokes_use_segmented_status_contract() -> None:
 
 def test_physical_validation_preserves_running_evidence() -> None:
     release = _read(".github/workflows/release-validation.yml")
-
     assert "cancel-in-progress: false" in release
+
+
+def test_physical_provisioning_propagates_langsmith_without_hardcoded_disable() -> None:
+    provision = _read("scripts/local/provision.py")
+    handler = _read("src/rag_ops_guard/handlers/query.py")
+
+    assert '_langsmith_environment()' in provision
+    assert '"LANGSMITH_TRACING": "false"' not in provision
+    assert '"LANGSMITH_API_KEY"' in provision
+    assert '@traceable(name="rag_query", run_type="chain")' in handler
 
 
 def test_automatic_physical_workflow_measures_ragas_without_claiming_release_readiness() -> None:
@@ -174,5 +196,4 @@ def test_automatic_physical_workflow_measures_ragas_without_claiming_release_rea
 
 def test_ragas_policy_has_no_dead_yaml_shadow_configuration() -> None:
     thresholds = _read("evaluation/thresholds.yaml")
-
     assert "ragas_judge:" not in thresholds

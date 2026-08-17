@@ -25,7 +25,7 @@ VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_ZIP_PATH = Path(
     os.environ.get("LAMBDA_ZIP_PATH", ".local/lambda-package.zip")
 ).resolve()
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-0.8b-unsloth-ud-q4-k-xl")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-2b-unsloth-ud-q4-k-xl")
 LAMBDA_PYTHON_VERSION = os.environ.get("LAMBDA_PYTHON_VERSION", "3.12")
 LAMBDA_LLM_BASE_URL = os.environ.get("LAMBDA_LLM_BASE_URL", "http://llama-gen:8080/v1")
 LAMBDA_EMBEDDING_BASE_URL = os.environ.get(
@@ -129,8 +129,31 @@ def ensure_role(name: str, actions: list[str]) -> str:
     return str(role["Arn"])
 
 
+def _langsmith_environment() -> dict[str, str]:
+    tracing_requested = os.environ.get("LANGSMITH_TRACING", "false").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    api_key = os.environ.get("LANGSMITH_API_KEY", "").strip()
+    values = {
+        "LANGSMITH_TRACING": "true" if tracing_requested and api_key else "false",
+        "LANGSMITH_PROJECT": os.environ.get("LANGSMITH_PROJECT", "rag-ops-guard-local"),
+        "LANGSMITH_ENDPOINT": os.environ.get(
+            "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"
+        ),
+    }
+    if api_key:
+        values["LANGSMITH_API_KEY"] = api_key
+    workspace_id = os.environ.get("LANGSMITH_WORKSPACE_ID", "").strip()
+    if workspace_id:
+        values["LANGSMITH_WORKSPACE_ID"] = workspace_id
+    return values
+
+
 def lambda_environment() -> dict[str, str]:
-    return {
+    environment = {
         "APP_ENV": "local",
         "AWS_REGION": REGION,
         "AWS_ACCESS_KEY_ID": "test",
@@ -165,8 +188,9 @@ def lambda_environment() -> dict[str, str]:
         "RERANKER_BASE_URL": LAMBDA_RERANKER_BASE_URL,
         "RERANKER_MODEL": LAMBDA_RERANKER_MODEL,
         "RERANKER_TIMEOUT_SECONDS": os.environ.get("RERANKER_TIMEOUT_SECONDS", "90"),
-        "LANGSMITH_TRACING": "false",
     }
+    environment.update(_langsmith_environment())
+    return environment
 
 
 def publish_lambda_code() -> str:
@@ -352,6 +376,8 @@ def main() -> None:
     endpoint = recreate_api(query_arn, ingest_arn)
     print(f"Lambda package: s3://{LAMBDA_CODE_BUCKET}/{code_key}")
     print("Lambda direct invoke: ready")
+    tracing = lambda_environment().get("LANGSMITH_TRACING") == "true"
+    print(f"LangSmith tracing: {'enabled' if tracing else 'disabled'}")
     print(f"Local API: {endpoint}")
     print("API data plane: ready")
 

@@ -5,6 +5,7 @@ import os
 from time import perf_counter
 from typing import Any
 
+from langsmith import traceable
 from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
@@ -24,6 +25,7 @@ def _internal_error_body(exc: Exception) -> str:
     return json.dumps(payload)
 
 
+@traceable(name="rag_query", run_type="chain")
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
     started = perf_counter()
@@ -40,6 +42,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
                 "request_id": response.request_id,
                 "status": response.status.value,
                 "citation_count": len(response.citations),
+                "thread_id": request.thread_id,
             },
         )
         return {

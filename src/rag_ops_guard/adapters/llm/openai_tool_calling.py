@@ -1,21 +1,19 @@
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-)
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from openai import BadRequestError
 from pydantic import SecretStr
 
 from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,6 +28,36 @@ class _AdapterConfig:
     repeat_penalty: float
     max_completion_tokens: int
     timeout_seconds: float
+
+
+def _base_extra_body(config: _AdapterConfig) -> dict[str, Any]:
+    return {
+        "top_k": config.top_k,
+        "min_p": config.min_p,
+        "repeat_penalty": config.repeat_penalty,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def _json_content(content: Any) -> str:
+    text = _content_text(content).strip()
+    if text.startswith("```json") and text.endswith("```"):
+        return text[7:-3].strip()
+    if text.startswith("```") and text.endswith("```"):
+        return text[3:-3].strip()
+    return text
+
+
+def _structured_prompt(messages: list[ModelMessage], schema_payload: dict[str, Any]) -> list[ModelMessage]:
+    instruction = (
+        "Return only one JSON object that satisfies this JSON Schema exactly. Do not use markdown "
+        "fences or add commentary. JSON Schema: "
+        + json.dumps(schema_payload, ensure_ascii=False, separators=(",", ":"))
+    )
+    if messages and messages[0].role == "system":
+        first = messages[0]
+        return [ModelMessage(role="system", content=f"{first.content}\n\n{instruction}"), *messages[1:]]
+    return [ModelMessage(role="system", content=instruction), *messages]
 
 
 class OpenAIToolCallingAdapter:
@@ -72,12 +100,7 @@ class OpenAIToolCallingAdapter:
             max_completion_tokens=max_completion_tokens,
             timeout=timeout_seconds,
             max_retries=0,
-            extra_body={
-                "top_k": top_k,
-                "min_p": min_p,
-                "repeat_penalty": repeat_penalty,
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
+            extra_body=_base_extra_body(self._config),
         )
         self._runnable = runnable or self._model
 
@@ -93,7 +116,9 @@ class OpenAIToolCallingAdapter:
             }
             for tool in tools
         ]
-        runnable = self._model.bind_tools(definitions, parallel_tool_calls=False)
+        runnable = self._model.bind_tools(
+            definitions, tool_choice="auto", parallel_tool_calls=False
+        )
         config = self._config
         return OpenAIToolCallingAdapter(
             base_url=config.base_url,
@@ -121,9 +146,7 @@ class OpenAIToolCallingAdapter:
             )
             for call in response.tool_calls
         )
-        metadata = (
-            response.response_metadata if isinstance(response.response_metadata, dict) else {}
-        )
+        metadata = response.response_metadata if isinstance(response.response_metadata, dict) else {}
         finish_reason = metadata.get("finish_reason")
         return ModelTurn(
             content=_content_text(response.content),
@@ -132,18 +155,41 @@ class OpenAIToolCallingAdapter:
         )
 
     def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T:
-        structured = self._model.with_structured_output(
-            schema,
-            method="json_schema",
-            strict=True,
-        )
-        result = structured.invoke(_to_langchain_messages(messages))
-        if isinstance(result, schema):
-            return result
+        """Use llama.cpp native response_format and keep Pydantic as the final authority."""
         validator = getattr(schema, "model_validate", None)
-        if callable(validator):
-            return cast(T, validator(result))
-        return cast(T, result)
+        schema_factory = getattr(schema, "model_json_schema", None)
+        if not callable(validator) or not callable(schema_factory):
+            raise TypeError("structured schema must provide model_json_schema and model_validate")
+        schema_payload = cast(dict[str, Any], schema_factory())
+        prompt = _structured_prompt(messages, schema_payload)
+        base_body = _base_extra_body(self._config)
+        try:
+            runnable = self._model.bind(
+                temperature=0.0,
+                extra_body={
+                    **base_body,
+                    "response_format": {"type": "json_schema", "schema": schema_payload},
+                },
+            )
+            response = runnable.invoke(_to_langchain_messages(prompt))
+        except BadRequestError as exc:
+            if "Failed to initialize samplers" not in str(exc):
+                raise
+            logger.warning(
+                "llama.cpp json_schema sampler failed; retrying with json_object and Pydantic validation"
+            )
+            runnable = self._model.bind(
+                temperature=0.0,
+                extra_body={**base_body, "response_format": {"type": "json_object"}},
+            )
+            response = runnable.invoke(_to_langchain_messages(prompt))
+        if not isinstance(response, AIMessage):
+            raise TypeError(f"expected AIMessage, got {type(response).__name__}")
+        try:
+            payload = json.loads(_json_content(response.content))
+        except json.JSONDecodeError as exc:
+            raise ValueError("model returned invalid JSON for structured response") from exc
+        return cast(T, validator(payload))
 
 
 def _to_langchain_messages(messages: list[ModelMessage]) -> list[BaseMessage]:
@@ -158,12 +204,7 @@ def _to_langchain_messages(messages: list[ModelMessage]) -> list[BaseMessage]:
                 AIMessage(
                     content=message.content,
                     tool_calls=[
-                        {
-                            "id": call.id,
-                            "name": call.name,
-                            "args": call.arguments,
-                            "type": "tool_call",
-                        }
+                        {"id": call.id, "name": call.name, "args": call.arguments, "type": "tool_call"}
                         for call in message.tool_calls
                     ],
                 )
@@ -178,7 +219,7 @@ def _to_langchain_messages(messages: list[ModelMessage]) -> list[BaseMessage]:
                     name=message.name,
                 )
             )
-        else:  # pragma: no cover - ModelMessage constrains the role.
+        else:  # pragma: no cover
             raise ValueError(f"unsupported message role: {message.role}")
     return converted
 
