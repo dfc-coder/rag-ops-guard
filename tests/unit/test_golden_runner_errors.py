@@ -103,3 +103,39 @@ def test_golden_runner_has_no_second_retrieval_pass() -> None:
     assert "retrieved_identities" not in runner_source
     assert "retrieval_hit_at_5" not in runner_source
     assert "vector_store().query" not in runner_source
+
+
+def test_mixed_segment_facts_must_be_in_the_correct_grounding_partition() -> None:
+    runner = _load_runner()
+    case = {
+        "required_grounded_facts": ["three"],
+        "required_ungrounded_facts": ["sleep"],
+    }
+    correct = {
+        "segments": [
+            {"text": "The policy allows three retries.", "citations": [{"chunk_id": "c1"}]},
+            {"text": "A generic example can call sleep(1).", "citations": []},
+        ]
+    }
+    incorrectly_cited = {
+        "segments": [
+            {
+                "text": "The policy allows three retries and a generic example can call sleep(1).",
+                "citations": [{"chunk_id": "c1"}],
+            }
+        ]
+    }
+
+    assert runner._segment_fact_partition(case, correct) is True
+    assert runner._segment_fact_partition(case, incorrectly_cited) is False
+
+
+def test_golden_suite_includes_four_explicit_mixed_cases() -> None:
+    runner = _load_runner()
+    cases = runner._load_cases()
+    mixed = [case for case in cases if case["expected_status"] == "answered_mixed"]
+
+    assert len(mixed) == 4
+    assert all(case.get("required_grounded_facts") for case in mixed)
+    assert all(case.get("required_ungrounded_facts") for case in mixed)
+    assert len({case["id"] for case in cases}) == len(cases)
