@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -37,3 +38,49 @@ def test_golden_runner_surfaces_case_status_and_error_body() -> None:
     assert "calypso_retries_en" in message
     assert "HTTP 500" in message
     assert "embedding backend unavailable" in message
+
+
+def test_golden_runner_selects_exactly_one_diagnostic_case() -> None:
+    runner = _load_runner()
+    cases = [{"id": "one"}, {"id": "two"}]
+
+    assert runner._select_cases(cases, "two") == [{"id": "two"}]
+
+    with pytest.raises(SystemExit, match="golden case not found: missing"):
+        runner._select_cases(cases, "missing")
+
+
+def test_golden_runner_writes_partial_results(tmp_path: Path) -> None:
+    runner = _load_runner()
+    result = runner.Result(
+        id="one",
+        status_ok=True,
+        sources_ok=True,
+        forbidden_sources_ok=True,
+        required_facts_ok=True,
+        forbidden_facts_ok=True,
+        segment_integrity_ok=True,
+        retrieval_hit_at_5=True,
+        actual_status="answered_grounded",
+        actual_sources=["source"],
+    )
+    output = tmp_path / "results.partial.json"
+
+    runner._write_results(output, [result])
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload == [
+        {
+            "id": "one",
+            "status_ok": True,
+            "sources_ok": True,
+            "forbidden_sources_ok": True,
+            "required_facts_ok": True,
+            "forbidden_facts_ok": True,
+            "segment_integrity_ok": True,
+            "retrieval_hit_at_5": True,
+            "actual_status": "answered_grounded",
+            "actual_sources": ["source"],
+            "passed": True,
+        }
+    ]
