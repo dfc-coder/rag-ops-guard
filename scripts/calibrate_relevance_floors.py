@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DATASET = ROOT / "evaluation/datasets/retrieval-calibration-v2.json"
+DATASET = ROOT / "evaluation/datasets/retrieval-relevance-calibration.json"
 VALID_CLASSES = {"grounded", "in_domain_unanswerable", "out_of_domain"}
 
 
