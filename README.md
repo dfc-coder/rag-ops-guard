@@ -81,13 +81,19 @@ Retrieved document content is marked `UNTRUSTED_DOCUMENT_DATA`. It is preserved 
 
 ## Local model split
 
-- generation/runtime: **Qwen3.5-0.8B Q8_0** on llama.cpp CPU by default
+- generation/runtime: **Unsloth Qwen3.5-0.8B `UD-Q4_K_XL` Dynamic 2.0** on llama.cpp CPU
 - embeddings: Qwen3-Embedding-0.6B, OpenVINO on Intel iGPU for the physical profile
 - reranker: Qwen3-Reranker-0.6B seq-cls, OpenVINO on Intel iGPU with the required Qwen relevance template
 - object/vector infrastructure: Floci + S3/S3 Vectors-compatible adapters
 - RAGAS judge: configurable independently; local OpenAI-compatible or external OpenAI-compatible API
 
-The generation artifact is pinned by SHA256 in `scripts/download_models.py`. Changing the RAGAS judge provider/model, judge prompt or evaluation dataset invalidates the calibrated judge policy and requires recalibration.
+The generation artifact and SHA256 are pinned in `scripts/download_models.py`. The runtime alias includes provider/model/quant identity so a materially different generation artifact cannot silently reuse an old judge calibration.
+
+The canonical Qwen3.5 agent profile is explicitly non-thinking: 16K runtime context, `temperature=0.7`, `top_p=0.8`, `top_k=20`, `min_p=0`, `presence_penalty=1.5`, `repeat_penalty=1.0`, Jinja tool templates, unified KV, and Q8_0 K/V cache. Thinking is disabled through the Qwen chat-template argument rather than the legacy Qwen3 reasoning switch.
+
+Qwen3.5-0.8B is the **generation/tool-calling model**, not the embedding or reranking model. Retrieval keeps specialized embedding/reranker models because replacing them with a causal generation model would remove the measured retrieval contracts.
+
+Changing the RAGAS judge provider/model, judge prompt or evaluation dataset invalidates the calibrated judge policy and requires recalibration.
 
 ## Evaluation
 
@@ -135,6 +141,6 @@ make chainlit-gate
 
 ## Physical validation
 
-Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Qwen3.5-0.8B for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
+Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Unsloth Qwen3.5-0.8B Dynamic 2.0 for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
 
 A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for bootstrap and diagnostics, not release approval.
