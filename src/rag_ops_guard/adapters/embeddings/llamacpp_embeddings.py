@@ -19,7 +19,7 @@ class LlamaCppEmbeddingAdapter:
             base_url=base_url,
             api_key=SecretStr("local"),
             model=model,
-            request_timeout=timeout_seconds,
+            timeout=timeout_seconds,
             max_retries=0,
         )
 
