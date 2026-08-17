@@ -4,11 +4,12 @@ import argparse
 import json
 import os
 import signal
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Iterator
+from typing import Any
 
 import httpx
 import yaml
@@ -132,8 +133,8 @@ def case_wall_timeout(case_id: str, seconds: float) -> Iterator[None]:
         raise TimeoutError(f"golden case {case_id} exceeded hard wall timeout of {seconds:g}s")
 
     previous_handler = signal.getsignal(signal.SIGALRM)
-    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
     signal.signal(signal.SIGALRM, on_timeout)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
         yield
     finally:
@@ -151,9 +152,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
             timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
         )
     except httpx.TimeoutException as exc:
-        raise SystemExit(
-            f"golden case {case_id} timed out during agent-query: {exc}"
-        ) from exc
+        raise SystemExit(f"golden case {case_id} timed out during agent-query: {exc}") from exc
     require_success(response, case_id=case_id)
     payload = response.json()
     citations = [Citation.model_validate(item) for item in payload.get("citations", [])]
