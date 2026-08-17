@@ -71,6 +71,20 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     assert "make local-up" not in release
 
 
+def test_physical_admission_validation_uses_labelled_calibration_first() -> None:
+    makefile = _read("Makefile")
+    calibrator = _read("scripts/calibrate_relevance_floors.py")
+
+    assert "physical-relevance-calibrate: physical-up" in makefile
+    assert "--env-file .local/relevance-floors.env" in makefile
+    assert "physical-ready: physical-relevance-calibrate package-lambda" in makefile
+    assert makefile.index("source .local/relevance-floors.env") < makefile.index(
+        "uv run python scripts/validate_retrieval.py", makefile.index("physical-ready:")
+    )
+    assert "expected_grounded_score" in calibrator
+    assert "A high score on the wrong document must never count" in calibrator
+
+
 def test_physical_smokes_use_segmented_status_contract() -> None:
     smoke = _read("scripts/smoke.py")
     e2e = _read("tests/e2e/test_real_local_beta.py")
