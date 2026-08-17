@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 import yaml
@@ -112,6 +114,33 @@ def _sample(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _case_wall_timeout_seconds() -> float:
+    value = float(os.environ.get("GOLDEN_CASE_TIMEOUT_SECONDS", "240"))
+    if value < 5.0:
+        raise SystemExit("GOLDEN_CASE_TIMEOUT_SECONDS must be at least 5 seconds")
+    return value
+
+
+@contextmanager
+def case_wall_timeout(case_id: str, seconds: float) -> Iterator[None]:
+    """Hard Linux wall-clock bound around the whole case, including retrieval checks."""
+    if not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def on_timeout(_signum: int, _frame: object) -> None:
+        raise TimeoutError(f"golden case {case_id} exceeded hard wall timeout of {seconds:g}s")
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, on_timeout)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any]]:
     case_id = str(case["id"])
     print(f"GOLDEN {case_id} PHASE agent-query", flush=True)
@@ -195,6 +224,7 @@ def main() -> None:
     cases = _select_cases(all_cases, args.case_id)
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
+    wall_timeout_seconds = _case_wall_timeout_seconds()
 
     output = Path("artifacts/evaluation")
     output.mkdir(parents=True, exist_ok=True)
@@ -203,14 +233,22 @@ def main() -> None:
     results: list[Result] = []
     samples: list[dict[str, Any]] = []
 
-    print(f"GOLDEN START: {len(cases)} case(s)", flush=True)
+    print(
+        f"GOLDEN START: {len(cases)} case(s); hard-timeout={wall_timeout_seconds:g}s/case",
+        flush=True,
+    )
     suite_started = perf_counter()
     for index, case in enumerate(cases, start=1):
         case_id = str(case["id"])
         started = perf_counter()
         print(f"GOLDEN [{index}/{len(cases)}] START {case_id}", flush=True)
         try:
-            result, sample = run_case(base_url, case)
+            with case_wall_timeout(case_id, wall_timeout_seconds):
+                result, sample = run_case(base_url, case)
+        except TimeoutError as exc:
+            elapsed = perf_counter() - started
+            print(f"GOLDEN [{index}/{len(cases)}] TIMEOUT {case_id} ({elapsed:.1f}s)", flush=True)
+            raise SystemExit(str(exc)) from exc
         except BaseException:
             elapsed = perf_counter() - started
             print(f"GOLDEN [{index}/{len(cases)}] ERROR {case_id} ({elapsed:.1f}s)", flush=True)
