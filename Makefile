@@ -57,7 +57,19 @@ OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
-.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: status golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+
+status:
+	@uv run python scripts/local/ops.py status
+
+golden:
+	@uv run --extra eval python scripts/local/ops.py golden $(if $(CASE),--case "$(CASE)",) $(if $(FORCE),--force,)
+
+golden-all:
+	@uv run --extra eval python scripts/local/ops.py golden --all $(if $(FORCE),--force,)
+
+logs:
+	@uv run python scripts/local/ops.py logs
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
