@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:8081/v1"
     embedding_model: str = "qwen3-embedding-0.6b"
     embedding_dimension: int = Field(default=1024, ge=1, le=4096)
+    embedding_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
 
     reranker_base_url: str = "http://localhost:8082"
     reranker_model: str = "qwen3-reranker-0.6b"
