@@ -69,7 +69,7 @@ Both floors are calibrated from three classes in `evaluation/datasets/retrieval-
 - `in_domain_unanswerable`
 - `out_of_domain`
 
-A low domain score cannot produce admitted grounded evidence even when the grounded floor is numerically lower.
+A low domain score cannot produce admitted grounded evidence even when the grounded floor is numerically lower. Explicit named-target anchors are applied per evidence candidate, so a document mentioning the requested target cannot authorize unrelated candidates that omit it.
 
 ## Security boundary
 
@@ -79,12 +79,13 @@ Retrieved document content is marked `UNTRUSTED_DOCUMENT_DATA`. It is preserved 
 
 ## Local model split
 
-- generation/runtime/judge: one configured llama.cpp model alias on CPU; the current default is **Qwen3-4B**
-- embeddings: Qwen3-Embedding-0.6B, OpenVINO on Intel iGPU for the target profile
-- reranker: Qwen3-Reranker-0.6B, OpenVINO on Intel iGPU
+- generation/runtime: **Qwen3.5-0.8B Q8_0** on llama.cpp CPU by default
+- embeddings: Qwen3-Embedding-0.6B, OpenVINO on Intel iGPU for the physical profile
+- reranker: Qwen3-Reranker-0.6B seq-cls, OpenVINO on Intel iGPU with the required Qwen relevance template
 - object/vector infrastructure: Floci + S3/S3 Vectors-compatible adapters
+- RAGAS judge: configurable independently; local OpenAI-compatible or external OpenAI-compatible API
 
-Runtime and RAGAS judge must use the same generation-model alias. Model family or parameter count is not a release invariant. The current default generation artifact is pinned by SHA256 in `scripts/download_models.py`.
+The generation artifact is pinned by SHA256 in `scripts/download_models.py`. Changing the RAGAS judge provider/model, judge prompt or evaluation dataset invalidates the calibrated judge policy and requires recalibration.
 
 ## Evaluation
 
@@ -105,7 +106,7 @@ RAGAS writes `ragas-results.json` and `ragas.json` before release-policy enforce
 
 RAGAS faithfulness is computed only over segments the response marks as grounded. It is therefore not a universal hallucination detector for ungrounded prose. The segmented response contract must keep unsupported prose visibly ungrounded, while citation validity and segment integrity prevent claims from being presented as grounded with invented or non-admitted citations.
 
-After exactly 10 real human-labelled cases are calibrated against the same configured runtime/judge model, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by release evaluation.
+After exactly 10 real human-labelled cases are calibrated against the configured judge identity, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by release evaluation.
 
 ## Evaluation fixtures are not product logic
 
@@ -120,17 +121,18 @@ make local-up
 make test
 make types
 make beta-react
-make eval-measure
+make physical-ready
+make physical-eval-measure
 make eval-judge-calibrate
-make eval
+make physical-eval
 make release-check
 make chainlit-gate
 ```
 
-`make eval-measure` is the explicit bootstrap path before human calibration. `make eval` and `make release-check` are strict. `make lint` is available as a strict manual style check. `make ci` and `make release-check` use advisory lint plus blocking correctness checks.
+`make physical-eval-measure` is the physical bootstrap path before human calibration. Strict physical evaluation is fail-closed until the judge policy exists. `make lint` is available as a strict manual style check.
 
 ## Physical validation
 
-Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout, while `make chainlit-gate` validates the canonical agent with the configured generation model plus OpenVINO embeddings/reranker on the target Fedora/Tiger Lake machine.
+Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Qwen3.5-0.8B for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
 
 A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for bootstrap and diagnostics, not release approval.
