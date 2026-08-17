@@ -71,7 +71,7 @@ Both floors are calibrated from three labelled classes in `evaluation/datasets/r
 
 A low domain score cannot produce admitted grounded evidence even when the grounded floor is numerically lower. Explicit named-target anchors are applied per evidence candidate, so a document mentioning the requested target cannot authorize unrelated candidates that omit it.
 
-Physical relevance calibration is fail-closed: IU/OOD overlap, false positives, insufficient recall, or grounded cases whose expected evidence does not survive candidate selection all stop `physical-ready`. The subsequent labelled validation also rejects positive contexts contaminated by titles outside that case's accepted evidence set.
+Physical relevance calibration is fail-closed against the declared acceptance policy: **zero false positives and at least 80% recall** for both domain and grounded signals. Score overlap is allowed when a threshold still satisfies that measured policy; grounded cases whose expected evidence does not survive candidate selection still fail. The subsequent labelled validation also rejects positive contexts contaminated by titles outside that case's accepted evidence set.
 
 ## Security boundary
 
