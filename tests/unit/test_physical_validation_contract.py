@@ -113,6 +113,7 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
 def test_physical_admission_validation_uses_labelled_calibration_first() -> None:
     makefile = _read("Makefile")
     calibrator = _read("scripts/calibrate_relevance_floors.py")
+    validator = _read("scripts/validate_retrieval.py")
 
     assert "physical-relevance-calibrate: physical-up" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
@@ -122,6 +123,8 @@ def test_physical_admission_validation_uses_labelled_calibration_first() -> None
     )
     assert "expected_grounded_score" in calibrator
     assert "A high score on the wrong document must never count" in calibrator
+    assert "retrieval-calibration-v2.json" in calibrator
+    assert "retrieval-calibration-v2.json" in validator
 
 
 def test_physical_smokes_use_segmented_status_contract() -> None:
@@ -137,20 +140,26 @@ def test_physical_smokes_use_segmented_status_contract() -> None:
     assert "answered_grounded" in e2e
 
 
-def test_release_preserves_running_physical_evidence() -> None:
+def test_physical_validation_preserves_running_evidence() -> None:
     release = _read(".github/workflows/release-validation.yml")
 
     assert "cancel-in-progress: false" in release
 
 
-def test_measurement_only_ragas_requires_an_explicit_target() -> None:
+def test_automatic_physical_workflow_measures_ragas_without_claiming_release_readiness() -> None:
     makefile = _read("Makefile")
     release = _read(".github/workflows/release-validation.yml")
 
     assert "eval-measure:" in makefile
     assert "physical-eval-measure:" in makefile
     assert "RAGAS_REQUIRE_CALIBRATION=0" in makefile
-    assert "RAGAS_REQUIRE_CALIBRATION: '0'" not in release
+    assert "RAGAS_REQUIRE_CALIBRATION: '0'" in release
+    assert "External release readiness remains fail-closed" in release
+    assert "physical-eval:" in makefile
+    strict_block = makefile.split("physical-eval:", maxsplit=1)[1].split(
+        "physical-smoke:", maxsplit=1
+    )[0]
+    assert "RAGAS_REQUIRE_CALIBRATION=0" not in strict_block
 
 
 def test_ragas_policy_has_no_dead_yaml_shadow_configuration() -> None:
