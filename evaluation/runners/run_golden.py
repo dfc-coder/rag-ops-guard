@@ -101,13 +101,31 @@ def require_success(response: httpx.Response, *, case_id: str) -> None:
     )
 
 
-def run_case(base_url: str, case: dict[str, Any]) -> Result:
-    response = httpx.post(
-        f"{base_url}/v1/query",
-        json={"question": case["question"], "context": case.get("context", {})},
-        timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
-    )
-    require_success(response, case_id=str(case["id"]))
+def _sample(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "case_id": str(case["id"]),
+        "question": str(case["question"]),
+        "context": case.get("context", {}),
+        "expected_status": str(case["expected_status"]),
+        "reference_answer": str(case.get("reference_answer") or ""),
+        "payload": payload,
+    }
+
+
+def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any]]:
+    case_id = str(case["id"])
+    print(f"GOLDEN {case_id} PHASE agent-query", flush=True)
+    try:
+        response = httpx.post(
+            f"{base_url}/v1/query",
+            json={"question": case["question"], "context": case.get("context", {})},
+            timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
+        )
+    except httpx.TimeoutException as exc:
+        raise SystemExit(
+            f"golden case {case_id} timed out during agent-query: {exc}"
+        ) from exc
+    require_success(response, case_id=case_id)
     payload = response.json()
     citations = [Citation.model_validate(item) for item in payload.get("citations", [])]
     actual_source_ids = (
@@ -116,9 +134,13 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
     answer = str(payload.get("answer") or "").lower()
     expected_sources = {str(value) for value in case.get("expected_source_ids", [])}
     forbidden_sources = {str(value) for value in case.get("forbidden_source_ids", [])}
-    retrieval_ids = retrieved_identities(str(case["question"])) if expected_sources else set()
-    return Result(
-        id=str(case["id"]),
+    if expected_sources:
+        print(f"GOLDEN {case_id} PHASE retrieval-check", flush=True)
+        retrieval_ids = retrieved_identities(str(case["question"]))
+    else:
+        retrieval_ids = set()
+    result = Result(
+        id=case_id,
         status_ok=payload.get("status") == case["expected_status"],
         sources_ok=expected_sources.issubset(actual_source_ids),
         forbidden_sources_ok=forbidden_sources.isdisjoint(actual_source_ids),
@@ -133,6 +155,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
         actual_status=str(payload.get("status")),
         actual_sources=sorted(actual_source_ids),
     )
+    return result, _sample(case, payload)
 
 
 def _rate(values: list[bool]) -> float:
@@ -142,6 +165,10 @@ def _rate(values: list[bool]) -> float:
 def _write_results(path: Path, results: list[Result]) -> None:
     serialized = [result.__dict__ | {"passed": result.passed} for result in results]
     path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _select_cases(cases: list[dict[str, Any]], case_id: str | None) -> list[dict[str, Any]]:
@@ -172,7 +199,9 @@ def main() -> None:
     output = Path("artifacts/evaluation")
     output.mkdir(parents=True, exist_ok=True)
     partial_path = output / "results.partial.json"
+    samples_partial_path = output / "golden-samples.partial.json"
     results: list[Result] = []
+    samples: list[dict[str, Any]] = []
 
     print(f"GOLDEN START: {len(cases)} case(s)", flush=True)
     suite_started = perf_counter()
@@ -181,13 +210,15 @@ def main() -> None:
         started = perf_counter()
         print(f"GOLDEN [{index}/{len(cases)}] START {case_id}", flush=True)
         try:
-            result = run_case(base_url, case)
+            result, sample = run_case(base_url, case)
         except BaseException:
             elapsed = perf_counter() - started
             print(f"GOLDEN [{index}/{len(cases)}] ERROR {case_id} ({elapsed:.1f}s)", flush=True)
             raise
         results.append(result)
+        samples.append(sample)
         _write_results(partial_path, results)
+        _write_json(samples_partial_path, samples)
         elapsed = perf_counter() - started
         verdict = "PASS" if result.passed else "FAIL"
         print(
@@ -198,6 +229,7 @@ def main() -> None:
 
     if args.case_id is not None:
         result = results[0]
+        _write_json(output / "golden-sample.diagnostic.json", samples[0])
         print(json.dumps(result.__dict__ | {"passed": result.passed}, indent=2), flush=True)
         if not result.passed:
             raise SystemExit(f"golden diagnostic case failed: {result.id}")
@@ -237,8 +269,10 @@ def main() -> None:
         "elapsed_seconds": round(perf_counter() - suite_started, 3),
     }
     _write_results(output / "results.json", results)
-    (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _write_json(output / "golden-samples.json", samples)
+    _write_json(output / "summary.json", summary)
     partial_path.unlink(missing_ok=True)
+    samples_partial_path.unlink(missing_ok=True)
     print(json.dumps(summary, indent=2), flush=True)
 
     failures = []
