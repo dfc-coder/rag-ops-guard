@@ -29,9 +29,9 @@ services:
     container_name: ${LLAMA_GEN_CONTAINER_NAME:-rag-ops-llama-gen}
     command:
       - -m
-      - /models/Qwen3.5-0.8B-UD-Q4_K_XL.gguf
+      - /models/Qwen3.5-2B-UD-Q4_K_XL.gguf
       - --alias
-      - qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      - qwen3.5-2b-unsloth-ud-q4-k-xl
       - --host
       - 0.0.0.0
       - --port
