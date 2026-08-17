@@ -10,7 +10,6 @@ from pydantic import SecretStr
 from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
-FINAL_RESPONSE_TOOL = "submit_structured_response"
 
 
 @dataclass(frozen=True)
@@ -37,7 +36,7 @@ def _base_extra_body(config: _AdapterConfig) -> dict[str, Any]:
 
 
 class OpenAIToolCallingAdapter:
-    """OpenAI-style function-calling adapter for the local llama.cpp generation server."""
+    """OpenAI-style tool-calling adapter for the local llama.cpp generation server."""
 
     def __init__(
         self,
@@ -128,45 +127,34 @@ class OpenAIToolCallingAdapter:
         )
 
     def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T:
-        """Force one schema-shaped function call and validate its arguments with Pydantic.
+        """Generate schema-constrained JSON and validate it with Pydantic.
 
-        The agent already depends on llama.cpp function calling for ReAct. Reusing that
-        same protocol for the final structured response avoids a second JSON-grammar
-        mechanism and keeps one observable, testable contract for retrieval tools and
-        response submission.
+        ReAct still uses native tool calling. The final response intentionally uses
+        llama.cpp JSON-schema constrained generation instead of a forced function call,
+        because some local chat templates ignore forced tool_choice for that last turn.
         """
-        validator = getattr(schema, "model_validate", None)
+        validator = getattr(schema, "model_validate_json", None)
         schema_factory = getattr(schema, "model_json_schema", None)
         if not callable(validator) or not callable(schema_factory):
-            raise TypeError("structured schema must provide model_json_schema and model_validate")
-        parameters = cast(dict[str, Any], schema_factory())
-        definition = {
-            "type": "function",
-            "function": {
-                "name": FINAL_RESPONSE_TOOL,
-                "description": (
-                    "Submit the final public response. Call this function exactly once "
-                    "with arguments that satisfy the provided schema."
-                ),
-                "parameters": parameters,
-            },
-        }
-        runnable = self._model.bind_tools(
-            [definition],
-            tool_choice={"type": "function", "function": {"name": FINAL_RESPONSE_TOOL}},
-            parallel_tool_calls=False,
+            raise TypeError(
+                "structured schema must provide model_json_schema and model_validate_json"
+            )
+
+        json_schema = cast(dict[str, Any], schema_factory())
+        runnable = self._model.bind(
+            response_format={
+                "type": "json_object",
+                "schema": json_schema,
+            }
         )
         response = runnable.invoke(_to_langchain_messages(messages))
         if not isinstance(response, AIMessage):
             raise TypeError(f"expected AIMessage, got {type(response).__name__}")
-        calls = [_tool_call(call) for call in response.tool_calls]
-        selected = [call for call in calls if call.name == FINAL_RESPONSE_TOOL]
-        if len(selected) != 1:
-            raise ValueError(
-                f"model must call {FINAL_RESPONSE_TOOL} exactly once; got "
-                f"{[call.name for call in calls]!r}"
-            )
-        return cast(T, validator(selected[0].arguments))
+
+        content = _content_text(response.content).strip()
+        if not content:
+            raise ValueError("model returned an empty structured response")
+        return cast(T, validator(content))
 
 
 def _tool_call(call: Any) -> ToolCall:
