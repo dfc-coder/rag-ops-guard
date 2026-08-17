@@ -7,9 +7,10 @@ from pathlib import Path
 
 JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
-    "Do not use external knowledge. /no_think"
+    "Do not use external knowledge."
 )
 DEFAULT_DATASET_PATH = Path("evaluation/datasets/golden-v1.json")
+DEFAULT_RUNTIME_MODEL = "qwen3.5-0.8b-unsloth-ud-q4-k-xl"
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ def _sha256_bytes(payload: bytes) -> str:
 
 def judge_identity_from_env(dataset_path: Path = DEFAULT_DATASET_PATH) -> JudgeIdentity:
     provider = os.environ.get("RAGAS_JUDGE_PROVIDER", "local").strip() or "local"
-    runtime_model = os.environ.get("LLM_MODEL", "qwen3-4b-rag").strip()
+    runtime_model = os.environ.get("LLM_MODEL", DEFAULT_RUNTIME_MODEL).strip()
     model = os.environ.get("RAGAS_JUDGE_MODEL", runtime_model).strip()
     if not model:
         raise SystemExit("RAGAS_JUDGE_MODEL must not be empty")
