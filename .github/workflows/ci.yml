@@ -90,6 +90,7 @@ jobs:
           uv run --extra eval python -m py_compile
           evaluation/runners/run_golden.py
           evaluation/runners/run_ragas.py
+          scripts/prepare_judge_human_review.py
           scripts/calibrate_ragas_judge.py
       - name: Evaluation runner contracts
         run: uv run --extra eval pytest tests/evaluation -q
