@@ -63,7 +63,7 @@ Status: implemented. Hosted CI runs the full `tests/adversarial` directory.
 - **SPEC-4.4** — Every safe first turn performs a silent non-tool probe needed for a trace/score, including turns answered ungrounded.
 - **SPEC-4.5** — Explicit named-target anchors are applied per evidence candidate; one candidate mentioning the requested target cannot authorize unrelated candidates that omit it.
 
-Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. IU/OOD overlap fails calibration instead of inventing a threshold.
+Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. Calibration chooses thresholds from labelled measurements and fails closed unless both signals achieve **zero false positives and at least 80% recall**. Score distributions may overlap when a threshold still satisfies that declared policy; perfect class separation is not an independent requirement.
 
 Status: implemented, including the final domain-floor admission invariant.
 
