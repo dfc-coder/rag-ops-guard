@@ -71,7 +71,7 @@ Both floors are calibrated from three labelled classes in `evaluation/datasets/r
 
 A low domain score cannot produce admitted grounded evidence even when the grounded floor is numerically lower. Explicit named-target anchors are applied per evidence candidate, so a document mentioning the requested target cannot authorize unrelated candidates that omit it.
 
-Physical relevance calibration is fail-closed against the declared acceptance policy: **zero false positives and at least 80% recall** for both domain and grounded signals. Score overlap is allowed when a threshold still satisfies that measured policy; grounded cases whose expected evidence does not survive candidate selection still fail. The subsequent labelled validation also rejects positive contexts contaminated by titles outside that case's accepted evidence set.
+Physical relevance calibration is fail-closed against the declared acceptance policy: **zero false positives and at least 80% recall** for both domain and grounded signals. Score overlap is allowed when a threshold still satisfies that measured policy; grounded cases whose expected evidence does not survive candidate selection still fail. The subsequent deterministic validator requires at least one labelled expected evidence title for grounded cases and zero admitted grounded evidence for in-domain-unanswerable/out-of-domain cases. Additional admitted context is reported diagnostically and its precision is measured by RAGAS rather than being treated as an undocumented exhaustive allow-list.
 
 ## Security boundary
 
@@ -110,11 +110,11 @@ Blocking deterministic gates cover:
 
 Ruff formatting/lint remains visible but is **advisory during the architecture pivot**; it does not block architecture work.
 
-RAGAS writes `ragas-results.json` and `ragas.json` before release-policy enforcement, so physical measurements are preserved even when the gate fails. Release evaluation is **fail-closed by default**: if `judge-policy.json` is absent, `make eval` exits non-zero after writing those measurements. Bootstrap-only measurement must opt out explicitly with `make eval-measure`, which sets `RAGAS_REQUIRE_CALIBRATION=0` for that invocation only.
+Golden executes the agent once and writes `artifacts/evaluation/golden-samples.json`. RAGAS reuses exactly those responses; it does not regenerate them. RAGAS evaluates grounded segments with a reference answer and their cited contexts. Direct/ungrounded answers remain covered by deterministic Golden/status/safety contracts rather than being forced into context metrics that do not apply to them.
 
-RAGAS faithfulness is computed only over segments the response marks as grounded. It is therefore not a universal hallucination detector for ungrounded prose. The segmented response contract must keep unsupported prose visibly ungrounded, while citation validity and segment integrity prevent claims from being presented as grounded with invented or non-admitted citations.
+RAGAS has bounded judge/embedding requests, bounded retries/workers and a hard suite wall timeout. It writes `ragas-results.json` and `ragas.json` before release-policy enforcement. The automatic physical workflow runs measurement mode (`RAGAS_REQUIRE_CALIBRATION=0`) so physical evaluation can complete before human calibration. Strict `make physical-eval` remains **fail-closed** until a valid `judge-policy.json` exists.
 
-After exactly 10 real human-labelled cases are calibrated against the configured judge identity, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by release evaluation.
+After exactly 10 real human-labelled cases are calibrated against the configured judge identity, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by strict release evaluation.
 
 ## Evaluation fixtures are not product logic
 
@@ -137,10 +137,10 @@ make release-check
 make chainlit-gate
 ```
 
-`make physical-eval-measure` is the physical bootstrap path before human calibration. Strict physical evaluation is fail-closed until the judge policy exists. `make lint` is available as a strict manual style check.
+`make physical-eval-measure` is the single physical bootstrap/evaluation path before human calibration. Strict physical evaluation is fail-closed until the judge policy exists. `make lint` is available as a strict manual style check.
 
 ## Physical validation
 
-Hosted CI validates software contracts. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Unsloth Qwen3.5-0.8B Dynamic 2.0 for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
+Hosted CI validates software contracts, including importing/compiling/testing the evaluation runner with its real optional dependencies. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Unsloth Qwen3.5-0.8B Dynamic 2.0 for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
 
-A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for bootstrap and diagnostics, not release approval.
+A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for physical evidence and bootstrap calibration, not release approval.
