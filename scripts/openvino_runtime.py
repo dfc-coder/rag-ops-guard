@@ -11,6 +11,7 @@ import httpx
 OVMS_IMAGE = os.environ.get("OVMS_IMAGE", "docker.io/openvino/model_server:latest-gpu")
 OVMS_CONTAINER_NAME = os.environ.get("OVMS_CONTAINER_NAME", "rag-ops-ovms-rag")
 OVMS_HOST_PORT = int(os.environ.get("OVMS_HOST_PORT", "8083"))
+OVMS_NETWORK = os.environ.get("OVMS_NETWORK", "").strip()
 EMBEDDING_MODEL = os.environ.get(
     "OVMS_EMBEDDING_MODEL",
     "OpenVINO/Qwen3-Embedding-0.6B-int8-ov",
@@ -100,6 +101,13 @@ def start() -> None:
     # Fail early with a useful message before Podman gets a chance to report a generic
     # device error.
     render_group_id()
+    if OVMS_NETWORK:
+        network = podman("network", "exists", OVMS_NETWORK, check=False)
+        if network.returncode != 0:
+            raise SystemExit(
+                f"OpenVINO runtime network {OVMS_NETWORK!r} does not exist. "
+                "Start the local core first."
+            )
     stop()
     command = [
         "run",
@@ -114,16 +122,22 @@ def start() -> None:
         f"{os.getuid()}:{os.getgid()}",
         "--device",
         "/dev/dri",
-        "-p",
-        f"127.0.0.1:{OVMS_HOST_PORT}:8000",
-        "-v",
-        f"{directory}:/models:ro,Z",
-        OVMS_IMAGE,
-        "--rest_port",
-        "8000",
-        "--config_path",
-        "/models/config.json",
     ]
+    if OVMS_NETWORK:
+        command.extend(["--network", OVMS_NETWORK])
+    command.extend(
+        [
+            "-p",
+            f"127.0.0.1:{OVMS_HOST_PORT}:8000",
+            "-v",
+            f"{directory}:/models:ro,Z",
+            OVMS_IMAGE,
+            "--rest_port",
+            "8000",
+            "--config_path",
+            "/models/config.json",
+        ]
+    )
     subprocess.run(["podman", *command], check=True)
     wait_ready()
 
