@@ -1,4 +1,4 @@
-name: release-validation
+name: physical-validation
 
 on:
   push:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   real-e2e:
-    name: release/e2e
+    name: physical/e2e
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 90
     env:
@@ -38,7 +38,15 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:28080/v1
       LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      RAGAS_JUDGE_PROVIDER: local
       RAGAS_JUDGE_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      RAGAS_JUDGE_BASE_URL: http://localhost:28080/v1
+      RAGAS_JUDGE_API_KEY: local
+      RAGAS_JUDGE_TIMEOUT_SECONDS: '120'
+      RAGAS_OPERATION_TIMEOUT_SECONDS: '120'
+      RAGAS_MAX_RETRIES: '2'
+      RAGAS_MAX_WAIT_SECONDS: '5'
+      RAGAS_MAX_WORKERS: '2'
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
       EMBEDDING_BASE_URL: http://localhost:28083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
@@ -59,22 +67,30 @@ jobs:
       - run: make setup
       - name: Prepare canonical physical runtime
         run: make physical-ready
-      - run: uv run pytest -m e2e tests/e2e
-      - run: uv run pytest tests/adversarial
+      - name: Real local E2E
+        run: uv run pytest -m e2e tests/e2e
+      - name: Adversarial contracts
+        run: uv run pytest tests/adversarial
       - name: Golden evaluation
         run: uv run --extra eval python evaluation/runners/run_golden.py
-      - name: Strict RAGAS evaluation
+      - name: RAGAS measurement
+        env:
+          RAGAS_REQUIRE_CALIBRATION: '0'
         run: uv run --extra eval python evaluation/runners/run_ragas.py
+      - name: Explain release calibration state
+        run: |
+          echo "Physical evaluation completed."
+          echo "External release readiness remains fail-closed until exactly 10 human labels create judge-policy.json."
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: beta1-evaluation
+          name: physical-evaluation
           path: artifacts/
       - if: always()
         run: make local-clean || true
 
   reproducibility:
-    name: release/reproducibility
+    name: physical/reproducibility
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 90
     env:
@@ -97,7 +113,6 @@ jobs:
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:38080/v1
       LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
-      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
       EMBEDDING_BASE_URL: http://localhost:38083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
@@ -125,7 +140,7 @@ jobs:
         run: make local-clean || true
 
   gate:
-    name: release/gate
+    name: physical/gate
     if: always()
     needs: [real-e2e, reproducibility]
     runs-on: ubuntu-latest
