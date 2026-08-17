@@ -123,7 +123,7 @@ def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
         samples.append(
             RagasSample(
                 case_id=str(row.get("case_id") or ""),
-                user_input=str(row.get("question") or ""),
+                user_input=str(row.get("ragas_question") or row.get("question") or ""),
                 retrieved_contexts=contexts,
                 grounded_response=grounded_response,
                 reference=reference,
