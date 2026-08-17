@@ -1,0 +1,39 @@
+name: refresh-eval-lock
+
+on:
+  push:
+    branches: [fix/floci-apigw-dataplane]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: fix/floci-apigw-dataplane
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - name: Regenerate lock and verify frozen sync
+        run: |
+          uv lock
+          uv sync --frozen --group dev
+          uv sync --frozen --extra eval --group dev
+          uv run --extra eval python -c "import ragas; print('ragas import ready')"
+      - name: Commit coherent lock
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pyproject.toml uv.lock
+          if git diff --cached --quiet; then
+            echo 'lock already coherent'
+            exit 0
+          fi
+          git commit -m 'build: regenerate lock for fixed RAGAS evaluator'
+          git push origin HEAD:fix/floci-apigw-dataplane

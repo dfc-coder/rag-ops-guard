@@ -10,7 +10,6 @@ dependencies = [
   "httpx>=0.28,<1",
   "langchain-core>=1.0,<2",
   "langchain-openai>=1.0,<2",
-  "langgraph>=1.0,<2",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "PyYAML>=6.0,<7",
@@ -20,7 +19,10 @@ dependencies = [
 eval = [
   "langsmith>=0.4,<1",
   "openai>=2,<3",
-  "ragas==0.4.3",
+  # RAGAS 0.4.3 cannot import with modern langchain-community because VertexAI is
+  # imported unconditionally. Pin the minimal upstream fix by immutable commit
+  # until the fix is released on PyPI (upstream issue #2753 / PR #2837).
+  "ragas @ git+https://github.com/Incheonkirin/ragas-contrib.git@6afb5de66e129c7d502f6d20a4d86beba4cbdbd8",
 ]
 
 [dependency-groups]
