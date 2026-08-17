@@ -257,6 +257,11 @@ class ConversationAgent:
                         elif call.name == "search_documents":
                             search_result = result
                             retrieval_query = str(result.payload.get("query") or "").strip() or None
+
+                    # The tool observation already contains everything needed for the canonical
+                    # structured response. A second unconstrained draft pass only adds latency and
+                    # is thrown away immediately afterwards, so go straight to structured output.
+                    break
                 else:
                     raise RuntimeError("conversation exceeded the maximum tool-call rounds")
 
