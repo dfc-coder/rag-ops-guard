@@ -99,22 +99,24 @@ Changing the RAGAS judge provider/model, judge prompt or evaluation dataset inva
 
 Blocking deterministic gates cover:
 
-- status/segment contract
-- citation validity and segment integrity
-- architecture fitness and zero unreachable pipeline code
-- deterministic/adversarial security
-- unit/property/integration tests
-- strict mypy
-- dependency/security audit
-- CDK test/build/synth
+- status/segment contract, including four explicit `answered_mixed` cases whose grounded and ungrounded claims must stay in the correct segment type;
+- citation validity and segment integrity;
+- architecture fitness and zero unreachable pipeline code;
+- deterministic/adversarial security;
+- unit/property/integration tests;
+- strict mypy;
+- dependency/security audit;
+- CDK test/build/synth.
 
 Ruff formatting/lint remains visible but is **advisory during the architecture pivot**; it does not block architecture work.
 
-Golden executes the agent once and writes `artifacts/evaluation/golden-samples.json`. RAGAS reuses exactly those responses; it does not regenerate them. RAGAS evaluates grounded segments with a reference answer and their cited contexts. Direct/ungrounded answers remain covered by deterministic Golden/status/safety contracts rather than being forced into context metrics that do not apply to them.
+Golden executes the agent once and writes `artifacts/evaluation/golden-samples.json`. RAGAS reuses exactly those responses; it does not regenerate them. RAGAS evaluates grounded segments with a reference answer and their cited contexts. For mixed responses, the grounded segment is evaluated against its grounded subquestion; the accompanying general calculation/example remains an uncited Golden concern. Direct/ungrounded answers remain covered by deterministic Golden/status/safety contracts rather than being forced into context metrics that do not apply to them.
 
-RAGAS has bounded judge/embedding requests, bounded retries/workers and a hard suite wall timeout. It writes `ragas-results.json` and `ragas.json` before release-policy enforcement. The automatic physical workflow runs measurement mode (`RAGAS_REQUIRE_CALIBRATION=0`) so physical evaluation can complete before human calibration. Strict `make physical-eval` remains **fail-closed** until a valid `judge-policy.json` exists.
+RAGAS has bounded judge/embedding requests, bounded retries/workers and a hard suite wall timeout. It writes `ragas-results.json` and `ragas.json` before release-policy enforcement. A stale judge policy is ignored only in explicit measurement mode so a changed judge can be measured and recalibrated; strict evaluation still rejects stale identity.
 
-After exactly 10 real human-labelled cases are calibrated against the configured judge identity, the resulting policy determines whether RAGAS scores may gate. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by strict release evaluation.
+`make physical-eval-measure` is the complete pre-human physical path. It prepares the runtime, calibrates/validates retrieval, provisions and ingests through the API, runs Golden once, runs RAGAS in measurement mode, and creates `artifacts/evaluation/judge-human-review.json` with exactly 10 deterministic review cases. The script leaves every `human_pass` as `null`; only a real human may set those ten booleans.
+
+After those exactly 10 human decisions, `make eval-judge-calibrate` creates a policy bound to the exact judge provider/model/prompt and the complete base+mixed evaluation datasets. Strict `make physical-eval` remains **fail-closed** until that policy exists and matches the active evaluator. A low-agreement policy can intentionally keep RAGAS informational, but the policy artifact itself is still required by strict release evaluation.
 
 ## Evaluation fixtures are not product logic
 
@@ -124,23 +126,18 @@ The AcmePay/Payments/Calypso corpus exists to exercise conflicts, deprecated doc
 
 ```bash
 make setup
-make models
-make local-up
 make test
 make types
 make beta-react
-make physical-ready
 make physical-eval-measure
 make eval-judge-calibrate
 make physical-eval
-make release-check
-make chainlit-gate
 ```
 
-`make physical-eval-measure` is the single physical bootstrap/evaluation path before human calibration. Strict physical evaluation is fail-closed until the judge policy exists. `make lint` is available as a strict manual style check.
+`make physical-eval-measure` is the single command for physical measurement before the genuinely human calibration step. Measurement success is evidence that the software/runtime/evaluation pipeline completed; it is not a fabricated claim of external release readiness.
 
 ## Physical validation
 
 Hosted CI validates software contracts, including importing/compiling/testing the evaluation runner with its real optional dependencies. The trusted `rag-e2e` runner validates the API/Floci/local-model path from a clean checkout. The canonical physical profile uses Unsloth Qwen3.5-0.8B Dynamic 2.0 for generation and OpenVINO embeddings/reranking, and calibrates labelled relevance floors before validating retrieval admission.
 
-A release is not RAGAS-complete until the real 10-case human/judge calibration artifact exists. Measurement-only mode is for physical evidence and bootstrap calibration, not release approval.
+A release is not RAGAS-complete until the physical measurements, exactly ten human labels, calibrated judge policy and strict physical evaluation all exist for the same evaluator identity.
