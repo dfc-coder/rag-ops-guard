@@ -153,8 +153,9 @@ class KnowledgeSearch:
         fused_rank = {item.chunk.id: rank for rank, item in enumerate(fused)}
         resolved = self._resolver.resolve(fused, context, limit=max(1, len(fused)))
         resolved.sort(key=lambda item: fused_rank.get(item.chunk.id, len(fused_rank)))
+        eligible = _filter_candidates_by_explicit_anchors(standalone_query, resolved)
 
-        if not _candidates_cover_explicit_anchors(standalone_query, resolved):
+        if not eligible:
             return KnowledgeSearchResult(
                 dense=dense,
                 lexical=lexical,
@@ -172,7 +173,7 @@ class KnowledgeSearch:
         ranked = sorted(
             (
                 (item, raw_grade_by_id[item.chunk.id])
-                for item in resolved
+                for item in eligible
                 if item.chunk.id in raw_grade_by_id
             ),
             key=lambda pair: (-pair[1].score, fused_rank.get(pair[0].chunk.id, len(fused_rank))),
@@ -310,15 +311,15 @@ def _reranker_document(item: Evidence) -> str:
     return "\n".join(parts)
 
 
-def _candidates_cover_explicit_anchors(query: str, candidates: list[Evidence]) -> bool:
+def _filter_candidates_by_explicit_anchors(query: str, candidates: list[Evidence]) -> list[Evidence]:
     anchors = _explicit_query_anchors(query)
     if not anchors:
-        return True
-
-    candidate_tokens: set[str] = set()
-    for item in candidates:
-        candidate_tokens.update(_all_tokens(_reranker_document(item)))
-    return anchors.issubset(candidate_tokens)
+        return candidates
+    return [
+        item
+        for item in candidates
+        if anchors.issubset(_all_tokens(_reranker_document(item)))
+    ]
 
 
 def _explicit_query_anchors(text: str) -> set[str]:
