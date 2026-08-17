@@ -2,7 +2,7 @@ SHELL := /bin/bash
 UV_PYTHON ?= 3.12
 COMPOSE := podman compose -f docker/docker-compose.yml
 PODMAN_SOCKET ?= /run/user/$(shell id -u)/podman/podman.sock
-CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(HOME)/.cache,$(HOME)/.cache)
+CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
 MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/models
 OVMS_MODEL_DIR ?= $(CACHE_HOME)/rag-ops-guard/openvino-models
 COMPOSE_PROJECT_NAME ?= rag-ops-guard
@@ -223,7 +223,7 @@ physical-smoke: physical-ready
 demo-ready: models local-up local-data retrieval-validate
 	uv run python scripts/demo_ready.py
 
-demo-client: beta
+demo-client: ui
 
 benchmark: models local-up local-data retrieval-validate
 	uv run python scripts/benchmark_runtime.py --transport direct --requests $(BENCH_REQUESTS) --concurrency $(BENCH_CONCURRENCY)
