@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from scripts.calibrate_relevance_floors import Observation, calibrate_floors
+from scripts.calibrate_relevance_floors import (
+    Observation,
+    calibrate_floors,
+    expected_grounded_score,
+)
 
 
 def test_calibration_rejects_overlap_between_out_of_domain_and_in_domain_unanswerable() -> None:
@@ -46,3 +52,30 @@ def test_domain_calibration_treats_unanswerable_corpus_queries_as_in_domain() ->
 
     assert observation.should_be_domain_related is True
     assert observation.should_be_grounded is False
+
+
+def test_grounded_calibration_scores_only_expected_admissible_evidence() -> None:
+    expected = SimpleNamespace(chunk=SimpleNamespace(id="expected", title="Payment Retry Policy"))
+    wrong = SimpleNamespace(chunk=SimpleNamespace(id="wrong", title="Vendor Troubleshooting Note"))
+    result = SimpleNamespace(
+        admitted=[wrong, expected],
+        reranker_scores={"wrong": 0.99, "expected": 0.61},
+    )
+
+    score, matched = expected_grounded_score(result, {"Payment Retry Policy"})
+
+    assert score == pytest.approx(0.61)
+    assert matched == ["Payment Retry Policy"]
+
+
+def test_grounded_calibration_does_not_credit_high_scoring_wrong_document() -> None:
+    wrong = SimpleNamespace(chunk=SimpleNamespace(id="wrong", title="Vendor Troubleshooting Note"))
+    result = SimpleNamespace(
+        admitted=[wrong],
+        reranker_scores={"wrong": 0.99},
+    )
+
+    score, matched = expected_grounded_score(result, {"Payment Retry Policy"})
+
+    assert score == 0.0
+    assert matched == []
