@@ -37,8 +37,8 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:28080/v1
-      LLM_MODEL: qwen3.5-0.8b-rag
-      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-rag
+      LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
       EMBEDDING_BASE_URL: http://localhost:28083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
@@ -96,8 +96,8 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LLM_BASE_URL: http://localhost:38080/v1
-      LLM_MODEL: qwen3.5-0.8b-rag
-      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-rag
+      LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
       EMBEDDING_BASE_URL: http://localhost:38083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
