@@ -48,14 +48,15 @@ RAGAS_OPERATION_TIMEOUT_SECONDS ?= 120
 RAGAS_MAX_RETRIES ?= 2
 RAGAS_MAX_WAIT_SECONDS ?= 5
 RAGAS_MAX_WORKERS ?= 2
+RAGAS_SUITE_TIMEOUT_SECONDS ?= 1800
 LAMBDA_PYTHON_VERSION ?= 3.12
-export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K RETRIEVAL_DOMAIN_MIN_RELEVANCE RETRIEVAL_MIN_RELEVANCE LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY EMBEDDING_TIMEOUT_SECONDS RERANKER_TIMEOUT_SECONDS GOLDEN_HTTP_TIMEOUT_SECONDS GOLDEN_CASE_TIMEOUT_SECONDS RAGAS_JUDGE_TIMEOUT_SECONDS RAGAS_OPERATION_TIMEOUT_SECONDS RAGAS_MAX_RETRIES RAGAS_MAX_WAIT_SECONDS RAGAS_MAX_WORKERS LAMBDA_PYTHON_VERSION
+export PODMAN_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K RETRIEVAL_DOMAIN_MIN_RELEVANCE RETRIEVAL_MIN_RELEVANCE LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY EMBEDDING_TIMEOUT_SECONDS RERANKER_TIMEOUT_SECONDS GOLDEN_HTTP_TIMEOUT_SECONDS GOLDEN_CASE_TIMEOUT_SECONDS RAGAS_JUDGE_TIMEOUT_SECONDS RAGAS_OPERATION_TIMEOUT_SECONDS RAGAS_MAX_RETRIES RAGAS_MAX_WAIT_SECONDS RAGAS_MAX_WORKERS RAGAS_SUITE_TIMEOUT_SECONDS LAMBDA_PYTHON_VERSION
 
 OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) EMBEDDING_TIMEOUT_SECONDS=$(EMBEDDING_TIMEOUT_SECONDS) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) RERANKER_TIMEOUT_SECONDS=$(RERANKER_TIMEOUT_SECONDS) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
-.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 doctor:
 	@uv run --no-project --python 3.12 python scripts/doctor.py
@@ -178,6 +179,7 @@ physical-ready: physical-relevance-calibrate package-lambda
 physical-eval-measure: physical-ready
 	@set -a; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
 	@set -a; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
+	@set -a; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python scripts/prepare_judge_human_review.py
 
 physical-eval: physical-ready
 	@set -a; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
@@ -231,6 +233,9 @@ eval:
 eval-measure:
 	uv run --extra eval python evaluation/runners/run_golden.py
 	RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
+
+eval-human-review:
+	uv run --extra eval python scripts/prepare_judge_human_review.py
 
 eval-judge-calibrate:
 	uv run --extra eval python scripts/calibrate_ragas_judge.py
