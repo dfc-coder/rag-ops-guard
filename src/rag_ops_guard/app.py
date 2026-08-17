@@ -35,6 +35,7 @@ def embeddings() -> LlamaCppEmbeddingAdapter:
         settings.embedding_base_url,
         settings.embedding_model,
         settings.embedding_dimension,
+        timeout_seconds=settings.embedding_timeout_seconds,
     )
 
 
