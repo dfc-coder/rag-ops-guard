@@ -28,6 +28,23 @@ def test_physical_runtime_uses_one_generation_model_alias() -> None:
     assert f"RAGAS_JUDGE_MODEL: {alias}" in release
 
 
+def test_physical_generation_artifact_is_qwen35_08b_only() -> None:
+    filename = "Qwen3.5-0.8B-Q8_0.gguf"
+    old_filename = "Qwen3-4B-Q4_K_M.gguf"
+    expected_sha = "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f"
+    compose = _read("docker/docker-compose.yml")
+    makefile = _read("Makefile")
+    downloader = _read("scripts/download_models.py")
+
+    assert f"/models/{filename}" in compose
+    assert f"MODEL_FILES={filename}" in makefile
+    assert filename in downloader
+    assert expected_sha in downloader
+    assert old_filename not in compose
+    assert old_filename not in makefile
+    assert old_filename not in downloader
+
+
 def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     compose = _read("docker/docker-compose.yml")
     hosted_ci = _read(".github/workflows/ci.yml")
