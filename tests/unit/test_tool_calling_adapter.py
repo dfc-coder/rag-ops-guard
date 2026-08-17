@@ -6,7 +6,6 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from rag_ops_guard.adapters.llm.openai_tool_calling import (
-    FINAL_RESPONSE_TOOL,
     OpenAIToolCallingAdapter,
     _content_text,
     _to_langchain_messages,
@@ -71,6 +70,7 @@ class _FakeModel:
         self.definitions: list[dict[str, Any]] | None = None
         self.tool_choice: Any = None
         self.parallel_tool_calls: bool | None = None
+        self.response_format: dict[str, Any] | None = None
 
     def bind_tools(
         self,
@@ -82,6 +82,10 @@ class _FakeModel:
         self.definitions = definitions
         self.tool_choice = tool_choice
         self.parallel_tool_calls = parallel_tool_calls
+        return _FakeRunnable(self.response)
+
+    def bind(self, *, response_format: dict[str, Any]) -> _FakeRunnable:
+        self.response_format = response_format
         return _FakeRunnable(self.response)
 
 
@@ -100,23 +104,14 @@ def _adapter() -> OpenAIToolCallingAdapter:
     )
 
 
-def test_structured_response_reuses_forced_function_calling_and_pydantic_validation() -> None:
+def test_structured_response_uses_schema_constrained_json_and_pydantic_validation() -> None:
     adapter = _adapter()
     fake = _FakeModel(
         AIMessage(
-            content="",
-            tool_calls=[
-                {
-                    "id": "submit-1",
-                    "name": FINAL_RESPONSE_TOOL,
-                    "args": {
-                        "segments": [
-                            {"text": "Three retries are allowed.", "citation_ids": ["chunk-1"]}
-                        ]
-                    },
-                    "type": "tool_call",
-                }
-            ],
+            content=(
+                '{"segments":[{"text":"Three retries are allowed.",'
+                '"citation_ids":["chunk-1"]}]}'
+            )
         )
     )
     adapter._model = fake  # type: ignore[assignment]
@@ -128,21 +123,28 @@ def test_structured_response_reuses_forced_function_calling_and_pydantic_validat
 
     assert result.segments[0].text == "Three retries are allowed."
     assert result.segments[0].citation_ids == ["chunk-1"]
-    assert fake.definitions is not None
-    assert fake.definitions[0]["function"]["name"] == FINAL_RESPONSE_TOOL
-    assert fake.definitions[0]["function"]["parameters"] == StructuredAnswer.model_json_schema()
-    assert fake.tool_choice == {
-        "type": "function",
-        "function": {"name": FINAL_RESPONSE_TOOL},
+    assert fake.response_format == {
+        "type": "json_object",
+        "schema": StructuredAnswer.model_json_schema(),
     }
-    assert fake.parallel_tool_calls is False
 
 
-def test_structured_response_fails_closed_without_required_submission_tool() -> None:
+def test_structured_response_fails_closed_on_empty_model_content() -> None:
     adapter = _adapter()
-    adapter._model = _FakeModel(AIMessage(content="plain text"))  # type: ignore[assignment]
+    adapter._model = _FakeModel(AIMessage(content=""))  # type: ignore[assignment]
 
-    with pytest.raises(ValueError, match="submit_structured_response exactly once"):
+    with pytest.raises(ValueError, match="empty structured response"):
+        adapter.invoke_structured(
+            [ModelMessage(role="user", content="x")],
+            StructuredAnswer,
+        )
+
+
+def test_structured_response_fails_closed_on_invalid_json() -> None:
+    adapter = _adapter()
+    adapter._model = _FakeModel(AIMessage(content="not-json"))  # type: ignore[assignment]
+
+    with pytest.raises(ValueError):
         adapter.invoke_structured(
             [ModelMessage(role="user", content="x")],
             StructuredAnswer,
