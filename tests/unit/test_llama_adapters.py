@@ -51,7 +51,7 @@ def test_embedding_adapter_bounds_request_timeout_and_disables_retries(
         timeout_seconds=12.5,
     )
 
-    assert adapter._client.kwargs["request_timeout"] == 12.5
+    assert adapter._client.kwargs["timeout"] == 12.5
     assert adapter._client.kwargs["max_retries"] == 0
 
 
