@@ -23,12 +23,13 @@ class Model:
 
 MODELS = (
     Model(
-        filename="Qwen3.5-0.8B-UD-Q4_K_XL.gguf",
+        filename="Qwen3.5-2B-UD-Q4_K_XL.gguf",
         url=(
-            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/"
-            "Qwen3.5-0.8B-UD-Q4_K_XL.gguf?download=true"
+            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/"
+            "1c466474d208da1a7c4b8cb87ebcdac78f160e34/"
+            "Qwen3.5-2B-UD-Q4_K_XL.gguf?download=true"
         ),
-        sha256="3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5",
+        sha256="0af96165ea615bea39a04118d63f0b6d35908aea850ee4a51aa6151d851b8b35",
     ),
     Model(
         filename="Qwen3-Embedding-0.6B-Q8_0.gguf",
