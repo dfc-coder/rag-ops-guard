@@ -7,7 +7,7 @@ from rag_ops_guard.app import knowledge_search
 from rag_ops_guard.domain.models import QueryContext
 
 # Calibration and deterministic admission validation must use the same labelled corpus.
-DATASET_PATH = Path("evaluation/datasets/retrieval-calibration-v2.json")
+DATASET_PATH = Path("evaluation/datasets/retrieval-relevance-calibration.json")
 
 
 def validation_passes(
