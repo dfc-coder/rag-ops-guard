@@ -115,18 +115,58 @@ def test_structured_response_uses_schema_constrained_json_and_pydantic_validatio
         )
     )
     adapter._model = fake  # type: ignore[assignment]
+    messages = [
+        ModelMessage(role="system", content="system"),
+        ModelMessage(role="user", content="x"),
+    ]
 
-    result = adapter.invoke_structured(
-        [ModelMessage(role="system", content="system"), ModelMessage(role="user", content="x")],
-        StructuredAnswer,
-    )
+    result = adapter.invoke_structured(messages, StructuredAnswer)
 
     assert result.segments[0].text == "Three retries are allowed."
     assert result.segments[0].citation_ids == ["chunk-1"]
-    assert fake.response_format == {
-        "type": "json_object",
-        "schema": StructuredAnswer.model_json_schema(),
+    assert fake.response_format is not None
+    schema = fake.response_format["schema"]
+    citation_schema = schema["$defs"]["GeneratedSegment"]["properties"]["citation_ids"]
+    assert fake.response_format["type"] == "json_object"
+    assert citation_schema["maxItems"] == 0
+
+
+def test_structured_response_limits_citation_ids_to_retrieved_sources() -> None:
+    adapter = _adapter()
+    fake = _FakeModel(
+        AIMessage(
+            content=(
+                '{"segments":[{"text":"Three retries are allowed.",'
+                '"citation_ids":["chunk-1"]}]}'
+            )
+        )
+    )
+    adapter._model = fake  # type: ignore[assignment]
+    messages = [
+        ModelMessage(role="user", content="x"),
+        ModelMessage(
+            role="tool",
+            name="search_documents",
+            tool_call_id="call-1",
+            content=(
+                '{"ok":true,"payload":{"sources":['
+                '{"chunk_id":"chunk-1"},{"chunk_id":"chunk-2"}]}}'
+            ),
+        ),
+    ]
+
+    result = adapter.invoke_structured(messages, StructuredAnswer)
+
+    assert result.segments[0].citation_ids == ["chunk-1"]
+    assert fake.response_format is not None
+    citation_schema = fake.response_format["schema"]["$defs"]["GeneratedSegment"]["properties"][
+        "citation_ids"
+    ]
+    assert citation_schema["items"] == {
+        "type": "string",
+        "enum": ["chunk-1", "chunk-2"],
     }
+    assert "maxItems" not in citation_schema
 
 
 def test_structured_response_fails_closed_on_empty_model_content() -> None:
