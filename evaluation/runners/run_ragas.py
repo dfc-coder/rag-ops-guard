@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import boto3
-import httpx
 import yaml
 from botocore.config import Config
 from openai import AsyncOpenAI
@@ -28,8 +27,14 @@ from rag_ops_guard.evaluation.gates import (
     grounded_segment_text,
     require_calibration_policy,
 )
+from rag_ops_guard.evaluation.judge import (
+    JUDGE_SYSTEM_PROMPT,
+    JudgeIdentity,
+    judge_connection_from_env,
+)
 
 JUDGE_POLICY_PATH = Path("artifacts/evaluation/judge-policy.json")
+GOLDEN_SAMPLES_PATH = Path("artifacts/evaluation/golden-samples.json")
 
 
 @dataclass(frozen=True)
@@ -40,16 +45,6 @@ class RagasSample:
     response: str
     grounded_response: str
     reference: str
-
-
-def _api_url() -> str:
-    configured = os.environ.get("RAG_API_URL")
-    if configured:
-        return configured.rstrip("/")
-    path = Path(".local/api-url")
-    if not path.exists():
-        raise SystemExit("RAG_API_URL missing and .local/api-url not found")
-    return path.read_text().strip().rstrip("/")
 
 
 def _s3() -> Any:
@@ -69,47 +64,54 @@ def _context_text(s3: Any, bucket: str, key: str) -> str:
     return str(payload["text"])
 
 
-def _is_answer_case(case: dict[str, Any]) -> bool:
-    return str(case.get("expected_status") or "").startswith("answered_")
+def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
+    if not path.is_file():
+        raise SystemExit(
+            f"Golden samples not found: {path}. Run evaluation/runners/run_golden.py first."
+        )
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(rows, list):
+        raise SystemExit("golden-samples.json must contain a JSON list")
 
-
-def _collect_samples() -> list[RagasSample]:
-    cases = json.loads(Path("evaluation/datasets/golden-v1.json").read_text())
-    api = _api_url()
     s3 = _s3()
     bucket = os.environ.get("S3_DOCUMENT_BUCKET", "rag-ops-guard-docs-local")
     samples: list[RagasSample] = []
 
-    for case in cases:
-        if not _is_answer_case(case):
+    for row in rows:
+        if not isinstance(row, dict):
             continue
-        response = httpx.post(
-            f"{api}/v1/query",
-            json={"question": case["question"], "context": case.get("context", {})},
-            timeout=180,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        expected_status = str(row.get("expected_status") or "")
+        if not expected_status.startswith("answered_"):
+            continue
+        payload = row.get("payload")
+        if not isinstance(payload, dict):
+            raise SystemExit(f"golden sample {row.get('case_id')} has no response payload")
         actual_status = str(payload.get("status") or "")
         if not actual_status.startswith("answered_"):
             raise SystemExit(
-                f"RAGAS collection expected an answered response for {case['id']}, "
+                f"RAGAS expected an answered Golden response for {row.get('case_id')}, "
                 f"got {actual_status or '<missing>'}"
             )
+        reference = str(row.get("reference_answer") or "").strip()
+        if not reference:
+            raise SystemExit(f"golden sample {row.get('case_id')} is missing reference_answer")
         contexts = [
             _context_text(s3, bucket, str(citation["s3_key"]))
             for citation in payload.get("citations", [])
+            if isinstance(citation, dict) and citation.get("s3_key")
         ]
         samples.append(
             RagasSample(
-                case_id=str(case["id"]),
-                user_input=str(case["question"]),
+                case_id=str(row.get("case_id") or ""),
+                user_input=str(row.get("question") or ""),
                 retrieved_contexts=contexts,
-                response=str(payload.get("answer") or ""),
+                response=str(payload.get("answer") or payload.get("message") or ""),
                 grounded_response=grounded_segment_text(payload),
-                reference=str(case["reference_answer"]),
+                reference=reference,
             )
         )
+    if not samples:
+        raise SystemExit("Golden samples contain no answered cases for RAGAS")
     return samples
 
 
@@ -164,16 +166,6 @@ def enforce_thresholds(
         raise SystemExit("RAGAS thresholds failed:\n" + "\n".join(failures))
 
 
-def _runtime_judge_model() -> str:
-    runtime = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
-    judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
-    if judge != runtime:
-        raise SystemExit(
-            "SPEC-5.3 requires one runtime/judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
-        )
-    return judge
-
-
 def _calibration_required() -> bool:
     value = os.environ.get("RAGAS_REQUIRE_CALIBRATION", "1").strip()
     if value not in {"0", "1"}:
@@ -181,13 +173,24 @@ def _calibration_required() -> bool:
     return value == "1"
 
 
-def _load_judge_policy(model: str) -> JudgePolicy | None:
+def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
     payload = json.loads(JUDGE_POLICY_PATH.read_text(encoding="utf-8"))
-    if str(payload.get("model")) != model:
+    expected = {
+        "judge_provider": identity.provider,
+        "judge_model": identity.model,
+        "judge_prompt_sha256": identity.prompt_sha256,
+        "evaluation_dataset_sha256": identity.dataset_sha256,
+    }
+    mismatches = [
+        f"{key}: policy={payload.get(key)!r}, active={value!r}"
+        for key, value in expected.items()
+        if str(payload.get(key) or "") != value
+    ]
+    if mismatches:
         raise SystemExit(
-            "judge calibration model does not match runtime model; recalibrate on the active runtime model"
+            "judge calibration is stale for the active evaluator; recalibrate. " + "; ".join(mismatches)
         )
     return JudgePolicy(
         agreement=float(payload["agreement"]),
@@ -205,24 +208,26 @@ def _load_judge_policy(model: str) -> JudgePolicy | None:
 
 def main() -> None:
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
-    model = _runtime_judge_model()
+    judge = judge_connection_from_env()
 
+    print(
+        f"RAGAS START: judge={judge.identity.provider}/{judge.identity.model}; "
+        "reusing artifacts/evaluation/golden-samples.json",
+        flush=True,
+    )
     llm_client = AsyncOpenAI(
-        base_url=os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1"),
-        api_key="local",
+        base_url=judge.base_url,
+        api_key=judge.api_key,
     )
     embedding_client = AsyncOpenAI(
         base_url=os.environ.get("EMBEDDING_BASE_URL", "http://localhost:8081/v1"),
         api_key="local",
     )
     evaluator_llm = llm_factory(
-        model,
+        judge.identity.model,
         client=llm_client,
         temperature=0.0,
-        system_prompt=(
-            "Judge only the provided question, response, reference, and contexts. "
-            "Do not use external knowledge. /no_think"
-        ),
+        system_prompt=JUDGE_SYSTEM_PROMPT,
     )
     evaluator_embeddings = OpenAIEmbeddings(
         client=embedding_client,
@@ -279,7 +284,10 @@ def main() -> None:
     }
     summary.update(
         {
-            "evaluator": model,
+            "evaluator_provider": judge.identity.provider,
+            "evaluator": judge.identity.model,
+            "judge_prompt_sha256": judge.identity.prompt_sha256,
+            "evaluation_dataset_sha256": judge.identity.dataset_sha256,
             "embedding_evaluator": os.environ.get(
                 "EMBEDDING_MODEL", "qwen3-embedding-0.6b"
             ),
@@ -298,7 +306,7 @@ def main() -> None:
         rows.append(row)
     (output / "ragas-results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
-    policy = _load_judge_policy(model)
+    policy = _load_judge_policy(judge.identity)
     summary["judge_calibration"] = (
         None
         if policy is None
@@ -310,7 +318,7 @@ def main() -> None:
         }
     )
     (output / "ragas.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2), flush=True)
 
     try:
         policy = require_calibration_policy(
@@ -323,7 +331,8 @@ def main() -> None:
     if policy is None:
         print(
             "RAGAS calibration absent; metrics are informational because "
-            "RAGAS_REQUIRE_CALIBRATION=0 was set explicitly."
+            "RAGAS_REQUIRE_CALIBRATION=0 was set explicitly.",
+            flush=True,
         )
         return
 
@@ -342,7 +351,8 @@ def main() -> None:
     if not policy.gating_enabled:
         print(
             "RAGAS judge agreement is <= 6/10; metrics are informational. "
-            "Deterministic citation/segment/security gates remain authoritative."
+            "Deterministic citation_validity and segment_integrity remain blocking.",
+            flush=True,
         )
 
 
