@@ -73,7 +73,6 @@ def test_golden_runner_writes_partial_results(tmp_path: Path) -> None:
         required_facts_ok=True,
         forbidden_facts_ok=True,
         segment_integrity_ok=True,
-        retrieval_hit_at_5=True,
         actual_status="answered_grounded",
         actual_sources=["source"],
     )
@@ -91,9 +90,16 @@ def test_golden_runner_writes_partial_results(tmp_path: Path) -> None:
             "required_facts_ok": True,
             "forbidden_facts_ok": True,
             "segment_integrity_ok": True,
-            "retrieval_hit_at_5": True,
             "actual_status": "answered_grounded",
             "actual_sources": ["source"],
             "passed": True,
         }
     ]
+
+
+def test_golden_runner_has_no_second_retrieval_pass() -> None:
+    runner_source = (ROOT / "evaluation/runners/run_golden.py").read_text(encoding="utf-8")
+
+    assert "retrieved_identities" not in runner_source
+    assert "retrieval_hit_at_5" not in runner_source
+    assert "vector_store().query" not in runner_source
