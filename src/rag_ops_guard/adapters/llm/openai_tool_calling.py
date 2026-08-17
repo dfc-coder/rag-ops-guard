@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
+STRUCTURED_MAX_TOKENS = 256
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,9 @@ class OpenAIToolCallingAdapter:
         because some local chat templates ignore forced tool_choice for that last turn.
         Citation IDs are additionally constrained to chunk IDs returned by search_documents,
         so the model cannot invent an ID that the application must reject afterwards.
+
+        Final structured generation is deterministic and token-bounded. This prevents a
+        stochastic JSON response from consuming the whole Lambda wall-clock budget.
         """
         validator = getattr(schema, "model_validate_json", None)
         schema_factory = getattr(schema, "model_json_schema", None)
@@ -150,7 +154,13 @@ class OpenAIToolCallingAdapter:
             response_format={
                 "type": "json_object",
                 "schema": json_schema,
-            }
+            },
+            temperature=0.0,
+            presence_penalty=0.0,
+            max_completion_tokens=min(
+                self._config.max_completion_tokens,
+                STRUCTURED_MAX_TOKENS,
+            ),
         )
         response = runnable.invoke(_to_langchain_messages(messages))
         if not isinstance(response, AIMessage):
