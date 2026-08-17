@@ -42,7 +42,7 @@ def test_embedding_adapter_normalizes_and_validates_dimension(
 def test_embedding_adapter_bounds_request_timeout_and_disables_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A slow/unreachable embedding backend must fail fast and deterministically."""
+    """A slow/unreachable compatible backend must fail fast and receive raw text."""
     monkeypatch.setattr(llamacpp_embeddings, "OpenAIEmbeddings", FakeEmbeddings)
     adapter = LlamaCppEmbeddingAdapter(
         "http://localhost:8081/v1",
@@ -53,6 +53,7 @@ def test_embedding_adapter_bounds_request_timeout_and_disables_retries(
 
     assert adapter._client.kwargs["timeout"] == 12.5
     assert adapter._client.kwargs["max_retries"] == 0
+    assert adapter._client.kwargs["check_embedding_ctx_length"] is False
 
 
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
