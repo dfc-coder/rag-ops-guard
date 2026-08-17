@@ -62,6 +62,7 @@ Status: implemented. Hosted CI runs the full `tests/adversarial` directory.
 - **SPEC-4.3** — Relevance floors come from calibration measurements, never guessed constants.
 - **SPEC-4.4** — Every safe first turn performs a silent non-tool probe needed for a trace/score, including turns answered ungrounded.
 - **SPEC-4.5** — Explicit named-target anchors are applied per evidence candidate; one candidate mentioning the requested target cannot authorize unrelated candidates that omit it.
+- **SPEC-4.6** — Deterministic labelled retrieval validation requires at least one expected evidence title for `grounded` cases and zero admitted evidence for `in_domain_unanswerable`/`out_of_domain`. Additional admitted context is diagnostic here and is evaluated by context-precision metrics rather than an undocumented exhaustive title allow-list.
 
 Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. Calibration chooses thresholds from labelled measurements and fails closed unless both signals achieve **zero false positives and at least 80% recall**. Score distributions may overlap when a threshold still satisfies that declared policy; perfect class separation is not an independent requirement.
 
@@ -69,28 +70,31 @@ Status: implemented, including the final domain-floor admission invariant.
 
 ## U5 — Evaluation/RAGAS alignment
 
-- **SPEC-5.1** — Release evaluation enforces per-case floors in addition to aggregate means. Current per-case floors: faithfulness `0.60`, context precision `0.30`.
-- **SPEC-5.2** — Faithfulness is evaluated only on grounded segments.
-- **SPEC-5.3** — The runtime generation model and the RAGAS judge are independently configurable. A judge policy is valid only for the exact provider/model/prompt/dataset identity it calibrated. Agreement uses exactly 10 real human labels:
+- **SPEC-5.1** — Strict release evaluation enforces per-case floors in addition to aggregate means. Current per-case floors: faithfulness `0.60`, context precision `0.30`.
+- **SPEC-5.2** — RAGAS evaluates grounded segments with reference answers and the contexts cited by those segments. Direct/ungrounded answer quality, status, safety and citation integrity remain deterministic Golden concerns and are not forced into context metrics that do not apply.
+- **SPEC-5.3** — Golden executes the agent once. RAGAS reuses the exact resulting `golden-samples.json`; it never regenerates the answers being judged.
+- **SPEC-5.4** — Judge requests, embedding requests, RAGAS retries/workers and the whole RAGAS suite are time-bounded. A backend cannot leave physical evaluation waiting indefinitely.
+- **SPEC-5.5** — The runtime generation model and the RAGAS judge are independently configurable. A judge policy is valid only for the exact provider/model/prompt/dataset identity it calibrated. Agreement uses exactly 10 real human labels:
   - 9–10/10: RAGAS may gate at aggregate faithfulness floor `0.85` plus per-case floor;
   - 7–8/10: use a lower threshold derived from measured labels plus per-case floor;
   - <=6/10: RAGAS is informational and cannot block release.
-
-Before a human calibration policy exists, RAGAS produces measurement artifacts but remains informational; absence of that policy is not a physical-runtime failure.
+- **SPEC-5.6** — Automatic physical validation runs RAGAS in explicit measurement mode before human calibration. Strict `physical-eval` remains fail-closed until a matching `judge-policy.json` exists; successful measurement must never be mislabeled as external release readiness.
 
 Status: mechanism implemented. The repository deliberately does **not** claim a human-agreement score before a real target-machine run and ten real labels exist.
 
 ## U6 — Evaluation corpus and final replacement
 
 - **SPEC-6.1** — Golden statuses use the segmented contract; legacy `answered`/`insufficient_evidence` expectations are removed.
-- **SPEC-6.2** — `retrieval-calibration-v2.json` remains the three-class calibration dataset.
+- **SPEC-6.2** — `retrieval-calibration-v2.json` is the single three-class calibration and deterministic retrieval-validation dataset.
 - **SPEC-6.3** — AcmePay/Payments/Calypso are evaluation fixtures, never the product domain or routing logic.
+- **SPEC-6.4** — Golden does not run a second dense-only retrieval implementation. Required/forbidden source assertions validate the evidence actually cited by the canonical agent response.
 
 Final closure conditions:
 
 - obsolete legacy `scripts/react_*.py` shims removed;
 - `src/rag_ops_guard/graph/` physically absent;
 - legacy structured chat adapter/ports removed;
+- LangGraph not a direct runtime dependency and its old ADR explicitly superseded;
 - unreachable pipeline budget exactly `0`;
 - pipeline ownership exactly `{app, agent.conversation}`;
 - README/architecture/technology docs describe the actual system;
@@ -118,9 +122,10 @@ Style-only failures must not stop architectural replacement work.
 - strict mypy: blocking.
 - unit coverage, architecture fitness and adversarial security: blocking.
 - property + Floci integration: blocking.
+- evaluation runner import/compile/contracts with the real eval extra: blocking.
 - dependency/security audit: blocking.
 - CDK test/build/synth: blocking.
-- deterministic evaluation gates: blocking when the evaluation environment is available.
+- deterministic evaluation gates: blocking when the physical evaluation environment is available.
 
 A strict manual `make lint` remains available.
 
@@ -137,11 +142,12 @@ Software pivot DoD:
 - zero unreachable pipeline code;
 - no legacy graph/router path;
 - one configured runtime generation model and an explicitly identified/calibrated judge;
-- hosted correctness/security CI green.
+- hosted correctness/security/evaluation-contract CI green.
 
 External release DoD, deliberately not fabricated:
 
-1. run the target physical gate with Qwen3.5-0.8B generation plus OpenVINO embeddings/reranker;
+1. run the target physical measurement gate with Qwen3.5-0.8B generation plus OpenVINO embeddings/reranker;
 2. produce real RAGAS scores and exactly ten human labels;
 3. calibrate judge agreement against the exact judge identity and apply the resulting policy;
-4. only then claim final release readiness.
+4. run strict `physical-eval` with that policy;
+5. only then claim final release readiness.
