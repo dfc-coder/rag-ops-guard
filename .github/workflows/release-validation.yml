@@ -47,6 +47,7 @@ jobs:
       RAGAS_MAX_RETRIES: '2'
       RAGAS_MAX_WAIT_SECONDS: '5'
       RAGAS_MAX_WORKERS: '2'
+      RAGAS_SUITE_TIMEOUT_SECONDS: '1800'
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
       EMBEDDING_BASE_URL: http://localhost:28083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
@@ -77,9 +78,11 @@ jobs:
         env:
           RAGAS_REQUIRE_CALIBRATION: '0'
         run: uv run --extra eval python evaluation/runners/run_ragas.py
+      - name: Prepare ten-case human review artifact
+        run: uv run --extra eval python scripts/prepare_judge_human_review.py
       - name: Explain release calibration state
         run: |
-          echo "Physical evaluation completed."
+          echo "Physical measurement completed through the human-review handoff."
           echo "External release readiness remains fail-closed until exactly 10 human labels create judge-policy.json."
       - uses: actions/upload-artifact@v4
         if: always()
