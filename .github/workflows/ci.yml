@@ -74,6 +74,26 @@ jobs:
       - run: uv sync --frozen --group dev
       - run: uv run pytest tests/property
 
+  evaluation-contract:
+    name: ci/evaluation-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --extra eval --group dev
+      - name: Compile evaluation entrypoints
+        run: >-
+          uv run --extra eval python -m py_compile
+          evaluation/runners/run_golden.py
+          evaluation/runners/run_ragas.py
+          scripts/calibrate_ragas_judge.py
+      - name: Evaluation runner contracts
+        run: uv run --extra eval pytest tests/evaluation -q
+
   floci-integration:
     name: ci/floci-integration
     runs-on: ubuntu-latest
@@ -160,7 +180,7 @@ jobs:
   gate:
     name: ci/gate
     if: always()
-    needs: [quality, unit, property, floci-integration, security, cdk]
+    needs: [quality, unit, property, evaluation-contract, floci-integration, security, cdk]
     runs-on: ubuntu-latest
     steps:
       - name: Require blocking CI jobs
