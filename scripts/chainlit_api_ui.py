@@ -87,7 +87,10 @@ async def _run_turn(message: str) -> None:
                 activity.output = f"HTTP {response.status_code} desde el data plane"
                 await activity.update()
                 await cl.Message(
-                    content=f"**Error HTTP {response.status_code}**\n\n```text\n{detail[:4000]}\n```"
+                    content=(
+                        f"**Error HTTP {response.status_code}**\n\n"
+                        f"```text\n{detail[:4000]}\n```"
+                    )
                 ).send()
                 return
 
@@ -110,7 +113,11 @@ async def _run_turn(message: str) -> None:
 
             timings = data.get("timings_ms")
             total_ms = timings.get("total") if isinstance(timings, dict) else None
-            timing = f" · {float(total_ms) / 1000:.1f}s" if isinstance(total_ms, (int, float)) else ""
+            timing = (
+                f" · {float(total_ms) / 1000:.1f}s"
+                if isinstance(total_ms, (int, float))
+                else ""
+            )
             activity.output = (
                 f"{status} · route={route}{timing} · "
                 f"{len(citation_list)} cita{'s' if len(citation_list) != 1 else ''}"
@@ -128,7 +135,9 @@ async def _run_turn(message: str) -> None:
         except httpx.HTTPError as exc:
             activity.output = "No se pudo conectar con el data plane"
             await activity.update()
-            await cl.Message(content=f"Error de conexión: `{exc}`\n\nEjecutá `make status`.").send()
+            await cl.Message(
+                content=f"Error de conexión: `{exc}`\n\nEjecutá `make status`."
+            ).send()
         except Exception as exc:
             activity.output = "Respuesta inválida desde el data plane"
             await activity.update()
@@ -140,7 +149,10 @@ async def starters() -> list[cl.Starter]:
     return [
         cl.Starter(label="Calypso retries", message="¿Cuántos reintentos permite Calypso?"),
         cl.Starter(label="Documentos", message="¿Qué documentación tienes disponible?"),
-        cl.Starter(label="Código directo", message="Escribe una función corta en Python para merge sort."),
+        cl.Starter(
+            label="Código directo",
+            message="Escribe una función corta en Python para merge sort.",
+        ),
     ]
 
 
