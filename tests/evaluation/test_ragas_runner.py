@@ -14,7 +14,7 @@ from ragas.metrics import (
 )
 
 from evaluation.runners import run_ragas
-from rag_ops_guard.evaluation.judge import evaluation_dataset_sha256
+from rag_ops_guard.evaluation.judge import JudgeIdentity, evaluation_dataset_sha256
 
 
 def test_ragas_collects_grounded_reference_cases_and_skips_ungrounded_without_reference(
@@ -178,3 +178,36 @@ def test_judge_dataset_identity_covers_base_and_mixed_suites(tmp_path: Path) -> 
     second = evaluation_dataset_sha256((base, mixed))
 
     assert first != second
+
+
+def test_stale_judge_policy_is_ignored_for_measurement_but_blocks_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    policy_path = tmp_path / "judge-policy.json"
+    policy_path.write_text(
+        json.dumps(
+            {
+                "judge_provider": "local",
+                "judge_model": "old-model",
+                "judge_prompt_sha256": "old-prompt",
+                "evaluation_dataset_sha256": "old-dataset",
+                "agreement": 1.0,
+                "gating_enabled": True,
+                "mean_floor": 0.85,
+                "calibrated_cutoff": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(run_ragas, "JUDGE_POLICY_PATH", policy_path)
+    identity = JudgeIdentity(
+        provider="external",
+        model="new-model",
+        prompt_sha256="new-prompt",
+        dataset_sha256="new-dataset",
+    )
+
+    assert run_ragas._load_judge_policy(identity, required=False) is None
+    with pytest.raises(SystemExit, match="judge calibration is stale"):
+        run_ragas._load_judge_policy(identity, required=True)
