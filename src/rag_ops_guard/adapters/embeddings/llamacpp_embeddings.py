@@ -7,12 +7,20 @@ from pydantic import SecretStr
 
 
 class LlamaCppEmbeddingAdapter:
-    def __init__(self, base_url: str, model: str, dimension: int = 1024) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        dimension: int = 1024,
+        timeout_seconds: float = 60.0,
+    ) -> None:
         self._dimension = dimension
         self._client = OpenAIEmbeddings(
             base_url=base_url,
             api_key=SecretStr("local"),
             model=model,
+            request_timeout=timeout_seconds,
+            max_retries=0,
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
