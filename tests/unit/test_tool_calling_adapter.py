@@ -6,6 +6,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from rag_ops_guard.adapters.llm.openai_tool_calling import (
+    STRUCTURED_MAX_TOKENS,
     OpenAIToolCallingAdapter,
     _content_text,
     _to_langchain_messages,
@@ -71,6 +72,7 @@ class _FakeModel:
         self.tool_choice: Any = None
         self.parallel_tool_calls: bool | None = None
         self.response_format: dict[str, Any] | None = None
+        self.bind_kwargs: dict[str, Any] = {}
 
     def bind_tools(
         self,
@@ -84,8 +86,10 @@ class _FakeModel:
         self.parallel_tool_calls = parallel_tool_calls
         return _FakeRunnable(self.response)
 
-    def bind(self, *, response_format: dict[str, Any]) -> _FakeRunnable:
-        self.response_format = response_format
+    def bind(self, **kwargs: Any) -> _FakeRunnable:
+        self.bind_kwargs = dict(kwargs)
+        response_format = kwargs.get("response_format")
+        self.response_format = response_format if isinstance(response_format, dict) else None
         return _FakeRunnable(self.response)
 
 
@@ -129,6 +133,9 @@ def test_structured_response_uses_schema_constrained_json_and_pydantic_validatio
     citation_schema = schema["$defs"]["GeneratedSegment"]["properties"]["citation_ids"]
     assert fake.response_format["type"] == "json_object"
     assert citation_schema["maxItems"] == 0
+    assert fake.bind_kwargs["temperature"] == 0.0
+    assert fake.bind_kwargs["presence_penalty"] == 0.0
+    assert fake.bind_kwargs["max_completion_tokens"] == STRUCTURED_MAX_TOKENS
 
 
 def test_structured_response_limits_citation_ids_to_retrieved_sources() -> None:
