@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,3 +66,14 @@ def test_canonical_agent_uses_tool_calling_port_without_fabricated_calls() -> No
     assert '"name": "search_documents"' not in source
     assert "TurnPolicyEngine" not in source
     assert "SemanticGroundingGate" not in source
+
+
+def test_legacy_langgraph_runtime_is_not_reintroduced() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    runtime_dependencies = [str(item).lower() for item in pyproject["project"]["dependencies"]]
+    adr = (ROOT / "docs/adr/004-langgraph.md").read_text(encoding="utf-8")
+
+    assert not any(item.startswith("langgraph") for item in runtime_dependencies)
+    assert not (ROOT / "src/rag_ops_guard/graph").exists()
+    assert not (ROOT / "docs/diagrams/langgraph-flow.svg").exists()
+    assert "Status: **Superseded**" in adr
