@@ -56,9 +56,11 @@ def test_golden_runner_hard_timeout_bounds_entire_case() -> None:
     if not hasattr(runner.signal, "setitimer"):
         pytest.skip("hard wall timeout requires POSIX setitimer")
 
-    with pytest.raises(TimeoutError, match="case-one"):
-        with runner.case_wall_timeout("case-one", 0.02):
-            time.sleep(0.10)
+    with (
+        pytest.raises(TimeoutError, match="case-one"),
+        runner.case_wall_timeout("case-one", 0.02),
+    ):
+        time.sleep(0.10)
 
 
 def test_golden_runner_writes_partial_results(tmp_path: Path) -> None:
