@@ -14,6 +14,7 @@ from ragas.metrics import (
 )
 
 from evaluation.runners import run_ragas
+from rag_ops_guard.evaluation.judge import evaluation_dataset_sha256
 
 
 def test_ragas_collects_grounded_reference_cases_and_skips_ungrounded_without_reference(
@@ -34,16 +35,18 @@ def test_ragas_collects_grounded_reference_cases_and_skips_ungrounded_without_re
         },
         {
             "case_id": "grounded",
-            "question": "How many retries?",
-            "expected_status": "answered_grounded",
+            "question": "How many retries, and give a generic Python example?",
+            "ragas_question": "How many retries?",
+            "expected_status": "answered_mixed",
             "reference_answer": "Three retries are allowed.",
             "payload": {
-                "status": "answered_grounded",
+                "status": "answered_mixed",
                 "segments": [
                     {
                         "text": "Three retries are allowed.",
                         "citations": [{"chunk_id": "c1", "s3_key": "chunks/c1.json"}],
-                    }
+                    },
+                    {"text": "Example: sleep(1)", "citations": []},
                 ],
                 "citations": [{"chunk_id": "c1", "s3_key": "chunks/c1.json"}],
             },
@@ -57,6 +60,7 @@ def test_ragas_collects_grounded_reference_cases_and_skips_ungrounded_without_re
     samples = run_ragas._collect_samples(path)
 
     assert [sample.case_id for sample in samples] == ["grounded"]
+    assert samples[0].user_input == "How many retries?"
     assert samples[0].reference == "Three retries are allowed."
     assert samples[0].retrieved_contexts == ["Policy context"]
 
@@ -108,7 +112,12 @@ def test_ragas_suite_hard_timeout_bounds_complete_evaluation() -> None:
 
 
 def test_repository_golden_grounded_cases_have_references() -> None:
-    rows = json.loads(Path("evaluation/datasets/golden-v1.json").read_text(encoding="utf-8"))
+    rows: list[dict[str, object]] = []
+    for path in (
+        Path("evaluation/datasets/golden-v1.json"),
+        Path("evaluation/datasets/golden-mixed-v1.json"),
+    ):
+        rows.extend(json.loads(path.read_text(encoding="utf-8")))
     missing = [
         str(row["id"])
         for row in rows
@@ -156,3 +165,16 @@ def test_pinned_ragas_metric_names_match_runner_result_columns() -> None:
 
     assert set(metric_names).issubset(frame.columns)
     assert run_ragas._metric_values(frame, "faithfulness", ["one"]) == {"one": 1.0}
+
+
+def test_judge_dataset_identity_covers_base_and_mixed_suites(tmp_path: Path) -> None:
+    base = tmp_path / "base.json"
+    mixed = tmp_path / "mixed.json"
+    base.write_text('[{"id":"base"}]', encoding="utf-8")
+    mixed.write_text('[{"id":"mixed"}]', encoding="utf-8")
+    first = evaluation_dataset_sha256((base, mixed))
+
+    mixed.write_text('[{"id":"mixed-changed"}]', encoding="utf-8")
+    second = evaluation_dataset_sha256((base, mixed))
+
+    assert first != second
