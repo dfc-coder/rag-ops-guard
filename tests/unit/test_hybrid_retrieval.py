@@ -288,6 +288,54 @@ def test_named_target_guard_rejects_unknown_target_after_domain_scoring() -> Non
     assert reranker.calls
 
 
+def test_named_target_guard_filters_each_candidate_not_the_candidate_union() -> None:
+    sap_landscape = _named_evidence(
+        "Integration Landscape",
+        "SAP and Calypso are connected through the integration layer.",
+        logical_id="integration-landscape",
+        distance=0.2,
+    )
+    calypso_timeout = _named_evidence(
+        "Calypso Timeout Runbook",
+        "Production timeout handling for Calypso.",
+        logical_id="calypso-timeout",
+        distance=0.1,
+    )
+    objects = FakeObjectStore()
+    _store_documents(objects, [sap_landscape, calypso_timeout])
+    reranker = FakeReranker(
+        default_score=0.2,
+        default_relevant=False,
+        scores_by_document={
+            "Integration Landscape": 0.60,
+            "Calypso Timeout Runbook": 0.99,
+        },
+        relevant_by_document={
+            "Integration Landscape": True,
+            "Calypso Timeout Runbook": True,
+        },
+    )
+    search = KnowledgeSearch(
+        embeddings=FakeEmbeddingProvider(),
+        vectors=FakeVectorStore(evidence=[calypso_timeout, sap_landscape]),
+        objects=objects,
+        resolver=EvidenceResolver(),
+        reranker=reranker,
+        min_relevance=0.0,
+        domain_min_relevance=0.0,
+    )
+
+    result = search.search(
+        "Cual es el timeout exacto de SAP en produccion?",
+        QueryContext(),
+        query_mode="probe",
+    )
+
+    assert result.domain_relevance == 0.99
+    assert [item.chunk.title for item in result.admitted] == ["Integration Landscape"]
+    assert result.grounded_relevance == 0.60
+
+
 def test_named_target_guard_rejects_semantically_similar_candidate_after_domain_scoring() -> None:
     payments = _named_evidence(
         "Payment DLQ Replay Runbook",
