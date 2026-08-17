@@ -117,7 +117,9 @@ class OpenAIToolCallingAdapter:
         if not isinstance(response, AIMessage):
             raise TypeError(f"expected AIMessage, got {type(response).__name__}")
         calls = tuple(_tool_call(call) for call in response.tool_calls)
-        metadata = response.response_metadata if isinstance(response.response_metadata, dict) else {}
+        metadata = (
+            response.response_metadata if isinstance(response.response_metadata, dict) else {}
+        )
         finish_reason = metadata.get("finish_reason")
         return ModelTurn(
             content=_content_text(response.content),
@@ -128,9 +130,10 @@ class OpenAIToolCallingAdapter:
     def invoke_structured(self, messages: list[ModelMessage], schema: type[T]) -> T:
         """Force one schema-shaped function call and validate its arguments with Pydantic.
 
-        The agent already depends on llama.cpp function calling for ReAct. Reusing that same protocol
-        for the final structured response avoids a second JSON-grammar mechanism and keeps one
-        observable, testable contract for both retrieval tools and response submission.
+        The agent already depends on llama.cpp function calling for ReAct. Reusing that
+        same protocol for the final structured response avoids a second JSON-grammar
+        mechanism and keeps one observable, testable contract for retrieval tools and
+        response submission.
         """
         validator = getattr(schema, "model_validate", None)
         schema_factory = getattr(schema, "model_json_schema", None)
@@ -142,8 +145,8 @@ class OpenAIToolCallingAdapter:
             "function": {
                 "name": FINAL_RESPONSE_TOOL,
                 "description": (
-                    "Submit the final public response. Call this function exactly once with arguments "
-                    "that satisfy the provided schema."
+                    "Submit the final public response. Call this function exactly once "
+                    "with arguments that satisfy the provided schema."
                 ),
                 "parameters": parameters,
             },
@@ -166,7 +169,7 @@ class OpenAIToolCallingAdapter:
         return cast(T, validator(selected[0].arguments))
 
 
-def _tool_call(call: dict[str, Any]) -> ToolCall:
+def _tool_call(call: Any) -> ToolCall:
     return ToolCall(
         id=str(call.get("id") or ""),
         name=str(call.get("name") or ""),
