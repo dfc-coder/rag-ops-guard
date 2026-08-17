@@ -9,7 +9,10 @@ JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
     "Do not use external knowledge."
 )
-DEFAULT_DATASET_PATH = Path("evaluation/datasets/golden-v1.json")
+DEFAULT_DATASET_PATHS = (
+    Path("evaluation/datasets/golden-v1.json"),
+    Path("evaluation/datasets/golden-mixed-v1.json"),
+)
 DEFAULT_RUNTIME_MODEL = "qwen3.5-0.8b-unsloth-ud-q4-k-xl"
 
 
@@ -32,24 +35,49 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def judge_identity_from_env(dataset_path: Path = DEFAULT_DATASET_PATH) -> JudgeIdentity:
+def _normalize_dataset_paths(dataset_paths: Path | tuple[Path, ...]) -> tuple[Path, ...]:
+    return (dataset_paths,) if isinstance(dataset_paths, Path) else dataset_paths
+
+
+def evaluation_dataset_sha256(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> str:
+    paths = _normalize_dataset_paths(dataset_paths)
+    if not paths:
+        raise SystemExit("judge identity requires at least one evaluation dataset")
+    digest = hashlib.sha256()
+    for path in paths:
+        if not path.is_file():
+            raise SystemExit(f"evaluation dataset not found: {path}")
+        encoded_name = path.as_posix().encode("utf-8")
+        digest.update(len(encoded_name).to_bytes(4, "big"))
+        digest.update(encoded_name)
+        payload = path.read_bytes()
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()
+
+
+def judge_identity_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeIdentity:
     provider = os.environ.get("RAGAS_JUDGE_PROVIDER", "local").strip() or "local"
     runtime_model = os.environ.get("LLM_MODEL", DEFAULT_RUNTIME_MODEL).strip()
     model = os.environ.get("RAGAS_JUDGE_MODEL", runtime_model).strip()
     if not model:
         raise SystemExit("RAGAS_JUDGE_MODEL must not be empty")
-    if not dataset_path.is_file():
-        raise SystemExit(f"evaluation dataset not found: {dataset_path}")
     return JudgeIdentity(
         provider=provider,
         model=model,
         prompt_sha256=_sha256_bytes(JUDGE_SYSTEM_PROMPT.encode("utf-8")),
-        dataset_sha256=_sha256_bytes(dataset_path.read_bytes()),
+        dataset_sha256=evaluation_dataset_sha256(dataset_paths),
     )
 
 
-def judge_connection_from_env(dataset_path: Path = DEFAULT_DATASET_PATH) -> JudgeConnection:
-    identity = judge_identity_from_env(dataset_path)
+def judge_connection_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeConnection:
+    identity = judge_identity_from_env(dataset_paths)
     if identity.provider == "local":
         base_url = os.environ.get(
             "RAGAS_JUDGE_BASE_URL",
