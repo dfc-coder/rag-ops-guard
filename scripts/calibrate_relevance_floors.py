@@ -83,13 +83,20 @@ def expected_grounded_score(result: Any, expected_titles: set[str]) -> tuple[flo
     return max(scores, default=0.0), sorted(set(matched_titles))
 
 
+def _candidate_thresholds(samples: list[tuple[float, bool]]) -> list[float]:
+    scores = sorted({float(score) for score, _expected in samples})
+    thresholds = {0.0, 1.0, *scores}
+    thresholds.update((left + right) / 2.0 for left, right in zip(scores, scores[1:]))
+    return sorted(thresholds)
+
+
 def _best_threshold(samples: list[tuple[float, bool]]) -> tuple[float, int, int, int, int]:
     positives = [score for score, expected in samples if expected]
     if not positives:
         raise ValueError("calibration requires positive observations")
-    thresholds = sorted({0.0, 1.0, *positives, *(score for score, _expected in samples)})
-    ranked: list[tuple[int, int, float, int, int, int, int]] = []
-    for threshold in thresholds:
+
+    ranked: list[tuple[int, int, float, float, int, int, int, int]] = []
+    for threshold in _candidate_thresholds(samples):
         tp = fp = tn = fn = 0
         for score, expected in samples:
             predicted = score >= threshold
@@ -101,11 +108,16 @@ def _best_threshold(samples: list[tuple[float, bool]]) -> tuple[float, int, int,
                 fp += 1
             else:
                 tn += 1
-        # Release policy is fail-closed on false positives first, then maximizes
-        # labelled recall/total correctness. Perfect class separation is not required;
-        # the explicit acceptance gate below requires zero FP and >=80% recall.
-        ranked.append((fp, fp + fn, -threshold, tp, fp, tn, fn))
-    _fp_rank, _error_rank, negative_threshold, tp, fp, tn, fn = min(ranked)
+
+        # First preserve the release policy: minimize false positives, then total
+        # classification errors. Among equally valid thresholds, maximize the distance
+        # to the nearest labelled score so tiny backend jitter cannot flip a boundary
+        # observation between calibration and validation. The final tie-break prefers
+        # the higher floor without changing the labelled confusion matrix.
+        margin = min(abs(float(score) - threshold) for score, _expected in samples)
+        ranked.append((fp, fp + fn, -margin, -threshold, tp, fp, tn, fn))
+
+    _fp_rank, _error_rank, _margin_rank, negative_threshold, tp, fp, tn, fn = min(ranked)
     return -negative_threshold, tp, fp, tn, fn
 
 
@@ -115,7 +127,7 @@ def _recall(tp: int, fn: int) -> float:
 
 
 def serialize_floor(value: float) -> str:
-    """Serialize a threshold without rounding it above a measured positive score."""
+    """Serialize the calibrated margin point without lossy decimal rounding."""
     return repr(value)
 
 
