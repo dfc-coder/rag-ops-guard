@@ -5,6 +5,13 @@ import time
 from pathlib import Path
 
 import pytest
+from ragas.dataset_schema import EvaluationResult
+from ragas.metrics import (
+    Faithfulness,
+    LLMContextPrecisionWithReference,
+    LLMContextRecall,
+    ResponseRelevancy,
+)
 
 from evaluation.runners import run_ragas
 
@@ -111,3 +118,41 @@ def test_repository_golden_grounded_cases_have_references() -> None:
     ]
 
     assert missing == []
+
+
+def test_pinned_ragas_metric_names_match_runner_result_columns() -> None:
+    metric_names = [
+        Faithfulness().name,
+        LLMContextPrecisionWithReference().name,
+        LLMContextRecall().name,
+        ResponseRelevancy().name,
+    ]
+    assert metric_names == [
+        "faithfulness",
+        "llm_context_precision_with_reference",
+        "context_recall",
+        "answer_relevancy",
+    ]
+
+    sample = run_ragas.RagasSample(
+        case_id="one",
+        user_input="How many retries?",
+        retrieved_contexts=["Three retries are allowed."],
+        grounded_response="Three retries are allowed.",
+        reference="Three retries are allowed.",
+    )
+    result = EvaluationResult(
+        scores=[
+            {
+                "faithfulness": 1.0,
+                "llm_context_precision_with_reference": 1.0,
+                "context_recall": 1.0,
+                "answer_relevancy": 1.0,
+            }
+        ],
+        dataset=run_ragas._dataset([sample]),
+    )
+    frame = result.to_pandas()
+
+    assert set(metric_names).issubset(frame.columns)
+    assert run_ragas._metric_values(frame, "faithfulness", ["one"]) == {"one": 1.0}
