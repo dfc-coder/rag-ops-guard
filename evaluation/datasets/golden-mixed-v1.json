@@ -1,0 +1,62 @@
+[
+  {
+    "id": "mixed-retry-python",
+    "question": "According to the current Calypso retry policy, how many automated retries are allowed? Then give a generic one-line Python example that sleeps for one second before retrying.",
+    "context": {"system": "payments", "environment": "production"},
+    "expected_status": "answered_mixed",
+    "expected_source_ids": ["payment-retry-policy"],
+    "forbidden_source_ids": ["payment-retry-policy-v1"],
+    "required_facts": ["three"],
+    "forbidden_facts": ["five retries"],
+    "required_grounded_facts": ["three"],
+    "required_ungrounded_facts": ["sleep"],
+    "category": "mixed",
+    "reference_answer": "The current policy allows a maximum of three automated retries for transient Calypso timeouts.",
+    "ragas_question": "According to the current Calypso retry policy, how many automated retries are allowed?"
+  },
+  {
+    "id": "mixed-sla-calculation",
+    "question": "What is the Payments API monthly availability target? Also calculate the corresponding maximum downtime in minutes for a 30-day month.",
+    "context": {"system": "payments", "environment": "production"},
+    "expected_status": "answered_mixed",
+    "expected_source_ids": ["payments-sla"],
+    "forbidden_source_ids": [],
+    "required_facts": ["99.95", "21.6"],
+    "forbidden_facts": [],
+    "required_grounded_facts": ["99.95"],
+    "required_ungrounded_facts": ["21.6"],
+    "category": "mixed",
+    "reference_answer": "The Payments API monthly availability target is 99.95%.",
+    "ragas_question": "What is the Payments API monthly availability target?"
+  },
+  {
+    "id": "mixed-owner-communication",
+    "question": "Which team owns Calypso connectivity incidents? Then explain in one general sentence why clear incident communication matters.",
+    "context": {"system": "calypso", "environment": "production"},
+    "expected_status": "answered_mixed",
+    "expected_source_ids": ["calypso-sla"],
+    "forbidden_source_ids": [],
+    "required_facts": ["Treasury Integrations"],
+    "forbidden_facts": [],
+    "required_grounded_facts": ["Treasury Integrations"],
+    "required_ungrounded_facts": ["communication"],
+    "category": "mixed",
+    "reference_answer": "Treasury Integrations owns Calypso P1 connectivity incidents.",
+    "ragas_question": "Which team owns Calypso connectivity incidents?"
+  },
+  {
+    "id": "mixed-dlq-json",
+    "question": "What must be checked before replaying payment DLQ messages? Then give a generic JSON example containing an idempotency_key field.",
+    "context": {"system": "payments", "environment": "production"},
+    "expected_status": "answered_mixed",
+    "expected_source_ids": ["payment-dlq-replay"],
+    "forbidden_source_ids": [],
+    "required_facts": ["idempotency"],
+    "forbidden_facts": [],
+    "required_grounded_facts": ["idempotency"],
+    "required_ungrounded_facts": ["idempotency_key"],
+    "category": "mixed",
+    "reference_answer": "Before replay, verify each message idempotency key and transaction state and confirm no successful downstream transaction exists.",
+    "ragas_question": "What must be checked before replaying payment DLQ messages?"
+  }
+]
