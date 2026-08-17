@@ -61,6 +61,7 @@ Status: implemented. Hosted CI runs the full `tests/adversarial` directory.
 - **SPEC-4.2** — `domain_relevance < DOMAIN_FLOOR` prohibits admitted grounded evidence but does not prohibit a normal ungrounded answer.
 - **SPEC-4.3** — Relevance floors come from calibration measurements, never guessed constants.
 - **SPEC-4.4** — Every safe first turn performs a silent non-tool probe needed for a trace/score, including turns answered ungrounded.
+- **SPEC-4.5** — Explicit named-target anchors are applied per evidence candidate; one candidate mentioning the requested target cannot authorize unrelated candidates that omit it.
 
 Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. IU/OOD overlap fails calibration instead of inventing a threshold.
 
@@ -70,7 +71,7 @@ Status: implemented, including the final domain-floor admission invariant.
 
 - **SPEC-5.1** — Release evaluation enforces per-case floors in addition to aggregate means. Current per-case floors: faithfulness `0.60`, context precision `0.30`.
 - **SPEC-5.2** — Faithfulness is evaluated only on grounded segments.
-- **SPEC-5.3** — Runtime and judge use the same configured generation-model alias. Model family and parameter count are configuration, not release invariants. Agreement uses exactly 10 real human labels:
+- **SPEC-5.3** — The runtime generation model and the RAGAS judge are independently configurable. A judge policy is valid only for the exact provider/model/prompt/dataset identity it calibrated. Agreement uses exactly 10 real human labels:
   - 9–10/10: RAGAS may gate at aggregate faithfulness floor `0.85` plus per-case floor;
   - 7–8/10: use a lower threshold derived from measured labels plus per-case floor;
   - <=6/10: RAGAS is informational and cannot block release.
@@ -135,12 +136,12 @@ Software pivot DoD:
 - double relevance + three-class calibration;
 - zero unreachable pipeline code;
 - no legacy graph/router path;
-- one configured runtime/judge generation-model alias;
+- one configured runtime generation model and an explicitly identified/calibrated judge;
 - hosted correctness/security CI green.
 
 External release DoD, deliberately not fabricated:
 
-1. run the target Fedora/Tiger Lake physical gate with the configured generation model plus OpenVINO embeddings/reranker;
+1. run the target physical gate with Qwen3.5-0.8B generation plus OpenVINO embeddings/reranker;
 2. produce real RAGAS scores and exactly ten human labels;
-3. calibrate judge agreement and apply the resulting policy;
+3. calibrate judge agreement against the exact judge identity and apply the resulting policy;
 4. only then claim final release readiness.
