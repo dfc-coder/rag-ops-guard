@@ -164,9 +164,9 @@ def test_physical_smokes_use_segmented_status_contract() -> None:
     assert "answered_grounded" in e2e
 
 
-def test_physical_validation_preserves_running_evidence() -> None:
+def test_physical_validation_prioritizes_latest_candidate() -> None:
     release = _read(".github/workflows/release-validation.yml")
-    assert "cancel-in-progress: false" in release
+    assert "cancel-in-progress: true" in release
 
 
 def test_physical_provisioning_propagates_langsmith_without_hardcoded_disable() -> None:
