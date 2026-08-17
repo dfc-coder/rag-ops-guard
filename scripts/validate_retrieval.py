@@ -31,12 +31,16 @@ def main() -> None:
         status = "PASS" if passed else "FAIL"
         print(
             f"RETRIEVAL {status} {sample['id']}: "
+            f"domain={result.domain_relevance:.6f} "
+            f"grounded={result.grounded_relevance:.6f} "
             f"supported={result.supported} titles={admitted_titles} "
             f"scores={result.reranker_scores}"
         )
         if not passed:
             failures.append(
                 f"{sample['id']}: label={label} expected={sorted(expected_titles)} "
+                f"domain={result.domain_relevance:.6f} "
+                f"grounded={result.grounded_relevance:.6f} "
                 f"admitted={admitted_titles}"
             )
 
