@@ -21,6 +21,7 @@ class LlamaCppEmbeddingAdapter:
             model=model,
             timeout=timeout_seconds,
             max_retries=0,
+            check_embedding_ctx_length=False,
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
