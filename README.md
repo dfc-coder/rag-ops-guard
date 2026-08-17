@@ -63,7 +63,7 @@ Two different relevance signals are measured:
 1. `domain_relevance`: corpus affinity on raw fused candidates, before governance resolution.
 2. `grounded_relevance`: evidence support after resolver/target checks.
 
-Both floors are calibrated from three labelled classes in `evaluation/datasets/retrieval-calibration-v2.json`:
+Both floors and deterministic retrieval admission are calibrated from the single labelled dataset `evaluation/datasets/retrieval-relevance-calibration.json` with three classes:
 
 - `grounded`
 - `in_domain_unanswerable`
