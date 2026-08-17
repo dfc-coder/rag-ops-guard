@@ -16,6 +16,11 @@ import yaml
 
 from rag_ops_guard.domain.models import Citation
 
+GOLDEN_DATASETS = (
+    Path("evaluation/datasets/golden-v1.json"),
+    Path("evaluation/datasets/golden-mixed-v1.json"),
+)
+
 
 @dataclass
 class Result:
@@ -80,6 +85,36 @@ def _segment_integrity(payload: dict[str, Any]) -> bool:
     return not segments
 
 
+def _segment_fact_partition(case: dict[str, Any], payload: dict[str, Any]) -> bool:
+    required_grounded = [str(value).casefold() for value in case.get("required_grounded_facts", [])]
+    required_ungrounded = [
+        str(value).casefold() for value in case.get("required_ungrounded_facts", [])
+    ]
+    if not required_grounded and not required_ungrounded:
+        return True
+
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
+        return False
+    grounded_text: list[str] = []
+    ungrounded_text: list[str] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        text = str(segment.get("text") or "").casefold()
+        citations = segment.get("citations")
+        if isinstance(citations, list) and citations:
+            grounded_text.append(text)
+        else:
+            ungrounded_text.append(text)
+
+    grounded = "\n".join(grounded_text)
+    ungrounded = "\n".join(ungrounded_text)
+    return all(fact in grounded for fact in required_grounded) and all(
+        fact in ungrounded for fact in required_ungrounded
+    )
+
+
 def require_success(response: httpx.Response, *, case_id: str) -> None:
     if response.is_success:
         return
@@ -93,11 +128,27 @@ def _sample(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "case_id": str(case["id"]),
         "question": str(case["question"]),
+        "ragas_question": str(case.get("ragas_question") or case["question"]),
         "context": case.get("context", {}),
         "expected_status": str(case["expected_status"]),
         "reference_answer": str(case.get("reference_answer") or ""),
         "payload": payload,
     }
+
+
+def _load_cases(paths: tuple[Path, ...] = GOLDEN_DATASETS) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            raise SystemExit(f"Golden dataset must be a JSON list: {path}")
+        cases.extend(item for item in payload if isinstance(item, dict))
+    ids = [str(case.get("id") or "") for case in cases]
+    if any(not case_id for case_id in ids):
+        raise SystemExit("every Golden case requires a non-empty id")
+    if len(ids) != len(set(ids)):
+        raise SystemExit("Golden case ids must be unique across all datasets")
+    return cases
 
 
 def _case_wall_timeout_seconds() -> float:
@@ -144,7 +195,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
     actual_source_ids = (
         set().union(*(citation_identities(item) for item in citations)) if citations else set()
     )
-    answer = str(payload.get("answer") or "").lower()
+    answer = str(payload.get("answer") or "").casefold()
     expected_sources = {str(value) for value in case.get("expected_source_ids", [])}
     forbidden_sources = {str(value) for value in case.get("forbidden_source_ids", [])}
     result = Result(
@@ -153,12 +204,12 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
         sources_ok=expected_sources.issubset(actual_source_ids),
         forbidden_sources_ok=forbidden_sources.isdisjoint(actual_source_ids),
         required_facts_ok=all(
-            str(fact).lower() in answer for fact in case.get("required_facts", [])
+            str(fact).casefold() in answer for fact in case.get("required_facts", [])
         ),
         forbidden_facts_ok=all(
-            str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
+            str(fact).casefold() not in answer for fact in case.get("forbidden_facts", [])
         ),
-        segment_integrity_ok=_segment_integrity(payload),
+        segment_integrity_ok=_segment_integrity(payload) and _segment_fact_partition(case, payload),
         actual_status=str(payload.get("status")),
         actual_sources=sorted(actual_source_ids),
     )
@@ -198,7 +249,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    all_cases = json.loads(Path("evaluation/datasets/golden-v1.json").read_text())
+    all_cases = _load_cases()
     cases = _select_cases(all_cases, args.case_id)
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
@@ -258,6 +309,7 @@ def main() -> None:
     sourced_cases = [case for case in all_cases if case.get("expected_source_ids")]
     safety_cases = [case for case in all_cases if case["category"] == "safety"]
     injection_cases = [case for case in all_cases if case["category"] == "prompt_injection"]
+    mixed_cases = [case for case in all_cases if case["expected_status"] == "answered_mixed"]
 
     summary = {
         "cases": len(results),
@@ -278,6 +330,9 @@ def main() -> None:
         ),
         "citation_validity": _rate([item.forbidden_sources_ok for item in results]),
         "segment_integrity": _rate([item.segment_integrity_ok for item in results]),
+        "mixed_segment_integrity": _rate(
+            [by_id[case["id"]].segment_integrity_ok for case in mixed_cases]
+        ),
         "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
         "prompt_injection_pass_rate": _rate([by_id[case["id"]].passed for case in injection_cases]),
         "elapsed_seconds": round(perf_counter() - suite_started, 3),
@@ -299,6 +354,10 @@ def main() -> None:
     ):
         if summary[metric] < float(thresholds[metric]):
             failures.append(f"{metric}: {summary[metric]:.3f} < {thresholds[metric]:.3f}")
+    if mixed_cases and summary["mixed_segment_integrity"] < 1.0:
+        failures.append(
+            f"mixed_segment_integrity: {summary['mixed_segment_integrity']:.3f} < 1.000"
+        )
     if failures:
         raise SystemExit("evaluation thresholds failed:\n" + "\n".join(failures))
 
