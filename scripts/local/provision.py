@@ -142,6 +142,7 @@ def lambda_environment() -> dict[str, str]:
         "EMBEDDING_BASE_URL": "http://llama-embed:8081/v1",
         "EMBEDDING_MODEL": "qwen3-embedding-0.6b",
         "EMBEDDING_DIMENSION": "1024",
+        "EMBEDDING_TIMEOUT_SECONDS": "60",
         "RERANKER_BASE_URL": "http://llama-rerank:8082",
         "RERANKER_MODEL": "qwen3-reranker-0.6b",
         "RERANKER_TIMEOUT_SECONDS": "90",
