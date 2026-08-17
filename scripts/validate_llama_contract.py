@@ -28,35 +28,28 @@ SEARCH_TOOL = {
     },
 }
 
-SUBMIT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "submit_structured_response",
-        "description": "Submit the final structured response.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "segments": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "text": {"type": "string"},
-                            "citation_ids": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                        },
-                        "required": ["text", "citation_ids"],
-                        "additionalProperties": False,
+STRUCTURED_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "segments": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "citation_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
                     },
-                }
+                },
+                "required": ["text", "citation_ids"],
+                "additionalProperties": False,
             },
-            "required": ["segments"],
-            "additionalProperties": False,
-        },
+        }
     },
+    "required": ["segments"],
+    "additionalProperties": False,
 }
 
 
@@ -108,34 +101,46 @@ def _tool_calls(message: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return result
 
 
-def validate_forced_structured_submission() -> None:
+def validate_schema_constrained_structured_response() -> None:
     response = _post(
         {
             "model": MODEL,
             "messages": [
                 {
                     "role": "system",
-                    "content": "Submit a final structured response using the required tool.",
+                    "content": (
+                        "Return only JSON matching the supplied response schema. "
+                        "Produce one segment saying status ok with no citations."
+                    ),
                 },
                 {"role": "user", "content": "Say status ok."},
             ],
-            "tools": [SUBMIT_TOOL],
-            "tool_choice": {
-                "type": "function",
-                "function": {"name": "submit_structured_response"},
+            "response_format": {
+                "type": "json_object",
+                "schema": STRUCTURED_RESPONSE_SCHEMA,
             },
-            "parallel_tool_calls": False,
             "temperature": 0,
         }
     )
-    calls = _tool_calls(_message(response))
-    selected = [args for name, args in calls if name == "submit_structured_response"]
-    if len(selected) != 1:
-        raise RuntimeError(f"forced structured submission failed: {_message(response)!r}")
-    segments = selected[0].get("segments")
+    message = _message(response)
+    raw_content = message.get("content")
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        raise RuntimeError(f"schema-constrained response was empty: {message!r}")
+    try:
+        structured = json.loads(raw_content)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"schema-constrained response was not JSON: {raw_content!r}") from exc
+    if not isinstance(structured, dict):
+        raise RuntimeError(f"schema-constrained response was not an object: {structured!r}")
+    segments = structured.get("segments")
     if not isinstance(segments, list) or not segments:
-        raise RuntimeError(f"structured submission arguments invalid: {selected[0]!r}")
-    print("llama structured submission tool: ready")
+        raise RuntimeError(f"schema-constrained response has invalid segments: {structured!r}")
+    first = segments[0]
+    if not isinstance(first, dict):
+        raise RuntimeError(f"schema-constrained segment has invalid shape: {first!r}")
+    if not isinstance(first.get("text"), str) or not isinstance(first.get("citation_ids"), list):
+        raise RuntimeError(f"schema-constrained segment fields are invalid: {first!r}")
+    print("llama schema-constrained structured response: ready")
 
 
 def validate_forced_search_protocol() -> None:
@@ -188,7 +193,7 @@ def validate_automatic_tool_selection() -> None:
 
 def main() -> None:
     validate_forced_search_protocol()
-    validate_forced_structured_submission()
+    validate_schema_constrained_structured_response()
     validate_automatic_tool_selection()
     print("LLAMA FUNCTION-CALLING CONTRACT READY")
 
