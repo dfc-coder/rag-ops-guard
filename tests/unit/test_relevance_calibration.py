@@ -6,6 +6,7 @@ from scripts.calibrate_relevance_floors import (
     Observation,
     calibrate_floors,
     expected_grounded_score,
+    serialize_floor,
 )
 
 
@@ -83,3 +84,12 @@ def test_expected_grounded_score_is_zero_when_only_wrong_evidence_survives() -> 
 
     assert score == 0.0
     assert matched == []
+
+
+def test_serialized_floor_round_trips_without_rounding_above_positive_score() -> None:
+    measured = 0.9041435012345678
+
+    serialized = serialize_floor(measured)
+
+    assert float(serialized) == measured
+    assert float(serialized) <= measured
