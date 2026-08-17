@@ -23,7 +23,6 @@ def _load_provision() -> ModuleType:
 
 def test_floci_execution_endpoint_uses_real_api_id_and_path_style_data_plane() -> None:
     provision = _load_provision()
-
     assert provision.floci_execution_endpoint("http://localhost:4566", "api-123") == (
         "http://localhost:4566/execute-api/api-123/$default"
     )
@@ -48,7 +47,6 @@ def test_api_probe_accepts_lambda_invalid_request_response() -> None:
         headers={"content-type": "application/json"},
         json={"error": "invalid_request", "detail": "missing field"},
     )
-
     provision.validate_api_probe(response, route="/v1/ingest")
 
 
@@ -62,7 +60,6 @@ def test_api_probe_rejects_s3_xml_misrouting() -> None:
             "<Message>POST requires either ?uploads or ?uploadId.</Message></Error>"
         ),
     )
-
     with pytest.raises(RuntimeError, match="API Gateway data-plane probe failed"):
         provision.validate_api_probe(response, route="/v1/ingest")
 
@@ -78,7 +75,6 @@ def test_direct_lambda_probe_surfaces_function_error(monkeypatch: pytest.MonkeyP
             }
 
     monkeypatch.setattr(provision, "client", lambda service, **kwargs: FakeLambda())
-
     with pytest.raises(RuntimeError, match="ImportModuleError"):
         provision.probe_lambda("rag-ops-guard-ingest")
 
@@ -98,7 +94,6 @@ def test_direct_lambda_probe_accepts_invalid_request_proxy_response(
             return {"Payload": io.BytesIO(json.dumps(proxy_payload).encode())}
 
     monkeypatch.setattr(provision, "client", lambda service, **kwargs: FakeLambda())
-
     provision.probe_lambda("rag-ops-guard-ingest")
 
 
@@ -110,3 +105,23 @@ def test_physical_provisioning_uses_no_magic_hot_reload_or_forced_api_id() -> No
     assert "floci:override-id" not in provision
     assert "FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED" not in compose
     assert 'Code={"S3Bucket": LAMBDA_CODE_BUCKET, "S3Key": code_key}' in provision
+
+
+def test_lambda_environment_propagates_langsmith_only_with_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provision = _load_provision()
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "golden-test")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "secret-test-key")
+    monkeypatch.setenv("LANGSMITH_WORKSPACE_ID", "workspace-test")
+
+    env = provision.lambda_environment()
+
+    assert env["LANGSMITH_TRACING"] == "true"
+    assert env["LANGSMITH_PROJECT"] == "golden-test"
+    assert env["LANGSMITH_API_KEY"] == "secret-test-key"
+    assert env["LANGSMITH_WORKSPACE_ID"] == "workspace-test"
+
+    monkeypatch.delenv("LANGSMITH_API_KEY")
+    assert provision.lambda_environment()["LANGSMITH_TRACING"] == "false"

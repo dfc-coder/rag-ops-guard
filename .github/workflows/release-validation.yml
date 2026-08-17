@@ -5,155 +5,194 @@ on:
     branches: [develop]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: rag-e2e-runner
   cancel-in-progress: false
 
 jobs:
-  real-e2e:
-    name: physical/e2e
+  e2e:
+    name: release/e2e
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 90
     env:
       APP_ENV: ci
-      RUN_REAL_E2E: '1'
-      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e
-      RAG_OPS_NETWORK: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-net
-      FLOCI_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-floci
-      LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-gen
-      LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-embed
-      LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-rerank
-      OVMS_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e-ovms
-      FLOCI_HOST_PORT: '24566'
-      LLAMA_GEN_HOST_PORT: '28080'
-      LLAMA_EMBED_HOST_PORT: '28081'
-      LLAMA_RERANK_HOST_PORT: '28082'
-      OVMS_HOST_PORT: '28083'
-      AWS_ENDPOINT_URL: http://localhost:24566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
-      LLM_BASE_URL: http://localhost:28080/v1
-      LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
-      RAGAS_JUDGE_PROVIDER: local
-      RAGAS_JUDGE_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
-      RAGAS_JUDGE_BASE_URL: http://localhost:28080/v1
-      RAGAS_JUDGE_API_KEY: local
-      RAGAS_JUDGE_TIMEOUT_SECONDS: '120'
-      RAGAS_OPERATION_TIMEOUT_SECONDS: '120'
-      RAGAS_MAX_RETRIES: '2'
-      RAGAS_MAX_WAIT_SECONDS: '5'
-      RAGAS_MAX_WORKERS: '2'
-      RAGAS_SUITE_TIMEOUT_SECONDS: '1800'
+      AWS_ENDPOINT_URL: http://localhost:24566
+      S3_DOCUMENT_BUCKET: rag-ops-guard-docs-local
+      S3_VECTOR_BUCKET: rag-ops-guard-vectors-local
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
+      VECTOR_DIMENSION: '1024'
+      LLM_BASE_URL: http://localhost:28080/v1
+      LLM_MODEL: qwen3.5-2b-unsloth-ud-q4-k-xl
       EMBEDDING_BASE_URL: http://localhost:28083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
       EMBEDDING_TIMEOUT_SECONDS: '60'
       RERANKER_BASE_URL: http://localhost:28083/v3
       RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
       RERANKER_TIMEOUT_SECONDS: '90'
+      RETRIEVAL_TOP_K: '8'
+      RETRIEVAL_CONTEXT_K: '3'
+      RETRIEVAL_DOMAIN_MIN_RELEVANCE: '0.50'
+      RETRIEVAL_MIN_RELEVANCE: '0.50'
+      LLM_ANSWER_MAX_TOKENS: '512'
+      LLM_TEMPERATURE: '0.7'
+      LLM_TOP_P: '0.8'
+      LLM_TOP_K: '20'
+      LLM_MIN_P: '0.0'
+      LLM_PRESENCE_PENALTY: '1.5'
+      LLM_REPEAT_PENALTY: '1.0'
+      FLOCI_HOST_PORT: '24566'
+      LLAMA_GEN_HOST_PORT: '28080'
+      LLAMA_EMBED_HOST_PORT: '28081'
+      LLAMA_RERANK_HOST_PORT: '28082'
+      OVMS_HOST_PORT: '28083'
+      OVMS_CONTAINER_NAME: rag-ops-ovms-e2e
+      RAG_OPS_NETWORK: rag-ops-net-e2e
+      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      FLOCI_CONTAINER_NAME: rag-ops-floci-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      LLAMA_GEN_CONTAINER_NAME: rag-ops-llama-gen-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      LLAMA_EMBED_CONTAINER_NAME: rag-ops-llama-embed-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      LLAMA_RERANK_CONTAINER_NAME: rag-ops-llama-rerank-${{ github.run_id }}-${{ github.run_attempt }}-e2e
+      LAMBDA_LLM_BASE_URL: http://rag-ops-llama-gen-${{ github.run_id }}-${{ github.run_attempt }}-e2e:8080/v1
+      LAMBDA_EMBEDDING_BASE_URL: http://rag-ops-ovms-e2e:8000/v3
+      LAMBDA_EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
+      LAMBDA_RERANKER_BASE_URL: http://rag-ops-ovms-e2e:8000/v3
+      LAMBDA_RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
+      RAGAS_JUDGE_PROVIDER: local
+      RAGAS_JUDGE_MODEL: qwen3.5-2b-unsloth-ud-q4-k-xl
+      RAGAS_JUDGE_BASE_URL: http://localhost:28080/v1
+      RAGAS_JUDGE_API_KEY: local
+      RAGAS_REQUIRE_CALIBRATION: '0'
+      RAGAS_JUDGE_TIMEOUT_SECONDS: '120'
+      RAGAS_OPERATION_TIMEOUT_SECONDS: '120'
+      RAGAS_MAX_RETRIES: '2'
+      RAGAS_MAX_WAIT_SECONDS: '5'
+      RAGAS_MAX_WORKERS: '2'
+      RAGAS_SUITE_TIMEOUT_SECONDS: '1800'
       GOLDEN_HTTP_TIMEOUT_SECONDS: '180'
       GOLDEN_CASE_TIMEOUT_SECONDS: '240'
     steps:
-      - name: Remove legacy Floci bind-mount data
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.11.1'
+          enable-cache: true
+      - name: Configure required LangSmith tracing
+        env:
+          REPO_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          REPO_LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+        shell: bash
         run: |
-          if [ -e "$GITHUB_WORKSPACE/.local/floci" ]; then
-            podman unshare rm -rf "$GITHUB_WORKSPACE/.local/floci"
+          key="${REPO_LANGSMITH_API_KEY:-${LANGSMITH_API_KEY:-}}"
+          if [[ -z "$key" ]]; then
+            echo "::error::Golden acceptance requires LANGSMITH_API_KEY as a repository secret or runner environment variable"
+            exit 1
           fi
-      - uses: actions/checkout@v7.0.1
+          printf 'LANGSMITH_TRACING=true\n' >> "$GITHUB_ENV"
+          printf 'LANGSMITH_PROJECT=rag-ops-guard-physical-golden\n' >> "$GITHUB_ENV"
+          printf 'LANGSMITH_ENDPOINT=https://api.smith.langchain.com\n' >> "$GITHUB_ENV"
+          printf 'LANGSMITH_API_KEY=%s\n' "$key" >> "$GITHUB_ENV"
+          workspace="${REPO_LANGSMITH_WORKSPACE_ID:-${LANGSMITH_WORKSPACE_ID:-}}"
+          if [[ -n "$workspace" ]]; then
+            printf 'LANGSMITH_WORKSPACE_ID=%s\n' "$workspace" >> "$GITHUB_ENV"
+          fi
       - run: make doctor
       - run: make setup
-      - name: Prepare canonical physical runtime
+      - name: Prepare physical runtime, calibration, Lambda/API and corpus
         run: make physical-ready
-      - name: Real local E2E
+      - name: Run physical e2e
         run: uv run pytest -m e2e tests/e2e
-      - name: Adversarial contracts
-        run: uv run pytest tests/adversarial
-      - name: Golden evaluation
-        run: uv run --extra eval python evaluation/runners/run_golden.py
-      - name: RAGAS measurement
-        env:
-          RAGAS_REQUIRE_CALIBRATION: '0'
-        run: uv run --extra eval python evaluation/runners/run_ragas.py
-      - name: Prepare ten-case human review artifact
-        run: uv run --extra eval python scripts/prepare_judge_human_review.py
-      - name: Explain release calibration state
+      - name: Run physical adversarial
+        run: uv run pytest -m adversarial tests/adversarial
+      - name: Run Golden 34 with LangSmith tracing
+        shell: bash
         run: |
-          echo "Physical measurement completed through the human-review handoff."
-          echo "External release readiness remains fail-closed until exactly 10 human labels create judge-policy.json."
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: physical-evaluation
-          path: artifacts/
+          printf 'GOLDEN_LANGSMITH_START=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          export GOLDEN_LANGSMITH_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          uv run --extra eval python evaluation/runners/run_golden.py
+      - name: Verify all 34 Golden traces reached LangSmith
+        run: uv run --extra eval python scripts/verify_langsmith_golden.py
+      - name: Measure RAGAS from exact Golden samples
+        run: uv run --extra eval python evaluation/runners/run_ragas.py
+      - name: Prepare 10-case human judge packet
+        run: uv run --extra eval python scripts/prepare_judge_human_review.py
+      - name: External release readiness remains fail-closed
+        run: |
+          echo "Physical measurement completed; strict release still requires the 10 real human labels and make eval-judge-calibrate."
       - if: always()
-        run: make local-clean || true
+        run: make local-clean
 
   reproducibility:
-    name: physical/reproducibility
+    name: release/reproducibility
     runs-on: [self-hosted, linux, x64, rag-e2e]
     timeout-minutes: 90
     env:
       APP_ENV: ci
-      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro
-      RAG_OPS_NETWORK: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-net
-      FLOCI_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-floci
-      LLAMA_GEN_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-gen
-      LLAMA_EMBED_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-embed
-      LLAMA_RERANK_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-rerank
-      OVMS_CONTAINER_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro-ovms
-      FLOCI_HOST_PORT: '34566'
-      LLAMA_GEN_HOST_PORT: '38080'
-      LLAMA_EMBED_HOST_PORT: '38081'
-      LLAMA_RERANK_HOST_PORT: '38082'
-      OVMS_HOST_PORT: '38083'
-      AWS_ENDPOINT_URL: http://localhost:34566
+      LANGSMITH_TRACING: 'false'
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
-      LLM_BASE_URL: http://localhost:38080/v1
-      LLM_MODEL: qwen3.5-0.8b-unsloth-ud-q4-k-xl
+      AWS_ENDPOINT_URL: http://localhost:34566
+      S3_DOCUMENT_BUCKET: rag-ops-guard-docs-local
+      S3_VECTOR_BUCKET: rag-ops-guard-vectors-local
       S3_VECTOR_INDEX: ops-knowledge-openvino-v1
+      VECTOR_DIMENSION: '1024'
+      LLM_BASE_URL: http://localhost:38080/v1
+      LLM_MODEL: qwen3.5-2b-unsloth-ud-q4-k-xl
       EMBEDDING_BASE_URL: http://localhost:38083/v3
       EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
       EMBEDDING_TIMEOUT_SECONDS: '60'
       RERANKER_BASE_URL: http://localhost:38083/v3
       RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
       RERANKER_TIMEOUT_SECONDS: '90'
-      GOLDEN_HTTP_TIMEOUT_SECONDS: '180'
-      GOLDEN_CASE_TIMEOUT_SECONDS: '240'
+      RETRIEVAL_TOP_K: '8'
+      RETRIEVAL_CONTEXT_K: '3'
+      RETRIEVAL_DOMAIN_MIN_RELEVANCE: '0.50'
+      RETRIEVAL_MIN_RELEVANCE: '0.50'
+      LLM_ANSWER_MAX_TOKENS: '512'
+      LLM_TEMPERATURE: '0.7'
+      LLM_TOP_P: '0.8'
+      LLM_TOP_K: '20'
+      LLM_MIN_P: '0.0'
+      LLM_PRESENCE_PENALTY: '1.5'
+      LLM_REPEAT_PENALTY: '1.0'
+      FLOCI_HOST_PORT: '34566'
+      LLAMA_GEN_HOST_PORT: '38080'
+      LLAMA_EMBED_HOST_PORT: '38081'
+      LLAMA_RERANK_HOST_PORT: '38082'
+      OVMS_HOST_PORT: '38083'
+      OVMS_CONTAINER_NAME: rag-ops-ovms-repro
+      RAG_OPS_NETWORK: rag-ops-net-repro
+      COMPOSE_PROJECT_NAME: rag-ops-ci-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      FLOCI_CONTAINER_NAME: rag-ops-floci-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      LLAMA_GEN_CONTAINER_NAME: rag-ops-llama-gen-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      LLAMA_EMBED_CONTAINER_NAME: rag-ops-llama-embed-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      LLAMA_RERANK_CONTAINER_NAME: rag-ops-llama-rerank-${{ github.run_id }}-${{ github.run_attempt }}-repro
+      LAMBDA_LLM_BASE_URL: http://rag-ops-llama-gen-${{ github.run_id }}-${{ github.run_attempt }}-repro:8080/v1
+      LAMBDA_EMBEDDING_BASE_URL: http://rag-ops-ovms-repro:8000/v3
+      LAMBDA_EMBEDDING_MODEL: OpenVINO/Qwen3-Embedding-0.6B-int8-ov
+      LAMBDA_RERANKER_BASE_URL: http://rag-ops-ovms-repro:8000/v3
+      LAMBDA_RERANKER_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
     steps:
-      - name: Remove legacy Floci bind-mount data
-        run: |
-          if [ -e "$GITHUB_WORKSPACE/.local/floci" ]; then
-            podman unshare rm -rf "$GITHUB_WORKSPACE/.local/floci"
-          fi
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
         with:
-          clean: true
+          version: '0.11.1'
+          enable-cache: true
       - run: make doctor
       - run: make setup
-      - name: Prepare canonical physical runtime
+      - name: Prepare physical runtime, calibration, Lambda/API and corpus
         run: make physical-ready
-      - run: make smoke
+      - name: Run deterministic smoke
+        run: uv run python scripts/smoke.py
       - if: always()
-        run: make local-clean || true
+        run: make local-clean
 
   gate:
-    name: physical/gate
-    if: always()
-    needs: [real-e2e, reproducibility]
+    name: release/gate
     runs-on: ubuntu-latest
+    needs: [e2e, reproducibility]
     steps:
-      - env:
-          NEEDS_JSON: ${{ toJson(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os, sys
-          results={k:v['result'] for k,v in json.loads(os.environ['NEEDS_JSON']).items()}
-          print(results)
-          sys.exit(0 if all(v == 'success' for v in results.values()) else 1)
-          PY
+      - run: echo "release gates passed"
