@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
@@ -132,6 +134,8 @@ class OpenAIToolCallingAdapter:
         ReAct still uses native tool calling. The final response intentionally uses
         llama.cpp JSON-schema constrained generation instead of a forced function call,
         because some local chat templates ignore forced tool_choice for that last turn.
+        Citation IDs are additionally constrained to chunk IDs returned by search_documents,
+        so the model cannot invent an ID that the application must reject afterwards.
         """
         validator = getattr(schema, "model_validate_json", None)
         schema_factory = getattr(schema, "model_json_schema", None)
@@ -140,7 +144,8 @@ class OpenAIToolCallingAdapter:
                 "structured schema must provide model_json_schema and model_validate_json"
             )
 
-        json_schema = cast(dict[str, Any], schema_factory())
+        base_schema = cast(dict[str, Any], schema_factory())
+        json_schema = _constrain_citation_ids(base_schema, messages)
         runnable = self._model.bind(
             response_format={
                 "type": "json_object",
@@ -155,6 +160,62 @@ class OpenAIToolCallingAdapter:
         if not content:
             raise ValueError("model returned an empty structured response")
         return cast(T, validator(content))
+
+
+def _retrieved_citation_ids(messages: list[ModelMessage]) -> list[str]:
+    ids: set[str] = set()
+    for message in messages:
+        if message.role != "tool" or message.name != "search_documents":
+            continue
+        try:
+            result = json.loads(message.content)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(result, dict):
+            continue
+        payload = result.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        sources = payload.get("sources")
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            chunk_id = source.get("chunk_id")
+            if isinstance(chunk_id, str) and chunk_id.strip():
+                ids.add(chunk_id.strip())
+    return sorted(ids)
+
+
+def _constrain_citation_ids(
+    schema: dict[str, Any],
+    messages: list[ModelMessage],
+) -> dict[str, Any]:
+    constrained = copy.deepcopy(schema)
+    allowed_ids = _retrieved_citation_ids(messages)
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                citation_ids = properties.get("citation_ids")
+                if isinstance(citation_ids, dict):
+                    if allowed_ids:
+                        citation_ids["items"] = {
+                            "type": "string",
+                            "enum": allowed_ids,
+                        }
+                    else:
+                        citation_ids["maxItems"] = 0
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(constrained)
+    return constrained
 
 
 def _tool_call(call: Any) -> ToolCall:
