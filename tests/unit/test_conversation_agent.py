@@ -154,7 +154,7 @@ def test_model_is_bound_to_real_document_tools_and_direct_turn_skips_them() -> N
 
 
 def test_grounded_tool_call_produces_grounded_status_and_citations() -> None:
-    agent, _model = _agent()
+    agent, model = _agent()
 
     result = _invoke(agent, "How many retries does Calypso allow?", "grounded")
 
@@ -164,6 +164,8 @@ def test_grounded_tool_call_produces_grounded_status_and_citations() -> None:
     assert len(result.citations) == 1
     assert result.citations[0].title == "Payment Retry Policy"
     assert result.segments[0].grounded is True
+    assert model.calls == 1
+    assert model.structured_calls == 1
 
 
 def test_unsupported_corpus_fact_becomes_ungrounded_not_hard_abstention() -> None:
@@ -176,7 +178,7 @@ def test_unsupported_corpus_fact_becomes_ungrounded_not_hard_abstention() -> Non
     assert result.tool_calls == 1
     assert result.citations == ()
     assert "do not state" in result.answer
-    assert model.calls == 2
+    assert model.calls == 1
     assert model.structured_calls == 1
 
 
