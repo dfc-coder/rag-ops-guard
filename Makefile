@@ -63,7 +63,7 @@ models:
 	uv run python scripts/download_models.py
 
 generation-model:
-	MODEL_FILES=Qwen3.5-0.8B-Q8_0.gguf uv run python scripts/download_models.py
+	MODEL_FILES=Qwen3.5-0.8B-UD-Q4_K_XL.gguf uv run python scripts/download_models.py
 
 package-lambda:
 	./scripts/package_lambda.sh
