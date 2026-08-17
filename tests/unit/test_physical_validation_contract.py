@@ -110,10 +110,11 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     assert "make local-up" not in release
 
 
-def test_physical_admission_validation_uses_labelled_calibration_first() -> None:
+def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -> None:
     makefile = _read("Makefile")
     calibrator = _read("scripts/calibrate_relevance_floors.py")
     validator = _read("scripts/validate_retrieval.py")
+    dataset_name = "retrieval-relevance-calibration.json"
 
     assert "physical-relevance-calibrate: physical-up" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
@@ -123,8 +124,10 @@ def test_physical_admission_validation_uses_labelled_calibration_first() -> None
     )
     assert "expected_grounded_score" in calibrator
     assert "A high score on the wrong document must never count" in calibrator
-    assert "retrieval-calibration-v2.json" in calibrator
-    assert "retrieval-calibration-v2.json" in validator
+    assert dataset_name in calibrator
+    assert dataset_name in validator
+    assert not (ROOT / "evaluation/datasets/retrieval-calibration-v1.json").exists()
+    assert not (ROOT / "evaluation/datasets/retrieval-calibration-v2.json").exists()
 
 
 def test_physical_smokes_use_segmented_status_contract() -> None:
