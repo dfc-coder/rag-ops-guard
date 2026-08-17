@@ -27,6 +27,21 @@ LAMBDA_ZIP_PATH = Path(
 ).resolve()
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
 LAMBDA_PYTHON_VERSION = os.environ.get("LAMBDA_PYTHON_VERSION", "3.12")
+LAMBDA_LLM_BASE_URL = os.environ.get("LAMBDA_LLM_BASE_URL", "http://llama-gen:8080/v1")
+LAMBDA_EMBEDDING_BASE_URL = os.environ.get(
+    "LAMBDA_EMBEDDING_BASE_URL", "http://llama-embed:8081/v1"
+)
+LAMBDA_EMBEDDING_MODEL = os.environ.get(
+    "LAMBDA_EMBEDDING_MODEL",
+    os.environ.get("EMBEDDING_MODEL", "qwen3-embedding-0.6b"),
+)
+LAMBDA_RERANKER_BASE_URL = os.environ.get(
+    "LAMBDA_RERANKER_BASE_URL", "http://llama-rerank:8082"
+)
+LAMBDA_RERANKER_MODEL = os.environ.get(
+    "LAMBDA_RERANKER_MODEL",
+    os.environ.get("RERANKER_MODEL", "qwen3-reranker-0.6b"),
+)
 DEFAULT_API_STAGE = "$default"
 
 
@@ -71,7 +86,7 @@ def ensure_vectors() -> None:
             vectorBucketName=VECTOR_BUCKET,
             indexName=VECTOR_INDEX,
             dataType="float32",
-            dimension=1024,
+            dimension=int(os.environ.get("VECTOR_DIMENSION", "1024")),
             distanceMetric="cosine",
         )
 
@@ -124,28 +139,32 @@ def lambda_environment() -> dict[str, str]:
         "S3_DOCUMENT_BUCKET": DOC_BUCKET,
         "S3_VECTOR_BUCKET": VECTOR_BUCKET,
         "S3_VECTOR_INDEX": VECTOR_INDEX,
-        "VECTOR_DIMENSION": "1024",
-        "RETRIEVAL_TOP_K": "20",
-        "RETRIEVAL_CONTEXT_K": "4",
-        "CHUNK_TOKENS": "400",
-        "CHUNK_OVERLAP": "60",
-        "LLM_BASE_URL": "http://llama-gen:8080/v1",
+        "VECTOR_DIMENSION": os.environ.get("VECTOR_DIMENSION", "1024"),
+        "RETRIEVAL_TOP_K": os.environ.get("RETRIEVAL_TOP_K", "20"),
+        "RETRIEVAL_CONTEXT_K": os.environ.get("RETRIEVAL_CONTEXT_K", "4"),
+        "RETRIEVAL_DOMAIN_MIN_RELEVANCE": os.environ.get(
+            "RETRIEVAL_DOMAIN_MIN_RELEVANCE", "0.5"
+        ),
+        "RETRIEVAL_MIN_RELEVANCE": os.environ.get("RETRIEVAL_MIN_RELEVANCE", "0.5"),
+        "CHUNK_TOKENS": os.environ.get("CHUNK_TOKENS", "400"),
+        "CHUNK_OVERLAP": os.environ.get("CHUNK_OVERLAP", "60"),
+        "LLM_BASE_URL": LAMBDA_LLM_BASE_URL,
         "LLM_MODEL": LLM_MODEL,
-        "LLM_ANSWER_MAX_TOKENS": "512",
-        "LLM_TIMEOUT_SECONDS": "60",
-        "LLM_TEMPERATURE": "0.7",
-        "LLM_TOP_P": "0.8",
-        "LLM_TOP_K": "20",
-        "LLM_MIN_P": "0.0",
-        "LLM_PRESENCE_PENALTY": "1.5",
-        "LLM_REPEAT_PENALTY": "1.0",
-        "EMBEDDING_BASE_URL": "http://llama-embed:8081/v1",
-        "EMBEDDING_MODEL": "qwen3-embedding-0.6b",
-        "EMBEDDING_DIMENSION": "1024",
-        "EMBEDDING_TIMEOUT_SECONDS": "60",
-        "RERANKER_BASE_URL": "http://llama-rerank:8082",
-        "RERANKER_MODEL": "qwen3-reranker-0.6b",
-        "RERANKER_TIMEOUT_SECONDS": "90",
+        "LLM_ANSWER_MAX_TOKENS": os.environ.get("LLM_ANSWER_MAX_TOKENS", "512"),
+        "LLM_TIMEOUT_SECONDS": os.environ.get("LLM_TIMEOUT_SECONDS", "60"),
+        "LLM_TEMPERATURE": os.environ.get("LLM_TEMPERATURE", "0.7"),
+        "LLM_TOP_P": os.environ.get("LLM_TOP_P", "0.8"),
+        "LLM_TOP_K": os.environ.get("LLM_TOP_K", "20"),
+        "LLM_MIN_P": os.environ.get("LLM_MIN_P", "0.0"),
+        "LLM_PRESENCE_PENALTY": os.environ.get("LLM_PRESENCE_PENALTY", "1.5"),
+        "LLM_REPEAT_PENALTY": os.environ.get("LLM_REPEAT_PENALTY", "1.0"),
+        "EMBEDDING_BASE_URL": LAMBDA_EMBEDDING_BASE_URL,
+        "EMBEDDING_MODEL": LAMBDA_EMBEDDING_MODEL,
+        "EMBEDDING_DIMENSION": os.environ.get("EMBEDDING_DIMENSION", "1024"),
+        "EMBEDDING_TIMEOUT_SECONDS": os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "60"),
+        "RERANKER_BASE_URL": LAMBDA_RERANKER_BASE_URL,
+        "RERANKER_MODEL": LAMBDA_RERANKER_MODEL,
+        "RERANKER_TIMEOUT_SECONDS": os.environ.get("RERANKER_TIMEOUT_SECONDS", "90"),
         "LANGSMITH_TRACING": "false",
     }
 
