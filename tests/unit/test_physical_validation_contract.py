@@ -69,7 +69,7 @@ def test_unsloth_qwen35_profile_matches_non_thinking_agent_runtime() -> None:
     assert "--jinja" in compose
 
 
-def test_generation_contract_uses_one_function_calling_protocol_before_eval() -> None:
+def test_generation_contract_uses_tool_calling_plus_schema_constrained_final_output() -> None:
     makefile = _read("Makefile")
     contract = _read("scripts/validate_llama_contract.py")
     adapter = _read("src/rag_ops_guard/adapters/llm/openai_tool_calling.py")
@@ -77,12 +77,15 @@ def test_generation_contract_uses_one_function_calling_protocol_before_eval() ->
     assert "physical-generation-contract: physical-up" in makefile
     assert "physical-relevance-calibrate: physical-generation-contract" in makefile
     assert '"tool_choice": "auto"' in contract
-    assert "submit_structured_response" in contract
+    assert '"response_format"' in contract
+    assert '"type": "json_object"' in contract
+    assert "llama schema-constrained structured response: ready" in contract
     assert "LLAMA FUNCTION-CALLING CONTRACT READY" in contract
+    assert "submit_structured_response" not in contract
     assert "with_structured_output" not in adapter
-    assert "response_format" not in adapter
-    assert "FINAL_RESPONSE_TOOL" in adapter
-    assert "tool_choice={" in adapter
+    assert "response_format" in adapter
+    assert "model_validate_json" in adapter
+    assert "FINAL_RESPONSE_TOOL" not in adapter
 
 
 def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
