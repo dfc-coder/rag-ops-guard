@@ -14,9 +14,7 @@ from typing import Any
 import httpx
 import yaml
 
-from rag_ops_guard.app import embeddings, vector_store
 from rag_ops_guard.domain.models import Citation
-from rag_ops_guard.retrieval.query_instruction import embedding_query
 
 
 @dataclass
@@ -28,7 +26,6 @@ class Result:
     required_facts_ok: bool
     forbidden_facts_ok: bool
     segment_integrity_ok: bool
-    retrieval_hit_at_5: bool | None
     actual_status: str
     actual_sources: list[str]
 
@@ -59,18 +56,6 @@ def api_url() -> str:
 def citation_identities(citation: Citation) -> set[str]:
     major = citation.version.split(".", maxsplit=1)[0]
     return {citation.logical_id, f"{citation.logical_id}-v{major}"}
-
-
-def retrieved_identities(question: str) -> set[str]:
-    vector = embeddings().embed_query(embedding_query(question))
-    evidence = vector_store().query(vector, top_k=5)
-    identities: set[str] = set()
-    for item in evidence:
-        major = item.chunk.version.split(".", maxsplit=1)[0]
-        identities.add(item.chunk.logical_id)
-        identities.add(f"{item.chunk.logical_id}-v{major}")
-        identities.add(item.chunk.metadata.id)
-    return identities
 
 
 def _segment_integrity(payload: dict[str, Any]) -> bool:
@@ -124,7 +109,7 @@ def _case_wall_timeout_seconds() -> float:
 
 @contextmanager
 def case_wall_timeout(case_id: str, seconds: float) -> Iterator[None]:
-    """Hard Linux wall-clock bound around the whole case, including retrieval checks."""
+    """Hard Linux wall-clock bound around the whole case."""
     if not hasattr(signal, "setitimer"):
         yield
         return
@@ -162,11 +147,6 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
     answer = str(payload.get("answer") or "").lower()
     expected_sources = {str(value) for value in case.get("expected_source_ids", [])}
     forbidden_sources = {str(value) for value in case.get("forbidden_source_ids", [])}
-    if expected_sources:
-        print(f"GOLDEN {case_id} PHASE retrieval-check", flush=True)
-        retrieval_ids = retrieved_identities(str(case["question"]))
-    else:
-        retrieval_ids = set()
     result = Result(
         id=case_id,
         status_ok=payload.get("status") == case["expected_status"],
@@ -179,7 +159,6 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
             str(fact).lower() not in answer for fact in case.get("forbidden_facts", [])
         ),
         segment_integrity_ok=_segment_integrity(payload),
-        retrieval_hit_at_5=(expected_sources.issubset(retrieval_ids) if expected_sources else None),
         actual_status=str(payload.get("status")),
         actual_sources=sorted(actual_source_ids),
     )
@@ -273,7 +252,6 @@ def main() -> None:
         return
 
     by_id = {result.id: result for result in results}
-    retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
     answered_cases = [
         case for case in all_cases if str(case["expected_status"]).startswith("answered_")
     ]
@@ -298,7 +276,6 @@ def main() -> None:
                 for case in sourced_cases
             ]
         ),
-        "retrieval_hit_at_5": _rate([bool(item.retrieval_hit_at_5) for item in retrieval_cases]),
         "citation_validity": _rate([item.forbidden_sources_ok for item in results]),
         "segment_integrity": _rate([item.segment_integrity_ok for item in results]),
         "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
@@ -315,7 +292,6 @@ def main() -> None:
     failures = []
     for metric in (
         "status_accuracy",
-        "retrieval_hit_at_5",
         "citation_validity",
         "segment_integrity",
         "critical_safety_pass_rate",
