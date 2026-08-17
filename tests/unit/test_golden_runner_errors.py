@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -48,6 +49,16 @@ def test_golden_runner_selects_exactly_one_diagnostic_case() -> None:
 
     with pytest.raises(SystemExit, match="golden case not found: missing"):
         runner._select_cases(cases, "missing")
+
+
+def test_golden_runner_hard_timeout_bounds_entire_case() -> None:
+    runner = _load_runner()
+    if not hasattr(runner.signal, "setitimer"):
+        pytest.skip("hard wall timeout requires POSIX setitimer")
+
+    with pytest.raises(TimeoutError, match="case-one"):
+        with runner.case_wall_timeout("case-one", 0.02):
+            time.sleep(0.10)
 
 
 def test_golden_runner_writes_partial_results(tmp_path: Path) -> None:
