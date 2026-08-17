@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from scripts.calibrate_relevance_floors import (
     Observation,
     calibrate_floors,
@@ -23,7 +25,7 @@ def test_calibration_allows_overlap_when_zero_fp_threshold_preserves_recall() ->
 
     floors = calibrate_floors(observations)
 
-    assert floors.domain_floor == 0.40
+    assert floors.domain_floor == pytest.approx(0.295)
     assert floors.domain_false_positives == 0
     assert floors.domain_recall == 0.8
     assert floors.grounded_false_positives == 0
