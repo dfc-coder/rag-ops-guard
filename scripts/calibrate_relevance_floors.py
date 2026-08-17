@@ -114,6 +114,11 @@ def _recall(tp: int, fn: int) -> float:
     return tp / denominator if denominator else 0.0
 
 
+def serialize_floor(value: float) -> str:
+    """Serialize a threshold without rounding it above a measured positive score."""
+    return repr(value)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path)
@@ -180,8 +185,10 @@ def main() -> None:
         f"grounded_recall={floors.grounded_recall:.3f}"
     )
     output = (
-        f"export RETRIEVAL_DOMAIN_MIN_RELEVANCE={floors.domain_floor:.6f}\n"
-        f"export RETRIEVAL_MIN_RELEVANCE={floors.grounded_floor:.6f}\n"
+        "export RETRIEVAL_DOMAIN_MIN_RELEVANCE="
+        f"{serialize_floor(floors.domain_floor)}\n"
+        "export RETRIEVAL_MIN_RELEVANCE="
+        f"{serialize_floor(floors.grounded_floor)}\n"
     )
     if args.env_file:
         args.env_file.parent.mkdir(parents=True, exist_ok=True)
