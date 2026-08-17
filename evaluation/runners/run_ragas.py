@@ -230,7 +230,9 @@ def suite_wall_timeout(seconds: float) -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
+def _load_judge_policy(
+    identity: JudgeIdentity, *, required: bool
+) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
     payload = json.loads(JUDGE_POLICY_PATH.read_text(encoding="utf-8"))
@@ -246,9 +248,14 @@ def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
         if str(payload.get(key) or "") != value
     ]
     if mismatches:
-        raise SystemExit(
-            "judge calibration is stale for the active evaluator; recalibrate. " + "; ".join(mismatches)
+        message = (
+            "judge calibration is stale for the active evaluator; recalibrate. "
+            + "; ".join(mismatches)
         )
+        if required:
+            raise SystemExit(message)
+        print(f"RAGAS measurement: {message} Ignoring stale policy.", flush=True)
+        return None
     return JudgePolicy(
         agreement=float(payload["agreement"]),
         gating_enabled=bool(payload["gating_enabled"]),
@@ -266,6 +273,7 @@ def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
 def main() -> None:
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     judge = judge_connection_from_env()
+    calibration_required = _calibration_required()
     judge_timeout = _positive_float_env("RAGAS_JUDGE_TIMEOUT_SECONDS", 120.0)
     embedding_timeout = _positive_float_env("EMBEDDING_TIMEOUT_SECONDS", 60.0)
     suite_timeout = _positive_float_env("RAGAS_SUITE_TIMEOUT_SECONDS", 1800.0)
@@ -376,7 +384,7 @@ def main() -> None:
         rows.append(row)
     (output / "ragas-results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
-    policy = _load_judge_policy(judge.identity)
+    policy = _load_judge_policy(judge.identity, required=calibration_required)
     summary["judge_calibration"] = (
         None
         if policy is None
@@ -391,7 +399,7 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
 
     try:
-        policy = require_calibration_policy(policy, required=_calibration_required())
+        policy = require_calibration_policy(policy, required=calibration_required)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
