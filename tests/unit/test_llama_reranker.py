@@ -49,6 +49,40 @@ def test_qwen_reranker_grades_each_document(monkeypatch: pytest.MonkeyPatch) -> 
     assert "different target is not relevant" in str(body["query"])
 
 
+def test_openvino_qwen_seq_cls_reranker_uses_required_chat_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url: str, **kwargs: object) -> FakeResponse:
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse({"results": [{"index": 0, "relevance_score": 0.97}]})
+
+    monkeypatch.setattr(llamacpp_reranker.httpx, "post", fake_post)
+    adapter = LlamaCppRerankerAdapter(
+        "http://localhost:8083/v3",
+        "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov",
+    )
+
+    adapter.grade("Cuantos reintentos permite Calypso?", ["Payment Retry Policy body"])
+
+    assert captured["url"] == "http://localhost:8083/v3/rerank"
+    body = captured["json"]
+    assert isinstance(body, dict)
+    query = str(body["query"])
+    documents = body["documents"]
+    assert isinstance(documents, list)
+    assert query.startswith("<|im_start|>system\nJudge whether the Document meets the requirements")
+    assert "<Instruct>:" in query
+    assert "<Query>: Cuantos reintentos permite Calypso?" in query
+    assert query.endswith("\n")
+    assert documents == [
+        "<Document>: Payment Retry Policy body<|im_end|>\n"
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    ]
+
+
 def test_qwen_reranker_batches_documents_without_reordering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
