@@ -2,7 +2,7 @@ name: physical-validation
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, fix/floci-apigw-dataplane]
   workflow_dispatch:
 
 concurrency:
@@ -109,8 +109,9 @@ jobs:
       - name: Run Golden 34 with LangSmith tracing
         shell: bash
         run: |
-          printf 'GOLDEN_LANGSMITH_START=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-          export GOLDEN_LANGSMITH_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'GOLDEN_LANGSMITH_START=%s\n' "$timestamp" >> "$GITHUB_ENV"
+          export GOLDEN_LANGSMITH_START="$timestamp"
           uv run --extra eval python evaluation/runners/run_golden.py
       - name: Verify all 34 Golden traces reached LangSmith
         run: uv run --extra eval python scripts/verify_langsmith_golden.py
