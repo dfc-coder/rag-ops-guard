@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import math
 import os
+import signal
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -101,8 +104,6 @@ def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
 
         grounded_response = grounded_segment_text(payload)
         if not grounded_response:
-            # Direct/ungrounded answers are evaluated by deterministic Golden contracts,
-            # not by context precision/recall/faithfulness.
             continue
 
         reference = str(row.get("reference_answer") or "").strip()
@@ -163,7 +164,6 @@ def enforce_thresholds(
     per_case: dict[str, float],
     gating_enabled: bool,
 ) -> None:
-    """SPEC-5.1: enforce aggregate and catastrophic-case floors only after calibration."""
     if not gating_enabled:
         return
     failures: list[str] = []
@@ -210,6 +210,26 @@ def _positive_float_env(name: str, default: float) -> float:
     return value
 
 
+@contextmanager
+def suite_wall_timeout(seconds: float) -> Iterator[None]:
+    """Bound the whole local evaluation, independent of library-level retries/timeouts."""
+    if not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def on_timeout(_signum: int, _frame: object) -> None:
+        raise TimeoutError(f"RAGAS suite exceeded hard wall timeout of {seconds:g}s")
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, on_timeout)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
@@ -247,10 +267,8 @@ def main() -> None:
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     judge = judge_connection_from_env()
     judge_timeout = _positive_float_env("RAGAS_JUDGE_TIMEOUT_SECONDS", 120.0)
-    embedding_timeout = _positive_float_env(
-        "EMBEDDING_TIMEOUT_SECONDS",
-        60.0,
-    )
+    embedding_timeout = _positive_float_env("EMBEDDING_TIMEOUT_SECONDS", 60.0)
+    suite_timeout = _positive_float_env("RAGAS_SUITE_TIMEOUT_SECONDS", 1800.0)
     run_config = RunConfig(
         timeout=_positive_int_env("RAGAS_OPERATION_TIMEOUT_SECONDS", 120),
         max_retries=_positive_int_env("RAGAS_MAX_RETRIES", 2),
@@ -261,7 +279,7 @@ def main() -> None:
 
     print(
         f"RAGAS START: judge={judge.identity.provider}/{judge.identity.model}; "
-        "reusing artifacts/evaluation/golden-samples.json",
+        f"suite-timeout={suite_timeout:g}s; reusing artifacts/evaluation/golden-samples.json",
         flush=True,
     )
     llm_client = AsyncOpenAI(
@@ -290,23 +308,28 @@ def main() -> None:
     samples = _collect_samples()
     print(
         f"RAGAS DATASET: {len(samples)} grounded/reference case(s); "
-        f"workers={run_config.max_workers} timeout={run_config.timeout}s",
+        f"workers={run_config.max_workers} operation-timeout={run_config.timeout}s",
         flush=True,
     )
-    result = evaluate(
-        dataset=_dataset(samples),
-        metrics=[
-            Faithfulness(),
-            LLMContextPrecisionWithReference(),
-            LLMContextRecall(),
-            ResponseRelevancy(),
-        ],
-        llm=evaluator_llm,
-        embeddings=evaluator_embeddings,
-        run_config=run_config,
-        raise_exceptions=True,
-        show_progress=True,
-    )
+    try:
+        with suite_wall_timeout(suite_timeout):
+            result = evaluate(
+                dataset=_dataset(samples),
+                metrics=[
+                    Faithfulness(),
+                    LLMContextPrecisionWithReference(),
+                    LLMContextRecall(),
+                    ResponseRelevancy(),
+                ],
+                llm=evaluator_llm,
+                embeddings=evaluator_embeddings,
+                run_config=run_config,
+                raise_exceptions=True,
+                show_progress=True,
+            )
+    except TimeoutError as exc:
+        raise SystemExit(str(exc)) from exc
+
     frame = result.to_pandas()
     case_ids = [sample.case_id for sample in samples]
     metric_values = {
@@ -329,9 +352,7 @@ def main() -> None:
             "evaluator": judge.identity.model,
             "judge_prompt_sha256": judge.identity.prompt_sha256,
             "evaluation_dataset_sha256": judge.identity.dataset_sha256,
-            "embedding_evaluator": os.environ.get(
-                "EMBEDDING_MODEL", "qwen3-embedding-0.6b"
-            ),
+            "embedding_evaluator": os.environ.get("EMBEDDING_MODEL", "qwen3-embedding-0.6b"),
             "samples": len(samples),
             "scope": "grounded_segments_with_reference",
             "run_config": {
@@ -340,6 +361,7 @@ def main() -> None:
                 "max_wait": run_config.max_wait,
                 "max_workers": run_config.max_workers,
                 "seed": run_config.seed,
+                "suite_timeout": suite_timeout,
             },
         }
     )
@@ -369,10 +391,7 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
 
     try:
-        policy = require_calibration_policy(
-            policy,
-            required=_calibration_required(),
-        )
+        policy = require_calibration_policy(policy, required=_calibration_required())
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -390,9 +409,7 @@ def main() -> None:
     enforce_thresholds(
         metric_values,
         means=means,
-        per_case={
-            name: float(value) for name, value in thresholds["ragas_per_case"].items()
-        },
+        per_case={name: float(value) for name, value in thresholds["ragas_per_case"].items()},
         gating_enabled=policy.gating_enabled,
     )
 
