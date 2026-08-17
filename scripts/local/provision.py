@@ -25,7 +25,7 @@ VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 LAMBDA_ZIP_PATH = Path(
     os.environ.get("LAMBDA_ZIP_PATH", ".local/lambda-package.zip")
 ).resolve()
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-0.8b-rag")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-0.8b-unsloth-ud-q4-k-xl")
 LAMBDA_PYTHON_VERSION = os.environ.get("LAMBDA_PYTHON_VERSION", "3.12")
 LAMBDA_LLM_BASE_URL = os.environ.get("LAMBDA_LLM_BASE_URL", "http://llama-gen:8080/v1")
 LAMBDA_EMBEDDING_BASE_URL = os.environ.get(
