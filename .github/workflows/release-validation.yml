@@ -2,7 +2,7 @@ name: physical-validation
 
 on:
   push:
-    branches: [develop, fix/floci-apigw-dataplane]
+    branches: [develop]
   workflow_dispatch:
 
 concurrency:
