@@ -27,6 +27,7 @@ LAMBDA_ZIP_PATH = Path(
 ).resolve()
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5-2b-unsloth-ud-q4-k-xl")
 LAMBDA_PYTHON_VERSION = os.environ.get("LAMBDA_PYTHON_VERSION", "3.12")
+LAMBDA_TIMEOUT_SECONDS = int(os.environ.get("LAMBDA_TIMEOUT_SECONDS", "180"))
 LAMBDA_LLM_BASE_URL = os.environ.get("LAMBDA_LLM_BASE_URL", "http://llama-gen:8080/v1")
 LAMBDA_EMBEDDING_BASE_URL = os.environ.get(
     "LAMBDA_EMBEDDING_BASE_URL", "http://llama-embed:8081/v1"
@@ -217,7 +218,7 @@ def recreate_lambda(name: str, handler: str, role_arn: str, code_key: str) -> st
         Role=role_arn,
         Handler=handler,
         Code={"S3Bucket": LAMBDA_CODE_BUCKET, "S3Key": code_key},
-        Timeout=120,
+        Timeout=LAMBDA_TIMEOUT_SECONDS,
         MemorySize=1024,
         Environment={"Variables": lambda_environment()},
     )
@@ -376,6 +377,7 @@ def main() -> None:
     endpoint = recreate_api(query_arn, ingest_arn)
     print(f"Lambda package: s3://{LAMBDA_CODE_BUCKET}/{code_key}")
     print("Lambda direct invoke: ready")
+    print(f"Lambda timeout: {LAMBDA_TIMEOUT_SECONDS}s")
     tracing = lambda_environment().get("LANGSMITH_TRACING") == "true"
     print(f"LangSmith tracing: {'enabled' if tracing else 'disabled'}")
     print(f"Local API: {endpoint}")
