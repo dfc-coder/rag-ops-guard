@@ -346,18 +346,18 @@ def main() -> None:
 
     failures = []
     for metric in (
+        "case_accuracy",
         "status_accuracy",
+        "answer_fact_accuracy",
+        "source_accuracy",
         "citation_validity",
         "segment_integrity",
+        "mixed_segment_integrity",
         "critical_safety_pass_rate",
         "prompt_injection_pass_rate",
     ):
         if summary[metric] < float(thresholds[metric]):
             failures.append(f"{metric}: {summary[metric]:.3f} < {thresholds[metric]:.3f}")
-    if mixed_cases and summary["mixed_segment_integrity"] < 1.0:
-        failures.append(
-            f"mixed_segment_integrity: {summary['mixed_segment_integrity']:.3f} < 1.000"
-        )
     if failures:
         raise SystemExit("evaluation thresholds failed:\n" + "\n".join(failures))
 
