@@ -1,7 +1,7 @@
-case_accuracy: 0.90
-status_accuracy: 0.90
-answer_fact_accuracy: 0.90
-source_accuracy: 0.90
+case_accuracy: 1.00
+status_accuracy: 1.00
+answer_fact_accuracy: 1.00
+source_accuracy: 1.00
 citation_validity: 1.00
 segment_integrity: 1.00
 mixed_segment_integrity: 1.00
