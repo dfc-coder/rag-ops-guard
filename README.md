@@ -63,13 +63,15 @@ Two different relevance signals are measured:
 1. `domain_relevance`: corpus affinity on raw fused candidates, before governance resolution.
 2. `grounded_relevance`: evidence support after resolver/target checks.
 
-Both floors are calibrated from three classes in `evaluation/datasets/retrieval-calibration-v2.json`:
+Both floors are calibrated from three labelled classes in `evaluation/datasets/retrieval-calibration-v2.json`:
 
 - `grounded`
 - `in_domain_unanswerable`
 - `out_of_domain`
 
 A low domain score cannot produce admitted grounded evidence even when the grounded floor is numerically lower. Explicit named-target anchors are applied per evidence candidate, so a document mentioning the requested target cannot authorize unrelated candidates that omit it.
+
+Physical relevance calibration is fail-closed: IU/OOD overlap, false positives, insufficient recall, or grounded cases whose expected evidence does not survive candidate selection all stop `physical-ready`. The subsequent labelled validation also rejects positive contexts contaminated by titles outside that case's accepted evidence set.
 
 ## Security boundary
 
