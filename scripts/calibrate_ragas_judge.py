@@ -2,22 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 from rag_ops_guard.evaluation.gates import HumanJudgeCase, calibrate_judge_policy
+from rag_ops_guard.evaluation.judge import judge_identity_from_env
 
 BASELINE_JUDGE_CUTOFF = 0.85
-
-
-def _runtime_model() -> str:
-    runtime = os.environ.get("LLM_MODEL", "qwen3-4b-rag")
-    judge = os.environ.get("RAGAS_JUDGE_MODEL", runtime)
-    if judge != runtime:
-        raise SystemExit(
-            "SPEC-5.3 requires one runtime/judge model: RAGAS_JUDGE_MODEL must equal LLM_MODEL"
-        )
-    return judge
 
 
 def _load_human_labels(path: Path) -> list[dict[str, object]]:
@@ -51,7 +41,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    model = _runtime_model()
+    identity = judge_identity_from_env()
     labels = _load_human_labels(args.labels)
     if not args.results.exists():
         raise SystemExit(
@@ -93,7 +83,10 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
 
     output = {
-        "model": model,
+        "judge_provider": identity.provider,
+        "judge_model": identity.model,
+        "judge_prompt_sha256": identity.prompt_sha256,
+        "evaluation_dataset_sha256": identity.dataset_sha256,
         "cases": [case.case_id for case in comparisons],
         "agreement": policy.agreement,
         "gating_enabled": policy.gating_enabled,
