@@ -14,19 +14,27 @@ ALLOWED_STATUSES = {
 }
 
 
-def test_golden_dataset_uses_segmented_response_statuses() -> None:
+def test_golden_datasets_use_segmented_response_statuses() -> None:
     """SPEC-6: legacy `answered` must not survive the response-contract pivot."""
-    cases = json.loads((ROOT / "evaluation/datasets/golden-v1.json").read_text())
+    cases: list[dict[str, object]] = []
+    for path in (
+        ROOT / "evaluation/datasets/golden-v1.json",
+        ROOT / "evaluation/datasets/golden-mixed-v1.json",
+    ):
+        cases.extend(json.loads(path.read_text(encoding="utf-8")))
     statuses = {str(case["expected_status"]) for case in cases}
     assert statuses <= ALLOWED_STATUSES
     assert "answered" not in statuses
+    assert "answered_mixed" in statuses
 
 
-def test_double_relevance_calibration_dataset_is_preserved() -> None:
-    """SPEC-6: U4 calibration fixture must remain part of the release evidence."""
-    path = ROOT / "evaluation/datasets/retrieval-calibration-v2.json"
+def test_double_relevance_calibration_dataset_is_role_named_and_preserved() -> None:
+    """SPEC-6: the U4 three-class fixture remains release evidence under one semantic name."""
+    path = ROOT / "evaluation/datasets/retrieval-relevance-calibration.json"
     assert path.exists()
-    cases = json.loads(path.read_text())
+    assert not (ROOT / "evaluation/datasets/retrieval-calibration-v1.json").exists()
+    assert not (ROOT / "evaluation/datasets/retrieval-calibration-v2.json").exists()
+    cases = json.loads(path.read_text(encoding="utf-8"))
     assert {case["class"] for case in cases} == {
         "grounded",
         "in_domain_unanswerable",
