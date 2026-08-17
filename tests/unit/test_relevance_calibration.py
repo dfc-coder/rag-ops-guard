@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from scripts.calibrate_relevance_floors import (
     Observation,
     calibrate_floors,
@@ -11,15 +9,24 @@ from scripts.calibrate_relevance_floors import (
 )
 
 
-def test_calibration_rejects_overlap_between_out_of_domain_and_in_domain_unanswerable() -> None:
+def test_calibration_allows_overlap_when_zero_fp_threshold_preserves_recall() -> None:
     observations = [
-        Observation("g", "grounded", domain_score=0.90, grounded_score=0.88),
-        Observation("iu", "in_domain_unanswerable", domain_score=0.42, grounded_score=0.10),
-        Observation("ood", "out_of_domain", domain_score=0.45, grounded_score=0.05),
+        Observation("g1", "grounded", domain_score=0.99, grounded_score=0.95),
+        Observation("g2", "grounded", domain_score=0.91, grounded_score=0.88),
+        Observation("iu-high", "in_domain_unanswerable", domain_score=0.70, grounded_score=0.10),
+        Observation("iu-mid", "in_domain_unanswerable", domain_score=0.40, grounded_score=0.08),
+        Observation("iu-low", "in_domain_unanswerable", domain_score=0.12, grounded_score=0.00),
+        Observation("ood-high", "out_of_domain", domain_score=0.19, grounded_score=0.05),
+        Observation("ood-low", "out_of_domain", domain_score=0.08, grounded_score=0.02),
     ]
 
-    with pytest.raises(ValueError, match="overlap"):
-        calibrate_floors(observations)
+    floors = calibrate_floors(observations)
+
+    assert floors.domain_floor == 0.40
+    assert floors.domain_false_positives == 0
+    assert floors.domain_recall == 0.8
+    assert floors.grounded_false_positives == 0
+    assert floors.grounded_recall == 1.0
 
 
 def test_calibration_returns_separate_domain_and_grounded_floors() -> None:
