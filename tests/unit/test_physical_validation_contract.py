@@ -15,6 +15,13 @@ def _env_value(name: str) -> str:
     raise AssertionError(f"{name} missing from .env.example")
 
 
+def test_make_workflows_pin_canonical_python() -> None:
+    makefile = _read("Makefile")
+    assert "UV_PYTHON ?= 3.12" in makefile
+    assert "export UV_PYTHON " in makefile
+    assert _read(".python-version").strip() == "3.12"
+
+
 def test_physical_runtime_uses_one_generation_model_alias() -> None:
     alias = _env_value("LLM_MODEL")
     compose = _read("docker/docker-compose.yml")
