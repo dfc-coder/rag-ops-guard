@@ -64,7 +64,7 @@ Status: implemented. Hosted CI runs the full `tests/adversarial` directory.
 - **SPEC-4.5** — Explicit named-target anchors are applied per evidence candidate; one candidate mentioning the requested target cannot authorize unrelated candidates that omit it.
 - **SPEC-4.6** — Deterministic labelled retrieval validation requires at least one expected evidence title for `grounded` cases and zero admitted evidence for `in_domain_unanswerable`/`out_of_domain`. Additional admitted context is diagnostic here and is evaluated by context-precision metrics rather than an undocumented exhaustive title allow-list.
 
-Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. Calibration chooses thresholds from labelled measurements and fails closed unless both signals achieve **zero false positives and at least 80% recall**. Score distributions may overlap when a threshold still satisfies that declared policy; perfect class separation is not an independent requirement.
+Calibration classes are `grounded`, `in_domain_unanswerable`, and `out_of_domain`. Calibration chooses thresholds from the single role-named dataset `evaluation/datasets/retrieval-relevance-calibration.json` and fails closed unless both signals achieve **zero false positives and at least 80% recall**. Score distributions may overlap when a threshold still satisfies that declared policy; perfect class separation is not an independent requirement.
 
 Status: implemented, including the final domain-floor admission invariant.
 
@@ -74,20 +74,22 @@ Status: implemented, including the final domain-floor admission invariant.
 - **SPEC-5.2** — RAGAS evaluates grounded segments with reference answers and the contexts cited by those segments. Direct/ungrounded answer quality, status, safety and citation integrity remain deterministic Golden concerns and are not forced into context metrics that do not apply.
 - **SPEC-5.3** — Golden executes the agent once. RAGAS reuses the exact resulting `golden-samples.json`; it never regenerates the answers being judged.
 - **SPEC-5.4** — Judge requests, embedding requests, RAGAS retries/workers and the whole RAGAS suite are time-bounded. A backend cannot leave physical evaluation waiting indefinitely.
-- **SPEC-5.5** — The runtime generation model and the RAGAS judge are independently configurable. A judge policy is valid only for the exact provider/model/prompt/dataset identity it calibrated. Agreement uses exactly 10 real human labels:
+- **SPEC-5.5** — The runtime generation model and the RAGAS judge are independently configurable. A judge policy is valid only for the exact provider/model/prompt/complete-Golden-dataset identity it calibrated. Agreement uses exactly 10 real human labels:
   - 9–10/10: RAGAS may gate at aggregate faithfulness floor `0.85` plus per-case floor;
   - 7–8/10: use a lower threshold derived from measured labels plus per-case floor;
   - <=6/10: RAGAS is informational and cannot block release.
-- **SPEC-5.6** — Automatic physical validation runs RAGAS in explicit measurement mode before human calibration. Strict `physical-eval` remains fail-closed until a matching `judge-policy.json` exists; successful measurement must never be mislabeled as external release readiness.
+- **SPEC-5.6** — Automatic physical validation runs RAGAS in explicit measurement mode before human calibration. A stale judge policy is ignored only in measurement mode so a changed evaluator can be measured; strict `physical-eval` rejects missing or stale policy. Successful measurement must never be mislabeled as external release readiness.
+- **SPEC-5.7** — `physical-eval-measure` prepares a deterministic ten-case human-review artifact containing the exact grounded response, cited evidence and judge faithfulness score. Every `human_pass` remains unset until a real human supplies it.
 
 Status: mechanism implemented. The repository deliberately does **not** claim a human-agreement score before a real target-machine run and ten real labels exist.
 
 ## U6 — Evaluation corpus and final replacement
 
 - **SPEC-6.1** — Golden statuses use the segmented contract; legacy `answered`/`insufficient_evidence` expectations are removed.
-- **SPEC-6.2** — `retrieval-calibration-v2.json` is the single three-class calibration and deterministic retrieval-validation dataset.
+- **SPEC-6.2** — `retrieval-relevance-calibration.json` is the single three-class calibration and deterministic retrieval-validation dataset; the old numbered v1/v2 files do not coexist.
 - **SPEC-6.3** — AcmePay/Payments/Calypso are evaluation fixtures, never the product domain or routing logic.
 - **SPEC-6.4** — Golden does not run a second dense-only retrieval implementation. Required/forbidden source assertions validate the evidence actually cited by the canonical agent response.
+- **SPEC-6.5** — Golden contains four explicit `answered_mixed` cases. Each asserts that corpus-backed facts are in cited segments and general examples/calculations/explanations are in uncited segments. RAGAS scores only the grounded subquestion/segment/reference for those cases.
 
 Final closure conditions:
 
@@ -95,10 +97,11 @@ Final closure conditions:
 - `src/rag_ops_guard/graph/` physically absent;
 - legacy structured chat adapter/ports removed;
 - LangGraph not a direct runtime dependency and its old ADR explicitly superseded;
+- obsolete numbered retrieval datasets absent;
 - unreachable pipeline budget exactly `0`;
 - pipeline ownership exactly `{app, agent.conversation}`;
 - README/architecture/technology docs describe the actual system;
-- golden runner validates deterministic `segment_integrity`.
+- golden runner validates deterministic `segment_integrity` and mixed grounding partition.
 
 Status: implemented on U6; merge requires hosted correctness CI green.
 
