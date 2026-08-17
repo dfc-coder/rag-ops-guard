@@ -39,6 +39,22 @@ def test_embedding_adapter_normalizes_and_validates_dimension(
     assert adapter.embed_documents(["a", "b"])[1] == pytest.approx([0.6, 0.8])
 
 
+def test_embedding_adapter_bounds_request_timeout_and_disables_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A slow/unreachable embedding backend must fail fast and deterministically."""
+    monkeypatch.setattr(llamacpp_embeddings, "OpenAIEmbeddings", FakeEmbeddings)
+    adapter = LlamaCppEmbeddingAdapter(
+        "http://localhost:8081/v1",
+        "embed",
+        dimension=2,
+        timeout_seconds=12.5,
+    )
+
+    assert adapter._client.kwargs["request_timeout"] == 12.5
+    assert adapter._client.kwargs["max_retries"] == 0
+
+
 def test_token_counter_calls_llama_tokenize(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
