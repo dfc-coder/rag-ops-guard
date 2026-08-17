@@ -54,6 +54,23 @@ def test_physical_floci_matches_documented_rootless_podman_contract() -> None:
     assert "- label=disable" in compose
 
 
+def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
+    makefile = _read("Makefile")
+    provision = _read("scripts/local/provision.py")
+    release = _read(".github/workflows/release-validation.yml")
+
+    assert "physical-ready:" in makefile
+    assert "OVMS_NETWORK=$(RAG_OPS_NETWORK)" in makefile
+    assert "LAMBDA_OPENVINO_ENV" in makefile
+    assert "LAMBDA_EMBEDDING_BASE_URL" in provision
+    assert "LAMBDA_RERANKER_BASE_URL" in provision
+    assert "EMBEDDING_TIMEOUT_SECONDS" in provision
+    assert "make physical-ready" in release
+    assert "OpenVINO/Qwen3-Embedding-0.6B-int8-ov" in release
+    assert "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov" in release
+    assert "make local-up" not in release
+
+
 def test_physical_smokes_use_segmented_status_contract() -> None:
     smoke = _read("scripts/smoke.py")
     e2e = _read("tests/e2e/test_real_local_beta.py")
@@ -67,10 +84,10 @@ def test_physical_smokes_use_segmented_status_contract() -> None:
     assert "answered_grounded" in e2e
 
 
-def test_release_supersedes_obsolete_physical_runs() -> None:
+def test_release_preserves_running_physical_evidence() -> None:
     release = _read(".github/workflows/release-validation.yml")
 
-    assert "cancel-in-progress: true" in release
+    assert "cancel-in-progress: false" in release
 
 
 def test_measurement_only_ragas_requires_an_explicit_target() -> None:
@@ -78,6 +95,7 @@ def test_measurement_only_ragas_requires_an_explicit_target() -> None:
     release = _read(".github/workflows/release-validation.yml")
 
     assert "eval-measure:" in makefile
+    assert "physical-eval-measure:" in makefile
     assert "RAGAS_REQUIRE_CALIBRATION=0" in makefile
     assert "RAGAS_REQUIRE_CALIBRATION: '0'" not in release
 
