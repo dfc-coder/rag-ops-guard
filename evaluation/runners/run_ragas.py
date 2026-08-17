@@ -20,6 +20,7 @@ from ragas.metrics import (
     LLMContextRecall,
     ResponseRelevancy,
 )
+from ragas.run_config import RunConfig
 
 from rag_ops_guard.evaluation.gates import (
     JudgePolicy,
@@ -42,7 +43,6 @@ class RagasSample:
     case_id: str
     user_input: str
     retrieved_contexts: list[str]
-    response: str
     grounded_response: str
     reference: str
 
@@ -65,6 +65,12 @@ def _context_text(s3: Any, bucket: str, key: str) -> str:
 
 
 def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
+    """Collect only the document-grounded portion of Golden answers for RAGAS.
+
+    Golden owns direct/ungrounded-answer correctness, status, safety and citation contracts.
+    RAGAS owns the quality of actual RAG output, so context/reference metrics are evaluated
+    only when the response contains grounded segments and a reference answer exists.
+    """
     if not path.is_file():
         raise SystemExit(
             f"Golden samples not found: {path}. Run evaluation/runners/run_golden.py first."
@@ -92,44 +98,53 @@ def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
                 f"RAGAS expected an answered Golden response for {row.get('case_id')}, "
                 f"got {actual_status or '<missing>'}"
             )
+
+        grounded_response = grounded_segment_text(payload)
+        if not grounded_response:
+            # Direct/ungrounded answers are evaluated by deterministic Golden contracts,
+            # not by context precision/recall/faithfulness.
+            continue
+
         reference = str(row.get("reference_answer") or "").strip()
         if not reference:
-            raise SystemExit(f"golden sample {row.get('case_id')} is missing reference_answer")
+            raise SystemExit(
+                f"grounded golden sample {row.get('case_id')} is missing reference_answer"
+            )
         contexts = [
             _context_text(s3, bucket, str(citation["s3_key"]))
             for citation in payload.get("citations", [])
             if isinstance(citation, dict) and citation.get("s3_key")
         ]
+        if not contexts:
+            raise SystemExit(
+                f"grounded golden sample {row.get('case_id')} has no retrievable citation contexts"
+            )
         samples.append(
             RagasSample(
                 case_id=str(row.get("case_id") or ""),
                 user_input=str(row.get("question") or ""),
                 retrieved_contexts=contexts,
-                response=str(payload.get("answer") or payload.get("message") or ""),
-                grounded_response=grounded_segment_text(payload),
+                grounded_response=grounded_response,
                 reference=reference,
             )
         )
     if not samples:
-        raise SystemExit("Golden samples contain no answered cases for RAGAS")
+        raise SystemExit("Golden samples contain no grounded/reference cases for RAGAS")
     return samples
 
 
-def _dataset(samples: list[RagasSample], *, grounded_only: bool) -> EvaluationDataset:
-    records = []
-    for sample in samples:
-        response = sample.grounded_response if grounded_only else sample.response
-        if grounded_only and not response:
-            continue
-        records.append(
+def _dataset(samples: list[RagasSample]) -> EvaluationDataset:
+    return EvaluationDataset.from_list(
+        [
             {
                 "user_input": sample.user_input,
                 "retrieved_contexts": sample.retrieved_contexts,
-                "response": response,
+                "response": sample.grounded_response,
                 "reference": sample.reference,
             }
-        )
-    return EvaluationDataset.from_list(records)
+            for sample in samples
+        ]
+    )
 
 
 def _metric_values(frame: Any, column: str, case_ids: list[str]) -> dict[str, float]:
@@ -173,6 +188,28 @@ def _calibration_required() -> bool:
     return value == "1"
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be an integer") from exc
+    if value < 1:
+        raise SystemExit(f"{name} must be >= 1")
+    return value
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be numeric") from exc
+    if value <= 0:
+        raise SystemExit(f"{name} must be > 0")
+    return value
+
+
 def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
@@ -209,6 +246,18 @@ def _load_judge_policy(identity: JudgeIdentity) -> JudgePolicy | None:
 def main() -> None:
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     judge = judge_connection_from_env()
+    judge_timeout = _positive_float_env("RAGAS_JUDGE_TIMEOUT_SECONDS", 120.0)
+    embedding_timeout = _positive_float_env(
+        "EMBEDDING_TIMEOUT_SECONDS",
+        60.0,
+    )
+    run_config = RunConfig(
+        timeout=_positive_int_env("RAGAS_OPERATION_TIMEOUT_SECONDS", 120),
+        max_retries=_positive_int_env("RAGAS_MAX_RETRIES", 2),
+        max_wait=_positive_int_env("RAGAS_MAX_WAIT_SECONDS", 5),
+        max_workers=_positive_int_env("RAGAS_MAX_WORKERS", 2),
+        seed=42,
+    )
 
     print(
         f"RAGAS START: judge={judge.identity.provider}/{judge.identity.model}; "
@@ -218,10 +267,14 @@ def main() -> None:
     llm_client = AsyncOpenAI(
         base_url=judge.base_url,
         api_key=judge.api_key,
+        timeout=judge_timeout,
+        max_retries=0,
     )
     embedding_client = AsyncOpenAI(
         base_url=os.environ.get("EMBEDDING_BASE_URL", "http://localhost:8081/v1"),
         api_key="local",
+        timeout=embedding_timeout,
+        max_retries=0,
     )
     evaluator_llm = llm_factory(
         judge.identity.model,
@@ -235,48 +288,36 @@ def main() -> None:
     )
 
     samples = _collect_samples()
-    full_result = evaluate(
-        dataset=_dataset(samples, grounded_only=False),
+    print(
+        f"RAGAS DATASET: {len(samples)} grounded/reference case(s); "
+        f"workers={run_config.max_workers} timeout={run_config.timeout}s",
+        flush=True,
+    )
+    result = evaluate(
+        dataset=_dataset(samples),
         metrics=[
+            Faithfulness(),
             LLMContextPrecisionWithReference(),
             LLMContextRecall(),
             ResponseRelevancy(),
         ],
         llm=evaluator_llm,
         embeddings=evaluator_embeddings,
+        run_config=run_config,
+        raise_exceptions=True,
+        show_progress=True,
     )
-    full_frame = full_result.to_pandas()
-
-    grounded_samples = [sample for sample in samples if sample.grounded_response]
-    faithfulness_result = evaluate(
-        dataset=_dataset(samples, grounded_only=True),
-        metrics=[Faithfulness()],
-        llm=evaluator_llm,
-        embeddings=evaluator_embeddings,
-    )
-    faithfulness_frame = faithfulness_result.to_pandas()
-
+    frame = result.to_pandas()
+    case_ids = [sample.case_id for sample in samples]
     metric_values = {
-        "faithfulness": _metric_values(
-            faithfulness_frame,
-            "faithfulness",
-            [sample.case_id for sample in grounded_samples],
-        ),
+        "faithfulness": _metric_values(frame, "faithfulness", case_ids),
         "context_precision": _metric_values(
-            full_frame,
+            frame,
             "llm_context_precision_with_reference",
-            [sample.case_id for sample in samples],
+            case_ids,
         ),
-        "context_recall": _metric_values(
-            full_frame,
-            "context_recall",
-            [sample.case_id for sample in samples],
-        ),
-        "response_relevancy": _metric_values(
-            full_frame,
-            "answer_relevancy",
-            [sample.case_id for sample in samples],
-        ),
+        "context_recall": _metric_values(frame, "context_recall", case_ids),
+        "response_relevancy": _metric_values(frame, "answer_relevancy", case_ids),
     }
     summary = {
         name: sum(values.values()) / len(values) if values else 0.0
@@ -292,7 +333,14 @@ def main() -> None:
                 "EMBEDDING_MODEL", "qwen3-embedding-0.6b"
             ),
             "samples": len(samples),
-            "faithfulness_samples": len(grounded_samples),
+            "scope": "grounded_segments_with_reference",
+            "run_config": {
+                "timeout": run_config.timeout,
+                "max_retries": run_config.max_retries,
+                "max_wait": run_config.max_wait,
+                "max_workers": run_config.max_workers,
+                "seed": run_config.seed,
+            },
         }
     )
 
