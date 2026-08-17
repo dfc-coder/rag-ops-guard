@@ -28,21 +28,40 @@ def test_physical_runtime_uses_one_generation_model_alias() -> None:
     assert f"RAGAS_JUDGE_MODEL: {alias}" in release
 
 
-def test_physical_generation_artifact_is_qwen35_08b_only() -> None:
-    filename = "Qwen3.5-0.8B-Q8_0.gguf"
-    old_filename = "Qwen3-4B-Q4_K_M.gguf"
-    expected_sha = "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f"
+def test_physical_generation_artifact_is_unsloth_qwen35_08b_dynamic_quant() -> None:
+    filename = "Qwen3.5-0.8B-UD-Q4_K_XL.gguf"
+    expected_sha = "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
     compose = _read("docker/docker-compose.yml")
     makefile = _read("Makefile")
     downloader = _read("scripts/download_models.py")
 
     assert f"/models/{filename}" in compose
     assert f"MODEL_FILES={filename}" in makefile
+    assert "huggingface.co/unsloth/Qwen3.5-0.8B-GGUF" in downloader
     assert filename in downloader
     assert expected_sha in downloader
-    assert old_filename not in compose
-    assert old_filename not in makefile
-    assert old_filename not in downloader
+    assert "Qwen3.5-0.8B-Q8_0.gguf" not in compose
+    assert "ggml-org/Qwen3.5-0.8B-GGUF" not in downloader
+
+
+def test_unsloth_qwen35_profile_matches_non_thinking_agent_runtime() -> None:
+    compose = _read("docker/docker-compose.yml")
+    env = _read(".env.example")
+
+    assert '${LLAMA_CTX_SIZE:-16384}' in compose
+    assert "LLAMA_CTX_SIZE=16384" in env
+    assert "--kv-unified" in compose
+    assert compose.count("q8_0") >= 2
+    assert "--chat-template-kwargs" in compose
+    assert '{"enable_thinking":false}' in compose
+    assert "--reasoning" not in compose
+    assert '--temp\n      - "0.7"' in compose
+    assert '--top-p\n      - "0.8"' in compose
+    assert '--top-k\n      - "20"' in compose
+    assert '--min-p\n      - "0.0"' in compose
+    assert '--presence-penalty\n      - "1.5"' in compose
+    assert '--repeat-penalty\n      - "1.0"' in compose
+    assert "--jinja" in compose
 
 
 def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
