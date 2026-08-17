@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -103,7 +105,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> Result:
     response = httpx.post(
         f"{base_url}/v1/query",
         json={"question": case["question"], "context": case.get("context", {})},
-        timeout=180,
+        timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
     )
     require_success(response, case_id=str(case["id"]))
     payload = response.json()
@@ -137,20 +139,78 @@ def _rate(values: list[bool]) -> float:
     return sum(values) / max(1, len(values))
 
 
+def _write_results(path: Path, results: list[Result]) -> None:
+    serialized = [result.__dict__ | {"passed": result.passed} for result in results]
+    path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
+
+
+def _select_cases(cases: list[dict[str, Any]], case_id: str | None) -> list[dict[str, Any]]:
+    if case_id is None:
+        return cases
+    selected = [case for case in cases if str(case.get("id")) == case_id]
+    if not selected:
+        raise SystemExit(f"golden case not found: {case_id}")
+    return selected
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--case-id",
+        help="Run exactly one golden case for physical diagnostics; aggregate gates are skipped.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    cases = json.loads(Path("evaluation/datasets/golden-v1.json").read_text())
+    args = _parse_args()
+    all_cases = json.loads(Path("evaluation/datasets/golden-v1.json").read_text())
+    cases = _select_cases(all_cases, args.case_id)
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
-    results = [run_case(base_url, case) for case in cases]
-    by_id = {result.id: result for result in results}
 
+    output = Path("artifacts/evaluation")
+    output.mkdir(parents=True, exist_ok=True)
+    partial_path = output / "results.partial.json"
+    results: list[Result] = []
+
+    print(f"GOLDEN START: {len(cases)} case(s)", flush=True)
+    suite_started = perf_counter()
+    for index, case in enumerate(cases, start=1):
+        case_id = str(case["id"])
+        started = perf_counter()
+        print(f"GOLDEN [{index}/{len(cases)}] START {case_id}", flush=True)
+        try:
+            result = run_case(base_url, case)
+        except BaseException:
+            elapsed = perf_counter() - started
+            print(f"GOLDEN [{index}/{len(cases)}] ERROR {case_id} ({elapsed:.1f}s)", flush=True)
+            raise
+        results.append(result)
+        _write_results(partial_path, results)
+        elapsed = perf_counter() - started
+        verdict = "PASS" if result.passed else "FAIL"
+        print(
+            f"GOLDEN [{index}/{len(cases)}] {verdict} {case_id} "
+            f"status={result.actual_status} ({elapsed:.1f}s)",
+            flush=True,
+        )
+
+    if args.case_id is not None:
+        result = results[0]
+        print(json.dumps(result.__dict__ | {"passed": result.passed}, indent=2), flush=True)
+        if not result.passed:
+            raise SystemExit(f"golden diagnostic case failed: {result.id}")
+        return
+
+    by_id = {result.id: result for result in results}
     retrieval_cases = [item for item in results if item.retrieval_hit_at_5 is not None]
     answered_cases = [
-        case for case in cases if str(case["expected_status"]).startswith("answered_")
+        case for case in all_cases if str(case["expected_status"]).startswith("answered_")
     ]
-    sourced_cases = [case for case in cases if case.get("expected_source_ids")]
-    safety_cases = [case for case in cases if case["category"] == "safety"]
-    injection_cases = [case for case in cases if case["category"] == "prompt_injection"]
+    sourced_cases = [case for case in all_cases if case.get("expected_source_ids")]
+    safety_cases = [case for case in all_cases if case["category"] == "safety"]
+    injection_cases = [case for case in all_cases if case["category"] == "prompt_injection"]
 
     summary = {
         "cases": len(results),
@@ -174,13 +234,12 @@ def main() -> None:
         "segment_integrity": _rate([item.segment_integrity_ok for item in results]),
         "critical_safety_pass_rate": _rate([by_id[case["id"]].passed for case in safety_cases]),
         "prompt_injection_pass_rate": _rate([by_id[case["id"]].passed for case in injection_cases]),
+        "elapsed_seconds": round(perf_counter() - suite_started, 3),
     }
-    output = Path("artifacts/evaluation")
-    output.mkdir(parents=True, exist_ok=True)
-    serialized = [r.__dict__ | {"passed": r.passed} for r in results]
-    (output / "results.json").write_text(json.dumps(serialized, indent=2))
-    (output / "summary.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary, indent=2))
+    _write_results(output / "results.json", results)
+    (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    partial_path.unlink(missing_ok=True)
+    print(json.dumps(summary, indent=2), flush=True)
 
     failures = []
     for metric in (
