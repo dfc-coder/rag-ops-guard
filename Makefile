@@ -150,7 +150,7 @@ retrieval-validate:
 	uv run python scripts/validate_retrieval.py
 
 local-provision: package-lambda
-	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/local/provision.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
 
 seed:
 	uv run python scripts/seed.py
