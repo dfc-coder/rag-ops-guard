@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from time import sleep
+from typing import TypeVar
 
 from langchain_openai import OpenAIEmbeddings
+from openai import APIConnectionError
 from pydantic import SecretStr
+
+T = TypeVar("T")
+_TRANSIENT_RETRY_DELAYS_SECONDS = (0.10, 0.25)
 
 
 class LlamaCppEmbeddingAdapter:
@@ -25,10 +32,22 @@ class LlamaCppEmbeddingAdapter:
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [self._normalize(vector) for vector in self._client.embed_documents(texts)]
+        vectors = self._with_transient_connection_retry(lambda: self._client.embed_documents(texts))
+        return [self._normalize(vector) for vector in vectors]
 
     def embed_query(self, text: str) -> list[float]:
-        return self._normalize(self._client.embed_query(text))
+        vector = self._with_transient_connection_retry(lambda: self._client.embed_query(text))
+        return self._normalize(vector)
+
+    def _with_transient_connection_retry(self, operation: Callable[[], T]) -> T:
+        for delay in (*_TRANSIENT_RETRY_DELAYS_SECONDS, None):
+            try:
+                return operation()
+            except APIConnectionError:
+                if delay is None:
+                    raise
+                sleep(delay)
+        raise AssertionError("unreachable")
 
     def _normalize(self, vector: list[float]) -> list[float]:
         if len(vector) != self._dimension:
