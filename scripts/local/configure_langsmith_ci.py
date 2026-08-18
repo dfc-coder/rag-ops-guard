@@ -32,18 +32,16 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 
 
 def _candidate_files() -> list[Path]:
-    paths: list[Path] = []
     explicit = os.environ.get("RAG_OPS_LANGSMITH_ENV_FILE", "").strip()
     if explicit:
-        paths.append(Path(explicit).expanduser())
-    paths.extend(
-        [
-            Path.home() / ".config/rag-ops-guard/langsmith.env",
-            Path.home() / ".config/rag-ops-guard/.env",
-            Path.home() / "Documents/projects/rag-ops-guard/.env",
-        ]
-    )
-    return paths
+        # An explicit source is authoritative. Falling through to a developer's
+        # ~/.config or checkout .env makes CI/test resolution host-dependent.
+        return [Path(explicit).expanduser()]
+    return [
+        Path.home() / ".config/rag-ops-guard/langsmith.env",
+        Path.home() / ".config/rag-ops-guard/.env",
+        Path.home() / "Documents/projects/rag-ops-guard/.env",
+    ]
 
 
 def resolve_langsmith_environment() -> dict[str, str]:
