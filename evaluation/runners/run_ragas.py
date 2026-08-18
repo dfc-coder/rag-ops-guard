@@ -134,6 +134,26 @@ def _collect_samples(path: Path = GOLDEN_SAMPLES_PATH) -> list[RagasSample]:
     return samples
 
 
+def _golden_config_hash(path: Path = GOLDEN_SAMPLES_PATH) -> str | None:
+    if not path.is_file():
+        return None
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(rows, list):
+        return None
+    hashes = {
+        str(payload.get("config_hash"))
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance((payload := row.get("payload")), dict)
+        and payload.get("config_hash")
+    }
+    if len(hashes) > 1:
+        raise SystemExit(
+            "Golden samples contain multiple config_hash values; evaluation is not reproducible"
+        )
+    return next(iter(hashes), None)
+
+
 def _dataset(samples: list[RagasSample]) -> EvaluationDataset:
     return EvaluationDataset.from_list(
         [
@@ -230,9 +250,7 @@ def suite_wall_timeout(seconds: float) -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def _load_judge_policy(
-    identity: JudgeIdentity, *, required: bool
-) -> JudgePolicy | None:
+def _load_judge_policy(identity: JudgeIdentity, *, required: bool) -> JudgePolicy | None:
     if not JUDGE_POLICY_PATH.exists():
         return None
     payload = json.loads(JUDGE_POLICY_PATH.read_text(encoding="utf-8"))
@@ -248,9 +266,8 @@ def _load_judge_policy(
         if str(payload.get(key) or "") != value
     ]
     if mismatches:
-        message = (
-            "judge calibration is stale for the active evaluator; recalibrate. "
-            + "; ".join(mismatches)
+        message = "judge calibration is stale for the active evaluator; recalibrate. " + "; ".join(
+            mismatches
         )
         if required:
             raise SystemExit(message)
@@ -314,9 +331,11 @@ def main() -> None:
     )
 
     samples = _collect_samples()
+    config_hash = _golden_config_hash()
     print(
         f"RAGAS DATASET: {len(samples)} grounded/reference case(s); "
-        f"workers={run_config.max_workers} operation-timeout={run_config.timeout}s",
+        f"workers={run_config.max_workers} operation-timeout={run_config.timeout}s; "
+        f"config_hash={config_hash or '<legacy-missing>'}",
         flush=True,
     )
     try:
@@ -356,6 +375,7 @@ def main() -> None:
     }
     summary.update(
         {
+            "config_hash": config_hash,
             "evaluator_provider": judge.identity.provider,
             "evaluator": judge.identity.model,
             "judge_prompt_sha256": judge.identity.prompt_sha256,
@@ -378,7 +398,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     rows = []
     for sample in samples:
-        row: dict[str, object] = {"case_id": sample.case_id}
+        row: dict[str, object] = {"case_id": sample.case_id, "config_hash": config_hash}
         for metric, values in metric_values.items():
             row[metric] = values.get(sample.case_id)
         rows.append(row)
