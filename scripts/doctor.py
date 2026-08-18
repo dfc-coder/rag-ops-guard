@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import shutil
 import socket
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -45,18 +44,21 @@ def command_version(command: str, *args: str) -> str:
     return (completed.stdout or completed.stderr).strip().splitlines()[0]
 
 
+def command_output(command: str, *args: str) -> str:
+    completed = subprocess.run(
+        [command, *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return (completed.stdout or completed.stderr).strip()
+
+
 def assert_port_available(port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
         if sock.connect_ex(("127.0.0.1", port)) == 0:
             raise RuntimeError(f"port {port} is already in use")
-
-
-def podman_socket_path() -> Path:
-    configured = os.environ.get("PODMAN_SOCKET")
-    if configured:
-        return Path(configured)
-    return Path(f"/run/user/{os.getuid()}/podman/podman.sock")
 
 
 def main() -> None:
@@ -80,19 +82,26 @@ def main() -> None:
             print(f"podman_compose: {command_version('podman', 'compose', 'version')}")
         except subprocess.CalledProcessError as exc:
             failures.append(f"podman compose is unavailable: {exc}")
+        try:
+            rootless = command_output(
+                "podman", "info", "--format", "{{.Host.Security.Rootless}}"
+            ).casefold()
+            if rootless not in {"true", "false"}:
+                raise RuntimeError(f"unexpected rootless value: {rootless!r}")
+            print(f"podman_rootless: {rootless}")
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            failures.append(f"podman info is unavailable: {exc}")
 
-    socket_path = podman_socket_path()
-    try:
-        mode = socket_path.stat().st_mode
-        if not stat.S_ISSOCK(mode):
-            failures.append(f"Podman API path is not a Unix socket: {socket_path}")
-        else:
-            print(f"podman_socket: {socket_path}")
-    except FileNotFoundError:
-        failures.append(
-            f"Podman API socket not found at {socket_path}; run "
-            "`systemctl --user enable --now podman.socket`"
-        )
+    # The physical runtime intentionally does not depend on the systemd-activated
+    # $XDG_RUNTIME_DIR/podman/podman.sock. `make up` creates a project-scoped
+    # `podman system service --time=0` socket and verifies /_ping before Floci starts.
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    if not runtime_dir.is_dir():
+        failures.append(f"runtime directory does not exist: {runtime_dir}")
+    elif not os.access(runtime_dir, os.W_OK | os.X_OK):
+        failures.append(f"runtime directory is not writable: {runtime_dir}")
+    else:
+        print(f"podman_api_runtime_dir: {runtime_dir}")
 
     cpu_threads = os.cpu_count() or 0
     print(f"cpu_threads: {cpu_threads}")
