@@ -24,7 +24,7 @@ from rag_ops_guard.domain.models import (
     ResponseSegment,
     StructuredAnswer,
 )
-from rag_ops_guard.ports.interfaces import ModelMessage, Tool, ToolCallingModel, ToolResult
+from rag_ops_guard.ports.interfaces import ModelMessage, Tool, ToolCall, ToolCallingModel, ToolResult
 from rag_ops_guard.retrieval.citations import validate_generated_segments
 from rag_ops_guard.retrieval.hybrid import KnowledgeSearch
 
@@ -213,6 +213,51 @@ class ConversationAgent:
                     if not turn.tool_calls:
                         if not turn.content.strip():
                             raise RuntimeError("model returned neither text nor tool calls")
+
+                        # A scoped request explicitly tells us which private corpus partition is in
+                        # play. If a small local model nevertheless answers without consulting the
+                        # corpus, verify once through search_documents before final generation. This
+                        # is a generic evidence guardrail based on request scope, not a domain router.
+                        if tool_calls == 0 and _context_requires_document_verification(context):
+                            messages.pop()
+                            fallback_call = ToolCall(
+                                id=f"fallback-search-{uuid4().hex}",
+                                name="search_documents",
+                                arguments={"query": message},
+                            )
+                            messages.append(
+                                ModelMessage(
+                                    role="assistant",
+                                    content="",
+                                    tool_calls=(fallback_call,),
+                                )
+                            )
+                            tool_calls = 1
+                            yield ConversationStreamEvent(
+                                kind="status",
+                                text="Consultando documentos ingeridos…",
+                                elapsed_ms=int((perf_counter() - started) * 1000),
+                                tool_calls=tool_calls,
+                            )
+                            token = _CURRENT_CONTEXT.set(context)
+                            try:
+                                result = self._tools["search_documents"].invoke(
+                                    fallback_call.arguments
+                                )
+                            finally:
+                                _CURRENT_CONTEXT.reset(token)
+                            messages.append(
+                                ModelMessage(
+                                    role="tool",
+                                    name="search_documents",
+                                    tool_call_id=fallback_call.id,
+                                    content=_tool_result_text(result),
+                                )
+                            )
+                            search_result = result
+                            retrieval_query = (
+                                str(result.payload.get("query") or "").strip() or None
+                            )
                         break
 
                     tool_calls += len(turn.tool_calls)
@@ -493,6 +538,13 @@ class ConversationAgent:
 
 def _current_context() -> QueryContext:
     return _CURRENT_CONTEXT.get() or QueryContext()
+
+
+def _context_requires_document_verification(context: QueryContext) -> bool:
+    return any(
+        value is not None
+        for value in (context.system, context.environment, context.api_version)
+    )
 
 
 def _model_prompt_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
