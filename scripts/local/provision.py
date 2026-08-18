@@ -22,6 +22,7 @@ LAMBDA_CODE_BUCKET = os.environ.get(
 )
 VECTOR_BUCKET = os.environ.get("S3_VECTOR_BUCKET", "rag-ops-guard-vectors-local")
 VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
+CONFIG_TABLE = os.environ.get("CONFIG_TABLE", "rag-ops-config")
 LAMBDA_ZIP_PATH = Path(
     os.environ.get("LAMBDA_ZIP_PATH", ".local/lambda-package.zip")
 ).resolve()
@@ -92,6 +93,26 @@ def ensure_vectors() -> None:
         )
 
 
+def ensure_config_table() -> None:
+    dynamodb = client("dynamodb")
+    try:
+        dynamodb.create_table(
+            TableName=CONFIG_TABLE,
+            AttributeDefinitions=[
+                {"AttributeName": "PK", "AttributeType": "S"},
+                {"AttributeName": "SK", "AttributeType": "S"},
+            ],
+            KeySchema=[
+                {"AttributeName": "PK", "KeyType": "HASH"},
+                {"AttributeName": "SK", "KeyType": "RANGE"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "ResourceInUseException":
+            raise
+
+
 def ensure_role(name: str, actions: list[str]) -> str:
     iam = client("iam")
     trust = {
@@ -160,6 +181,7 @@ def lambda_environment() -> dict[str, str]:
         "AWS_ACCESS_KEY_ID": "test",
         "AWS_SECRET_ACCESS_KEY": "test",
         "AWS_ENDPOINT_URL": "http://floci:4566",
+        "CONFIG_TABLE": CONFIG_TABLE,
         "S3_DOCUMENT_BUCKET": DOC_BUCKET,
         "S3_VECTOR_BUCKET": VECTOR_BUCKET,
         "S3_VECTOR_INDEX": VECTOR_INDEX,
@@ -341,6 +363,7 @@ def main() -> None:
         raise SystemExit("Lambda ZIP missing. Run make package-lambda first.")
     ensure_s3()
     ensure_vectors()
+    ensure_config_table()
     code_key = publish_lambda_code()
     ingest_role = ensure_role(
         "rag-ops-guard-ingest-role",
@@ -380,6 +403,7 @@ def main() -> None:
     print(f"Lambda timeout: {LAMBDA_TIMEOUT_SECONDS}s")
     tracing = lambda_environment().get("LANGSMITH_TRACING") == "true"
     print(f"LangSmith tracing: {'enabled' if tracing else 'disabled'}")
+    print(f"Config table: {CONFIG_TABLE}")
     print(f"Local API: {endpoint}")
     print("API data plane: ready")
 
