@@ -4,7 +4,10 @@ from dataclasses import dataclass
 
 from rag_ops_guard.config import Settings
 from rag_ops_guard.configstore.dynamo_store import ConfigHead
-from rag_ops_guard.configstore.runtime import ConfigSnapshot, RuntimeConfigResolver
+from rag_ops_guard.configstore.runtime import (
+    RuntimeConfigResolver,
+    snapshot_for_values,
+)
 
 
 @dataclass
@@ -106,25 +109,27 @@ def test_dynamodb_outage_serves_stale_tuning_then_fails_closed_after_max_stale()
 
 def test_fallback_order_is_s3_then_baked_then_code_default() -> None:
     now = [0.0]
+    bootstrap = Settings(_env_file=None)
     store = FakeStore({}, fail=True)
-    s3_snapshot = ConfigSnapshot(
+    s3_snapshot = snapshot_for_values(
+        bootstrap,
+        {"retrieval_top_k": 11},
         revision_no=2,
-        config_hash="s3-hash",
-        values={"retrieval_top_k": 11},
         created_at=0.0,
     )
-    baked_snapshot = ConfigSnapshot(
+    baked_snapshot = snapshot_for_values(
+        bootstrap,
+        {"retrieval_top_k": 12},
         revision_no=1,
-        config_hash="baked-hash",
-        values={"retrieval_top_k": 12},
         created_at=0.0,
     )
 
     resolver = RuntimeConfigResolver(
         store=store,
-        bootstrap=Settings(_env_file=None),
+        bootstrap=bootstrap,
         source="db",
         clock=lambda: now[0],
+        wall_clock=lambda: now[0],
         s3_loader=lambda: s3_snapshot,
         baked_loader=lambda: baked_snapshot,
     )
@@ -133,9 +138,10 @@ def test_fallback_order_is_s3_then_baked_then_code_default() -> None:
 
     resolver = RuntimeConfigResolver(
         store=store,
-        bootstrap=Settings(_env_file=None),
+        bootstrap=bootstrap,
         source="db",
         clock=lambda: now[0],
+        wall_clock=lambda: now[0],
         s3_loader=lambda: None,
         baked_loader=lambda: baked_snapshot,
     )
@@ -144,9 +150,10 @@ def test_fallback_order_is_s3_then_baked_then_code_default() -> None:
 
     resolver = RuntimeConfigResolver(
         store=store,
-        bootstrap=Settings(_env_file=None),
+        bootstrap=bootstrap,
         source="db",
         clock=lambda: now[0],
+        wall_clock=lambda: now[0],
         s3_loader=lambda: None,
         baked_loader=lambda: None,
     )
