@@ -159,7 +159,9 @@ class OpenAIToolCallingAdapter:
             presence_penalty=0.0,
             max_completion_tokens=self._config.max_completion_tokens,
         )
-        response = runnable.invoke(_to_langchain_messages(messages))
+        response = runnable.invoke(
+            _to_langchain_messages(_structured_input_messages(messages))
+        )
         if not isinstance(response, AIMessage):
             raise TypeError(f"expected AIMessage, got {type(response).__name__}")
 
@@ -167,6 +169,18 @@ class OpenAIToolCallingAdapter:
         if not content:
             raise ValueError("model returned an empty structured response")
         return cast(T, validator(content))
+
+
+def _structured_input_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Remove only an unconstrained trailing assistant draft before JSON grammar generation.
+
+    llama.cpp prefills a trailing assistant message by default. Combining that prefill with
+    response_format/json-schema grammar can make sampler initialization fail before generation.
+    Tool-call protocol is preserved because completed tool turns end in a tool observation.
+    """
+    if messages and messages[-1].role == "assistant" and not messages[-1].tool_calls:
+        return messages[:-1]
+    return messages
 
 
 def _retrieved_citation_ids(messages: list[ModelMessage]) -> list[str]:
