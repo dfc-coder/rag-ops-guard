@@ -83,6 +83,10 @@ def start(path: Path) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if _ping(path):
+        try:
+            path.chmod(0o660)
+        except OSError:
+            pass
         print(f"Podman API service: ready ({path})")
         return 0
 
@@ -109,7 +113,10 @@ def start(path: Path) -> int:
             )
         if _ping(path):
             try:
-                path.chmod(0o600)
+                # Floci's official entrypoint drops to uid 1001 / group 0 and
+                # normalizes the mounted socket group. Group rw is therefore
+                # intentional; the socket remains inside the user's runtime dir.
+                path.chmod(0o660)
             except OSError:
                 pass
             print(f"Podman API service: ready ({path})")
