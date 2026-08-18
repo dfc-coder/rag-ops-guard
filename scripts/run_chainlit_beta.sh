@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 CHAINLIT_HOST_PORT="${CHAINLIT_HOST_PORT:-8001}"
-CHAINLIT_VERSION="${CHAINLIT_VERSION:-2.11.1}"
+CHAINLIT_PACKAGE_VERSION="${CHAINLIT_VERSION:-2.11.1}"
+unset CHAINLIT_VERSION
 
 if [[ ! -s .local/api-url ]]; then
   echo 'Canonical API is not provisioned. Run: make up' >&2
@@ -22,7 +23,7 @@ echo 'Path: Chainlit -> Floci API Gateway -> Lambda -> Agent -> Qwen/Retrieval'
 echo 'Use Ctrl+C to stop only the UI. Stop the runtime with: make down'
 echo
 
-exec uv run --with "chainlit==${CHAINLIT_VERSION}" \
+exec uv run --with "chainlit==${CHAINLIT_PACKAGE_VERSION}" \
   chainlit run scripts/chainlit_api_ui.py \
   --host 127.0.0.1 \
   --port "$CHAINLIT_HOST_PORT" \
