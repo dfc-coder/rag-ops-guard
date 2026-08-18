@@ -2,7 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:-rag-ops-guard}
 
 services:
   floci:
-    image: docker.io/floci/floci:1.6.0
+    image: ${FLOCI_IMAGE:-localhost/rag-ops-floci-jvm:1.6.0}
     container_name: ${FLOCI_CONTAINER_NAME:-rag-ops-floci}
     ports:
       - "127.0.0.1:${FLOCI_HOST_PORT:-4566}:4566"
@@ -11,31 +11,18 @@ services:
       FLOCI_DEFAULT_REGION: us-east-1
       FLOCI_STORAGE_MODE: hybrid
       FLOCI_STORAGE_PERSISTENT_PATH: /app/data
-      FLOCI_DOCKER_DOCKER_HOST: tcp://127.0.0.1:2375
+      FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock
       FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
       FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}
       FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci
       FLOCI_DNS_CONTAINER_FALLBACK_ENABLED: "false"
     volumes:
       - floci-data:/app/data
+      - "${PODMAN_API_SOCKET}:/var/run/docker.sock"
     security_opt:
       - label=disable
     networks:
       - rag-ops-net
-
-  docker-proxy:
-    image: docker.io/alpine/socat:1.8.1.3
-    container_name: ${DOCKER_PROXY_CONTAINER_NAME:-rag-ops-docker-proxy}
-    command:
-      - TCP-LISTEN:2375,fork,reuseaddr
-      - UNIX-CONNECT:/var/run/docker.sock
-    volumes:
-      - "${PODMAN_API_SOCKET}:/var/run/docker.sock"
-    security_opt:
-      - label=disable
-    network_mode: "service:floci"
-    depends_on:
-      - floci
 
   llama-gen:
     image: ghcr.io/ggml-org/llama.cpp:server-b9445@sha256:8dd148c53936b6e8b0e75309841e66eab13adc50b004a5e86ab1fec477c17d8e
