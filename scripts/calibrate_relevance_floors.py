@@ -3,11 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+# When this CLI is executed by file path (`python scripts/...py`), Python puts
+# `scripts/` rather than the repository root on sys.path. The calibration
+# publisher is intentionally another repository CLI module, so make the root
+# importable explicitly instead of depending on invocation style.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 DATASET = ROOT / "evaluation/datasets/retrieval-relevance-calibration.json"
 VALID_CLASSES = {"grounded", "in_domain_unanswerable", "out_of_domain"}
 
