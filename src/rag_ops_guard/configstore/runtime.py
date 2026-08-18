@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 import boto3
 from botocore.config import Config
@@ -149,23 +149,21 @@ def effective_config_hash(settings: Settings) -> str:
 
 
 def _code_default_settings() -> Settings:
-    values: dict[str, object] = {}
-    for name, field in Settings.model_fields.items():
-        if field.default is not None:
-            values[name] = field.default
-    return Settings(_env_file=None, **values)
+    return Settings.model_validate({})
 
 
 def _merged_settings(bootstrap: Settings, managed_values: Mapping[str, object]) -> Settings:
     defaults = _code_default_settings()
-    values = {name: getattr(defaults, name) for name in Settings.model_fields}
+    values: dict[str, object] = {
+        name: getattr(defaults, name) for name in Settings.model_fields
+    }
     for name in BOOTSTRAP_FIELDS:
         values[name] = getattr(bootstrap, name)
     allowed = set(managed_field_names())
     for name, value in managed_values.items():
         if name in allowed:
             values[name] = value
-    return Settings(_env_file=None, **values)
+    return Settings.model_validate(values)
 
 
 def snapshot_for_values(
@@ -219,6 +217,7 @@ class RuntimeConfigResolver:
         head_ttl_s: float = DEFAULT_HEAD_TTL_SECONDS,
         max_stale_s: float = DEFAULT_MAX_STALE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
         s3_loader: Callable[[], ConfigSnapshot | None] | None = None,
         baked_loader: Callable[[], ConfigSnapshot | None] | None = None,
     ) -> None:
@@ -232,6 +231,7 @@ class RuntimeConfigResolver:
         self._head_ttl_s = head_ttl_s
         self._max_stale_s = max_stale_s
         self._clock = clock
+        self._wall_clock = wall_clock
         self._s3_loader = s3_loader or (lambda: None)
         self._baked_loader = baked_loader or (lambda: None)
         self._head: ConfigHead | None = None
@@ -292,7 +292,13 @@ class RuntimeConfigResolver:
                 stale=True,
             )
 
-        for source, loader in (("s3_snapshot", self._s3_loader), ("baked", self._baked_loader)):
+        fallbacks: tuple[
+            tuple[ResolvedSource, Callable[[], ConfigSnapshot | None]], ...
+        ] = (
+            ("s3_snapshot", self._s3_loader),
+            ("baked", self._baked_loader),
+        )
+        for source, loader in fallbacks:
             try:
                 snapshot = loader()
             except (BotoCoreError, ClientError, OSError, ValueError, json.JSONDecodeError):
@@ -303,7 +309,7 @@ class RuntimeConfigResolver:
             digest = effective_config_hash(settings)
             if snapshot.config_hash and snapshot.config_hash != digest:
                 continue
-            stale_age = max(0.0, now - snapshot.created_at)
+            stale_age = max(0.0, self._wall_clock() - snapshot.created_at)
             return EffectiveConfig(
                 settings=settings,
                 config_hash=digest,
@@ -397,6 +403,7 @@ def _global_resolver() -> RuntimeConfigResolver:
     source_raw = os.environ.get("CONFIG_SOURCE", "db").strip().casefold()
     if source_raw not in {"db", "env"}:
         raise ValueError("CONFIG_SOURCE must be 'db' or 'env'")
+    source = cast(ConfigSource, source_raw)
     store = DynamoDbConfigStore(
         endpoint_url=bootstrap.aws_endpoint_url,
         region=bootstrap.aws_region,
@@ -407,7 +414,7 @@ def _global_resolver() -> RuntimeConfigResolver:
     return RuntimeConfigResolver(
         store=store,
         bootstrap=bootstrap,
-        source=source_raw,
+        source=source,
         head_ttl_s=_float_env("CONFIG_HEAD_TTL_SECONDS", DEFAULT_HEAD_TTL_SECONDS),
         max_stale_s=_float_env("CONFIG_MAX_STALE_SECONDS", DEFAULT_MAX_STALE_SECONDS),
         s3_loader=_default_s3_loader(bootstrap),
