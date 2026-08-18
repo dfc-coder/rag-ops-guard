@@ -58,7 +58,7 @@ OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
-.PHONY: up down help status config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: up down help status connectivity config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 help:
 	@echo 'Canonical local workflow:'
@@ -66,6 +66,7 @@ help:
 	@echo '  make ui                         # interactive UI through Floci -> Lambda -> Agent'
 	@echo '  make config-publish REASON="..." # publish append-only config revision'
 	@echo '  make config-shadow-check        # compare DB revision with publisher environment'
+	@echo '  make connectivity               # execute dependency probes from Lambda and API Gateway'
 	@echo '  make golden CASE=<id>           # one Golden through the same /v1/query'
 	@echo '  make golden-all                 # all 34 Golden cases through the same /v1/query'
 	@echo '  make status                     # runtime/model/API/config-hash state'
@@ -74,6 +75,9 @@ help:
 
 status:
 	@uv run python scripts/local/ops.py status
+
+connectivity:
+	@uv run python scripts/local/connectivity.py
 
 config-bootstrap:
 	@set -a; [ ! -f .env ] || source .env; set +a; uv run python -c 'from scripts.local.provision import ensure_s3, ensure_config_table; ensure_s3(); ensure_config_table()'
@@ -94,9 +98,11 @@ up:
 down: local-down
 
 golden:
+	@$(MAKE) connectivity
 	@uv run --extra eval python scripts/local/ops.py golden $(if $(CASE),--case "$(CASE)",) $(if $(FORCE),--force,)
 
 golden-all:
+	@$(MAKE) connectivity
 	@uv run --extra eval python scripts/local/ops.py golden --all $(if $(FORCE),--force,)
 
 logs:
@@ -151,6 +157,7 @@ retrieval-validate:
 
 local-provision: package-lambda
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
+	@uv run python scripts/local/connectivity.py
 
 seed:
 	uv run python scripts/seed.py
@@ -228,6 +235,7 @@ physical-ready: physical-relevance-calibrate package-lambda
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py
+	@uv run python scripts/local/connectivity.py
 
 physical-eval-measure: physical-ready
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
