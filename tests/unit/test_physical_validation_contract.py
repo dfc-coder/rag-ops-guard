@@ -102,14 +102,25 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     assert "/execute-api/{api_id}/" in provision
 
 
-def test_physical_floci_matches_documented_rootless_podman_contract() -> None:
+def test_physical_floci_matches_rootless_podman_proxy_workaround_contract() -> None:
     compose = _read("docker/docker-compose.yml")
 
-    assert 'FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock' in compose
+    # Floci 1.6.0 can fail from its native docker-java Unix-domain-socket path
+    # on rootless Podman. Keep the host socket behind an internal TCP proxy so
+    # Floci never receives the Unix socket directly and port 2375 is not
+    # published on the host.
+    assert "docker-proxy:" in compose
+    assert "docker.io/alpine/socat:1.8.1.3" in compose
+    assert "TCP-LISTEN:2375,fork,reuseaddr" in compose
+    assert "UNIX-CONNECT:/var/run/docker.sock" in compose
+    assert 'FLOCI_DOCKER_DOCKER_HOST: tcp://docker-proxy:2375' in compose
     assert 'FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
     assert 'FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
     assert 'FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci' in compose
     assert '"${PODMAN_SOCKET}:/var/run/docker.sock:z"' in compose
+    assert "docker-control:" in compose
+    assert "internal: true" in compose
+    assert "2375:2375" not in compose
     assert "security_opt:" in compose
     assert "- label=disable" in compose
 
