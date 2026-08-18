@@ -29,18 +29,22 @@ def test_query_lambda_exposes_local_only_runtime_connectivity_probe() -> None:
 
 
 def test_golden_preflight_requires_direct_lambda_and_api_connectivity() -> None:
-    ops = _read("scripts/local/ops.py")
+    gate = _read("scripts/local/connectivity.py")
     makefile = _read("Makefile")
 
-    assert 'connectivity' in makefile
-    assert 'ops.py connectivity' in makefile
-    assert '_connectivity_problems' in ops
-    assert '_invoke_lambda_connectivity' in ops
-    assert '_invoke_api_connectivity' in ops
-    assert '_api_route_integration_problem' in ops
-    assert 'Lambda topology mismatch' in ops
-    assert 'runtime connectivity probe failed' in ops
-    assert 'API connectivity probe failed' in ops
+    assert 'connectivity:' in makefile
+    assert 'scripts/local/connectivity.py' in makefile
+    assert '_invoke_lambda_connectivity' in gate
+    assert '_invoke_api_connectivity' in gate
+    assert '_api_route_integration_problem' in gate
+    assert 'Lambda topology mismatch' in gate
+    assert 'runtime connectivity probe failed' in gate
+    assert 'API connectivity probe failed' in gate
+
+    golden = makefile.split("golden:\n", maxsplit=1)[1].split("\ngolden-all:", maxsplit=1)[0]
+    golden_all = makefile.split("golden-all:\n", maxsplit=1)[1].split("\nlogs:", maxsplit=1)[0]
+    assert '$(MAKE) connectivity' in golden
+    assert '$(MAKE) connectivity' in golden_all
 
 
 def test_local_provision_runs_connectivity_gate_after_redeploy() -> None:
@@ -50,4 +54,4 @@ def test_local_provision_runs_connectivity_gate_after_redeploy() -> None:
     )[0]
 
     assert '$(LAMBDA_OPENVINO_ENV)' in block
-    assert 'ops.py connectivity' in block
+    assert 'scripts/local/connectivity.py' in block
