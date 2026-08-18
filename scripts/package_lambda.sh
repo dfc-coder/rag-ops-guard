@@ -12,6 +12,14 @@ cd "$ROOT"
 
 uv pip install --python "$LAMBDA_PYTHON_VERSION" --target "$BUILD_DIR" .
 
+# Phase 2 fallback: embed the last trusted, non-secret effective snapshot into the immutable
+# Lambda artifact. DynamoDB and S3 remain preferred; this copy is used only after both are absent.
+if [[ -f "$ROOT/.local/config-snapshot.json" ]]; then
+  mkdir -p "$BUILD_DIR/rag_ops_guard/configstore"
+  cp "$ROOT/.local/config-snapshot.json" \
+    "$BUILD_DIR/rag_ops_guard/configstore/baked_snapshot.json"
+fi
+
 LAMBDA_BUILD_DIR="$BUILD_DIR" LAMBDA_ZIP_PATH="$ZIP_PATH" \
 uv run --no-project --python "$LAMBDA_PYTHON_VERSION" python - <<'PY'
 from __future__ import annotations
