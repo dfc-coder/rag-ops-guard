@@ -5,7 +5,7 @@ import os
 from time import perf_counter
 from typing import Any
 
-from langsmith import get_current_run_tree, traceable
+from langsmith import get_current_run_tree, traceable, tracing_context
 from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
@@ -116,9 +116,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             )
             return _proxy_response(response)
 
-        response = conversation_agent().invoke(request).model_copy(
-            update={"config_hash": effective.config_hash}
-        )
+        with tracing_context(metadata=config_fields):
+            response = conversation_agent().invoke(request).model_copy(
+                update={"config_hash": effective.config_hash}
+            )
         add_count(QUERY_METRICS, f"{response.status.value.title().replace('_', '')}Count")
         QUERY_LOGGER.info(
             "query_completed",
