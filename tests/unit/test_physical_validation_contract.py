@@ -93,7 +93,7 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     hosted_ci = _read(".github/workflows/ci.yml")
     provision = _read("scripts/local/provision.py")
 
-    assert "floci/floci:1.6.0" in compose
+    assert "localhost/rag-ops-floci-jvm:1.6.0" in compose
     assert "floci/floci:1.6.0" in hosted_ci
     assert "floci:override-id" not in provision
     assert '"hot-reload"' not in provision
@@ -102,37 +102,39 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     assert "/execute-api/{api_id}/" in provision
 
 
-def test_physical_floci_matches_rootless_podman_proxy_workaround_contract() -> None:
+def test_physical_floci_avoids_native_unix_socket_bug_on_rootless_podman() -> None:
     compose = _read("docker/docker-compose.yml")
     makefile = _read("Makefile")
-    bridge = _read("scripts/local/podman_api_bridge.py")
+    image_builder = _read("scripts/local/floci_jvm_image.py")
+    api_service = _read("scripts/local/podman_api_service.py")
 
-    # Floci's GraalVM native image can fail on docker-java UnixDomainSockets.
-    # Keep Floci on TCP loopback inside its own network namespace; socat shares
-    # that namespace and is the only container that sees a project-scoped,
-    # long-lived rootless Podman Unix socket. No Docker API TCP port is exposed
-    # on the host or the application network.
-    assert "docker-proxy:" in compose
-    assert "docker.io/alpine/socat:1.8.1.3" in compose
-    assert "TCP-LISTEN:2375,fork,reuseaddr" in compose
-    assert "UNIX-CONNECT:/var/run/docker.sock" in compose
-    assert 'FLOCI_DOCKER_DOCKER_HOST: tcp://127.0.0.1:2375' in compose
-    assert 'network_mode: "service:floci"' in compose
+    # Upstream Floci 1.6.0 native/GraalVM can fail in docker-java's UnixDomainSockets
+    # path. The local physical runtime therefore builds the official JVM Dockerfile
+    # from the exact 1.6.0 release commit and connects it directly to a dedicated,
+    # long-lived rootless Podman API Unix socket. No unauthenticated Docker API TCP
+    # port and no socat proxy are required.
+    assert 'FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock' in compose
     assert '"${PODMAN_API_SOCKET}:/var/run/docker.sock"' in compose
-    assert 'FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
-    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
-    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci' in compose
-    assert "docker-control:" not in compose
-    assert "2375:2375" not in compose
+    assert "docker-proxy:" not in compose
+    assert "socat" not in compose
+    assert "2375" not in compose
     assert "security_opt:" in compose
     assert "- label=disable" in compose
 
-    assert '"podman", "system", "service", "--time=0"' in bridge
-    assert "socket.AF_UNIX" in bridge
-    assert "GET /_ping HTTP/1.1" in bridge
+    assert 'FLOCI_VERSION = "1.6.0"' in image_builder
+    assert 'FLOCI_SOURCE_COMMIT = "e0aab2e27d896772847517a29cd4025203ddc4f8"' in image_builder
+    assert '"-f",\n                "docker/Dockerfile"' in image_builder
+    assert "org.opencontainers.image.revision" in image_builder
+
+    assert '"podman", "system", "service", "--time=0"' in api_service
+    assert "socket.AF_UNIX" in api_service
+    assert "GET /_ping HTTP/1.1" in api_service
+    assert "_owned_process" in api_service
+
     assert "PODMAN_API_SOCKET ?=" in makefile
-    assert "podman_api_bridge.py start" in makefile
-    assert "podman_api_bridge.py stop" in makefile
+    assert "floci_jvm_image.py ensure" in makefile
+    assert "podman_api_service.py start" in makefile
+    assert "podman_api_service.py stop" in makefile
 
 
 def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
