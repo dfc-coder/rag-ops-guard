@@ -104,25 +104,35 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
 
 def test_physical_floci_matches_rootless_podman_proxy_workaround_contract() -> None:
     compose = _read("docker/docker-compose.yml")
+    makefile = _read("Makefile")
+    bridge = _read("scripts/local/podman_api_bridge.py")
 
-    # Floci 1.6.0 can fail from its native docker-java Unix-domain-socket path
-    # on rootless Podman. Keep the host socket behind an internal TCP proxy so
-    # Floci never receives the Unix socket directly and port 2375 is not
-    # published on the host.
+    # Floci's GraalVM native image can fail on docker-java UnixDomainSockets.
+    # Keep Floci on TCP loopback inside its own network namespace; socat shares
+    # that namespace and is the only container that sees a project-scoped,
+    # long-lived rootless Podman Unix socket. No Docker API TCP port is exposed
+    # on the host or the application network.
     assert "docker-proxy:" in compose
     assert "docker.io/alpine/socat:1.8.1.3" in compose
     assert "TCP-LISTEN:2375,fork,reuseaddr" in compose
     assert "UNIX-CONNECT:/var/run/docker.sock" in compose
-    assert 'FLOCI_DOCKER_DOCKER_HOST: tcp://docker-proxy:2375' in compose
+    assert 'FLOCI_DOCKER_DOCKER_HOST: tcp://127.0.0.1:2375' in compose
+    assert 'network_mode: "service:floci"' in compose
+    assert '"${PODMAN_API_SOCKET}:/var/run/docker.sock"' in compose
     assert 'FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
     assert 'FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
     assert 'FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci' in compose
-    assert '"${PODMAN_SOCKET}:/var/run/docker.sock:z"' in compose
-    assert "docker-control:" in compose
-    assert "internal: true" in compose
+    assert "docker-control:" not in compose
     assert "2375:2375" not in compose
     assert "security_opt:" in compose
     assert "- label=disable" in compose
+
+    assert '"podman", "system", "service", "--time=0"' in bridge
+    assert "socket.AF_UNIX" in bridge
+    assert "GET /_ping HTTP/1.1" in bridge
+    assert "PODMAN_API_SOCKET ?=" in makefile
+    assert "podman_api_bridge.py start" in makefile
+    assert "podman_api_bridge.py stop" in makefile
 
 
 def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
