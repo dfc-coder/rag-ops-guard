@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any, cast
 
 import boto3
 import httpx
@@ -25,7 +26,8 @@ def _check(operation: Callable[[], dict[str, object]]) -> dict[str, object]:
 
 def _aws_client(service: str, effective: EffectiveConfig, **kwargs: object) -> Any:
     settings = effective.settings
-    return boto3.client(
+    client_factory = cast(Any, boto3.client)
+    return client_factory(
         service,
         endpoint_url=settings.aws_endpoint_url,
         region_name=settings.aws_region,
@@ -105,7 +107,8 @@ def _probe_llm(effective: EffectiveConfig) -> dict[str, object]:
     }
     if settings.llm_model not in ids:
         raise RuntimeError(
-            f"LLM identity mismatch: expected {settings.llm_model!r}, server reports {sorted(ids)!r}"
+            "LLM identity mismatch: "
+            f"expected {settings.llm_model!r}, server reports {sorted(ids)!r}"
         )
     return {
         "endpoint": settings.llm_base_url,
