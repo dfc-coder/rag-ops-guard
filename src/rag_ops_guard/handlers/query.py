@@ -5,17 +5,20 @@ import os
 from time import perf_counter
 from typing import Any
 
-from langsmith import traceable
+from langsmith import get_current_run_tree, traceable
 from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
-from rag_ops_guard.configstore.runtime import resolve_effective_config
+from rag_ops_guard.configstore.runtime import EffectiveConfig, resolve_effective_config
 from rag_ops_guard.domain.models import QueryRequest, QueryResponse, ResponseOutcome
 from rag_ops_guard.observability.runtime import (
     QUERY_LOGGER,
     QUERY_METRICS,
     add_count,
     add_milliseconds,
+    add_seconds,
+    config_observability_fields,
+    set_config_dimensions,
 )
 
 
@@ -34,26 +37,63 @@ def _proxy_response(response: QueryResponse) -> dict[str, Any]:
     }
 
 
-def _add_config_metric_metadata(key: str, value: object) -> None:
-    add_metadata = getattr(QUERY_METRICS, "add_metadata", None)
-    if callable(add_metadata):
-        add_metadata(key=key, value=value)
+def _record_config_observability(effective: EffectiveConfig, resolve_latency_ms: float) -> dict[str, object]:
+    fields = config_observability_fields(
+        revision_no=effective.revision_no,
+        config_hash=effective.config_hash,
+        source=effective.source,
+    )
+    set_config_dimensions(
+        QUERY_METRICS,
+        revision_no=effective.revision_no,
+        config_hash=effective.config_hash,
+        source=effective.source,
+    )
+    add_milliseconds(QUERY_METRICS, "ConfigResolveLatencyMs", resolve_latency_ms)
+    if effective.source == "cache":
+        add_count(QUERY_METRICS, "ConfigCacheHit")
+    elif effective.source != "env":
+        add_count(QUERY_METRICS, "ConfigCacheMiss")
+    if effective.db_unavailable:
+        add_count(QUERY_METRICS, "ConfigDbUnavailable")
+    if effective.stale:
+        add_count(QUERY_METRICS, "ConfigStaleServed")
+    if effective.revision_age_s is not None:
+        add_seconds(QUERY_METRICS, "ConfigRevisionAge", effective.revision_age_s)
+
+    run_tree = get_current_run_tree()
+    if run_tree is not None:
+        run_tree.metadata.update(fields)
+    return dict(fields)
 
 
 @traceable(name="rag_query", run_type="chain")
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
     started = perf_counter()
-    add_count(QUERY_METRICS, "QueryCount")
+    config_fields: dict[str, object] = {
+        "config_revision": None,
+        "config_hash": "unknown",
+        "config_source": "unresolved",
+    }
+    set_config_dimensions(
+        QUERY_METRICS,
+        revision_no=None,
+        config_hash="unknown",
+        source="unresolved",
+    )
     try:
+        resolve_started = perf_counter()
+        effective = resolve_effective_config()
+        config_fields = _record_config_observability(
+            effective,
+            (perf_counter() - resolve_started) * 1000,
+        )
+        add_count(QUERY_METRICS, "QueryCount")
+
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         request = QueryRequest.model_validate(payload)
-        effective = resolve_effective_config()
-        _add_config_metric_metadata("config_hash", effective.config_hash)
-        _add_config_metric_metadata("config_source", effective.source)
-        if effective.stale:
-            add_count(QUERY_METRICS, "ConfigStaleServed")
         if effective.fail_closed:
             add_count(QUERY_METRICS, "ConfigFailClosed")
             response = QueryResponse(
@@ -70,9 +110,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             QUERY_LOGGER.warning(
                 "config_fail_closed",
                 extra={
-                    "config_hash": effective.config_hash,
-                    "config_source": effective.source,
-                    "config_revision": effective.revision_no,
+                    **config_fields,
                     "stale_age_s": effective.stale_age_s,
                 },
             )
@@ -85,20 +123,21 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         QUERY_LOGGER.info(
             "query_completed",
             extra={
+                **config_fields,
                 "request_id": response.request_id,
                 "status": response.status.value,
                 "citation_count": len(response.citations),
                 "thread_id": request.thread_id,
-                "config_hash": effective.config_hash,
-                "config_source": effective.source,
-                "config_revision": effective.revision_no,
                 "config_stale": effective.stale,
             },
         )
         return _proxy_response(response)
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         add_count(QUERY_METRICS, "InvalidRequestCount")
-        QUERY_LOGGER.warning("invalid_query_request", extra={"error_type": type(exc).__name__})
+        QUERY_LOGGER.warning(
+            "invalid_query_request",
+            extra={**config_fields, "error_type": type(exc).__name__},
+        )
         return {
             "statusCode": 400,
             "headers": {"content-type": "application/json"},
@@ -106,7 +145,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         }
     except Exception as exc:
         add_count(QUERY_METRICS, "InternalErrorCount")
-        QUERY_LOGGER.exception("query_failed", extra={"error_type": type(exc).__name__})
+        QUERY_LOGGER.exception(
+            "query_failed",
+            extra={**config_fields, "error_type": type(exc).__name__},
+        )
         return {
             "statusCode": 500,
             "headers": {"content-type": "application/json"},
