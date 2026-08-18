@@ -58,26 +58,30 @@ OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
-.PHONY: up down help status config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: up down help status config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 help:
 	@echo 'Canonical local workflow:'
 	@echo '  make up                         # start/provision the complete physical stack'
 	@echo '  make ui                         # interactive UI through Floci -> Lambda -> Agent'
 	@echo '  make config-publish REASON="..." # publish append-only config revision'
-	@echo '  make config-shadow-check        # compare DB shadow revision with local Settings'
+	@echo '  make config-shadow-check        # compare DB revision with publisher environment'
 	@echo '  make golden CASE=<id>           # one Golden through the same /v1/query'
 	@echo '  make golden-all                 # all 34 Golden cases through the same /v1/query'
-	@echo '  make status                     # runtime/model/API/LangSmith state'
+	@echo '  make status                     # runtime/model/API/config-hash state'
 	@echo '  make logs                       # recent runtime logs'
 	@echo '  make down                       # stop the local runtime'
 
 status:
 	@uv run python scripts/local/ops.py status
 
+config-bootstrap:
+	@set -a; [ ! -f .env ] || source .env; set +a; uv run python -c 'from scripts.local.provision import ensure_s3, ensure_config_table; ensure_s3(); ensure_config_table()'
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=env $(OPENVINO_BACKEND_ENV) uv run python scripts/config_publish.py --reason "physical runtime baseline" --actor "$${USER:-local}"
+
 config-publish:
 	@test -n "$(REASON)" || { echo 'REASON is required'; exit 2; }
-	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/config_publish.py --reason "$(REASON)" --actor "$${USER:-local}"
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=env uv run python scripts/config_publish.py --reason "$(REASON)" --actor "$${USER:-local}"
 
 config-shadow-check:
 	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/config_shadow_check.py
@@ -188,14 +192,14 @@ openvino-smoke:
 	uv run python scripts/openvino_smoke.py
 
 beta-openvino: generation-model local-core-up openvino-up
-	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
+	CONFIG_SOURCE=env $(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
+	CONFIG_SOURCE=env $(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
 
 beta-react: ui
 
 gradio-react: generation-model local-core-up openvino-up
-	$(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
-	$(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
+	CONFIG_SOURCE=env $(OPENVINO_ENV) uv run python scripts/local/ensure_data.py
+	CONFIG_SOURCE=env $(OPENVINO_ENV) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_react_ui.py
 
 chainlit-beta: ui
 
@@ -204,31 +208,32 @@ chainlit-gate:
 
 physical-up: generation-model local-core-up openvino-models
 	OVMS_NETWORK=$(RAG_OPS_NETWORK) uv run python scripts/openvino_runtime.py up
-	$(OPENVINO_BACKEND_ENV) uv run python scripts/local/ensure_data.py
+	@$(MAKE) config-bootstrap
+	CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/local/ensure_data.py
 
 physical-generation-contract: physical-up
-	uv run python scripts/validate_llama_contract.py
+	CONFIG_SOURCE=env uv run python scripts/validate_llama_contract.py
 
 physical-relevance-calibrate: physical-generation-contract
-	$(OPENVINO_BACKEND_ENV) uv run python scripts/calibrate_relevance_floors.py --env-file .local/relevance-floors.env
+	$(OPENVINO_BACKEND_ENV) uv run python scripts/calibrate_relevance_floors.py --env-file .local/relevance-floors.env --publish --reason "physical relevance calibration"
 	@cat .local/relevance-floors.env
 
 physical-ready: physical-relevance-calibrate package-lambda
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
-	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/ingest_corpus.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py
 
 physical-eval-measure: physical-ready
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python scripts/prepare_judge_human_review.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python scripts/prepare_judge_human_review.py
 
 physical-eval: physical-ready
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
-	@set -a; [ ! -f .env ] || source .env; source .local/relevance-floors.env; set +a; $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_ragas.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
+	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_ragas.py
 
 physical-smoke: physical-ready
-	uv run python scripts/smoke.py
+	CONFIG_SOURCE=db uv run python scripts/smoke.py
 
 demo-ready: models local-up local-data retrieval-validate
 	uv run python scripts/demo_ready.py
