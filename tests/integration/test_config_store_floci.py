@@ -8,7 +8,9 @@ import pytest
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
+from rag_ops_guard.config import Settings
 from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
+from rag_ops_guard.configstore.runtime import RuntimeConfigResolver
 
 pytestmark = pytest.mark.integration
 
@@ -99,3 +101,32 @@ def test_publish_is_append_only_and_head_monotonic() -> None:
         )
     head = store.get_head()
     assert head is not None and head.revision_no == 2
+
+
+def test_published_tuning_wins_over_environment_bootstrap() -> None:
+    table = _table()
+    store = _store(table)
+    store.publish(
+        {
+            "retrieval_top_k": 9,
+            "retrieval_context_k": 3,
+            "retrieval_domain_min_relevance": 0.4,
+            "retrieval_min_relevance": 0.6,
+        },
+        actor="integration",
+        change_reason="phase2 source inversion",
+    )
+    bootstrap = Settings(
+        _env_file=None,
+        aws_endpoint_url=ENDPOINT,
+        retrieval_top_k=2,
+        retrieval_context_k=2,
+    )
+    resolved = RuntimeConfigResolver(store=store, bootstrap=bootstrap, source="db").resolve()
+
+    assert resolved.source == "dynamodb"
+    assert resolved.settings.retrieval_top_k == 9
+    assert resolved.settings.retrieval_context_k == 3
+    assert resolved.settings.retrieval_domain_min_relevance == 0.4
+    assert resolved.settings.retrieval_min_relevance == 0.6
+    assert len(resolved.config_hash) == 64
