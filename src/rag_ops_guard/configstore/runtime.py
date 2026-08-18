@@ -120,6 +120,8 @@ class EffectiveConfig:
     stale: bool = False
     stale_age_s: float = 0.0
     fail_closed: bool = False
+    db_unavailable: bool = False
+    revision_age_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,7 @@ class _CachedRevision:
     settings: Settings
     config_hash: str
     hydrated_at: float
+    published_at: float | None
 
 
 def managed_field_names() -> tuple[str, ...]:
@@ -154,9 +157,7 @@ def _code_default_settings() -> Settings:
 
 def _merged_settings(bootstrap: Settings, managed_values: Mapping[str, object]) -> Settings:
     defaults = _code_default_settings()
-    values: dict[str, object] = {
-        name: getattr(defaults, name) for name in Settings.model_fields
-    }
+    values: dict[str, object] = {name: getattr(defaults, name) for name in Settings.model_fields}
     for name in BOOTSTRAP_FIELDS:
         values[name] = getattr(bootstrap, name)
     allowed = set(managed_field_names())
@@ -239,6 +240,11 @@ class RuntimeConfigResolver:
         self._cache: dict[tuple[str, int], _CachedRevision] = {}
         self._last_good_key: tuple[str, int] | None = None
 
+    def _revision_age(self, published_at: float | None) -> float | None:
+        if published_at is None:
+            return None
+        return max(0.0, self._wall_clock() - published_at)
+
     def resolve(self) -> EffectiveConfig:
         now = self._clock()
         if self._source == "env":
@@ -256,8 +262,15 @@ class RuntimeConfigResolver:
         ):
             cached = self._cache.get((GLOBAL_SCOPE, self._head.revision_no))
             if cached is not None:
-                return self._from_cached(self._head.revision_no, cached, now, stale=False)
+                return self._from_cached(
+                    self._head.revision_no,
+                    cached,
+                    now,
+                    stale=False,
+                    db_unavailable=False,
+                )
 
+        db_unavailable = False
         try:
             head = self._store.get_head()
             self._head_checked_at = now
@@ -267,11 +280,22 @@ class RuntimeConfigResolver:
                 cached = self._cache.get(key)
                 if cached is not None:
                     self._last_good_key = key
-                    return self._from_cached(head.revision_no, cached, now, stale=False)
+                    return self._from_cached(
+                        head.revision_no,
+                        cached,
+                        now,
+                        stale=False,
+                        db_unavailable=False,
+                    )
                 values = self._store.get_revision_values(head.revision_no)
                 settings = _merged_settings(self._bootstrap, values)
                 digest = effective_config_hash(settings)
-                cached = _CachedRevision(settings=settings, config_hash=digest, hydrated_at=now)
+                cached = _CachedRevision(
+                    settings=settings,
+                    config_hash=digest,
+                    hydrated_at=now,
+                    published_at=head.published_at,
+                )
                 self._cache[key] = cached
                 self._last_good_key = key
                 return EffectiveConfig(
@@ -279,9 +303,10 @@ class RuntimeConfigResolver:
                     config_hash=digest,
                     revision_no=head.revision_no,
                     source="dynamodb",
+                    revision_age_s=self._revision_age(head.published_at),
                 )
         except (BotoCoreError, ClientError, OSError, RuntimeError, TimeoutError):
-            pass
+            db_unavailable = True
 
         if self._last_good_key is not None:
             cached = self._cache[self._last_good_key]
@@ -290,6 +315,7 @@ class RuntimeConfigResolver:
                 cached,
                 now,
                 stale=True,
+                db_unavailable=db_unavailable,
             )
 
         fallbacks: tuple[
@@ -318,6 +344,8 @@ class RuntimeConfigResolver:
                 stale=True,
                 stale_age_s=stale_age,
                 fail_closed=stale_age > self._max_stale_s,
+                db_unavailable=db_unavailable,
+                revision_age_s=stale_age,
             )
 
         defaults = _merged_settings(self._bootstrap, {})
@@ -326,6 +354,7 @@ class RuntimeConfigResolver:
             config_hash=effective_config_hash(defaults),
             revision_no=None,
             source="code_default",
+            db_unavailable=db_unavailable,
         )
 
     def _from_cached(
@@ -335,6 +364,7 @@ class RuntimeConfigResolver:
         now: float,
         *,
         stale: bool,
+        db_unavailable: bool,
     ) -> EffectiveConfig:
         stale_age = max(0.0, now - cached.hydrated_at) if stale else 0.0
         return EffectiveConfig(
@@ -345,6 +375,8 @@ class RuntimeConfigResolver:
             stale=stale,
             stale_age_s=stale_age,
             fail_closed=stale and stale_age > self._max_stale_s,
+            db_unavailable=db_unavailable,
+            revision_age_s=self._revision_age(cached.published_at),
         )
 
 
