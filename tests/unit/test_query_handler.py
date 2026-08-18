@@ -19,6 +19,18 @@ def _quiet_observability(monkeypatch) -> MagicMock:
     monkeypatch.setattr(query, "add_count", lambda *args, **kwargs: None)
     monkeypatch.setattr(query, "add_milliseconds", lambda *args, **kwargs: None)
     monkeypatch.setattr(query, "QUERY_METRICS", SimpleNamespace(flush_metrics=lambda: None))
+    monkeypatch.setattr(
+        query,
+        "resolve_effective_config",
+        lambda: SimpleNamespace(
+            config_hash="a" * 64,
+            source="env",
+            revision_no=None,
+            stale=False,
+            stale_age_s=0.0,
+            fail_closed=False,
+        ),
+    )
     return logger
 
 
