@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -104,7 +105,15 @@ def test_phase2_query_emits_required_config_dimensions_metrics_and_trace_metadat
 ) -> None:
     _, metrics, counts, measures = _quiet_observability(monkeypatch)
     run_tree = SimpleNamespace(metadata={})
+    inherited_metadata: list[dict[str, object]] = []
+
+    @contextmanager
+    def fake_tracing_context(*, metadata: dict[str, object]):
+        inherited_metadata.append(dict(metadata))
+        yield
+
     monkeypatch.setattr(query, "get_current_run_tree", lambda: run_tree, raising=False)
+    monkeypatch.setattr(query, "tracing_context", fake_tracing_context, raising=False)
     monkeypatch.setattr(query, "conversation_agent", lambda: _SuccessfulAgent())
 
     response = query.handler(
@@ -120,11 +129,13 @@ def test_phase2_query_emits_required_config_dimensions_metrics_and_trace_metadat
     assert "ConfigDbUnavailable" not in counts
     assert any(name == "ConfigResolveLatencyMs" for name, _ in measures)
     assert ("ConfigRevisionAge", 12.5) in measures
-    assert run_tree.metadata == {
+    expected_metadata = {
         "config_revision": 7,
         "config_hash": "abcdef12",
         "config_source": "dynamodb",
     }
+    assert run_tree.metadata == expected_metadata
+    assert inherited_metadata == [expected_metadata]
 
 
 def test_phase2_query_reports_stale_cache_and_dynamodb_unavailability(monkeypatch) -> None:
