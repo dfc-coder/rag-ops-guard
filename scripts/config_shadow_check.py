@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 import os
 
-from rag_ops_guard.config import get_settings
+from rag_ops_guard.config import Settings
 from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
 from rag_ops_guard.configstore.registry import public_settings_values
 from rag_ops_guard.configstore.resolver import resolve_shadow
 
 
-def _store() -> DynamoDbConfigStore:
-    settings = get_settings()
+def _store(settings: Settings) -> DynamoDbConfigStore:
     return DynamoDbConfigStore(
         endpoint_url=settings.aws_endpoint_url,
         region=settings.aws_region,
@@ -25,9 +24,11 @@ def _display(value: object) -> str:
 
 
 def main() -> int:
-    settings = get_settings()
+    # Shadow mode intentionally compares the publisher-facing environment with the DB revision;
+    # do not use the effective resolver here or divergence would compare DB with itself.
+    settings = Settings()
     local_values = public_settings_values(settings)
-    result = resolve_shadow(_store(), local_values)
+    result = resolve_shadow(_store(settings), local_values)
 
     if result.revision_no is None:
         print("CONFIG SHADOW DIVERGENCE: no published HEAD")
