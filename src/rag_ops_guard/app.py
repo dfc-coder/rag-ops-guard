@@ -24,7 +24,7 @@ def object_store() -> S3ObjectStore:
         endpoint_url=settings.aws_endpoint_url,
         region_name=settings.aws_region,
         access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        secret_key=settings.aws_secret_access_key.get_secret_value(),
     )
 
 
@@ -59,7 +59,7 @@ def vector_store() -> S3VectorsStore:
         endpoint_url=settings.aws_endpoint_url,
         region_name=settings.aws_region,
         access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        secret_key=settings.aws_secret_access_key.get_secret_value(),
     )
 
 
