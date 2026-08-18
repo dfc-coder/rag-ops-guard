@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
 from rag_ops_guard.configstore.runtime import EffectiveConfig, resolve_effective_config
+from rag_ops_guard.diagnostics.connectivity import probe_runtime_connectivity
 from rag_ops_guard.domain.models import QueryRequest, QueryResponse, ResponseOutcome
 from rag_ops_guard.observability.runtime import (
     QUERY_LOGGER,
@@ -37,7 +38,29 @@ def _proxy_response(response: QueryResponse) -> dict[str, Any]:
     }
 
 
-def _record_config_observability(effective: EffectiveConfig, resolve_latency_ms: float) -> dict[str, object]:
+def _json_proxy(status_code: int, payload: dict[str, object]) -> dict[str, Any]:
+    return {
+        "statusCode": status_code,
+        "headers": {"content-type": "application/json"},
+        "body": json.dumps(payload),
+    }
+
+
+def _connectivity_probe_response(effective: EffectiveConfig) -> dict[str, Any]:
+    if os.environ.get("APP_ENV") != "local":
+        return _json_proxy(404, {"error": "not_found"})
+    result = probe_runtime_connectivity(effective)
+    payload: dict[str, object] = {
+        "probe": "runtime_connectivity",
+        "function_name": os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "rag-ops-guard-query"),
+        **result,
+    }
+    return _json_proxy(200 if bool(result.get("ok")) else 503, payload)
+
+
+def _record_config_observability(
+    effective: EffectiveConfig, resolve_latency_ms: float
+) -> dict[str, object]:
     fields = config_observability_fields(
         revision_no=effective.revision_no,
         config_hash=effective.config_hash,
@@ -93,6 +116,9 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
 
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
+        if isinstance(payload, dict) and payload.get("__rag_ops_probe__") == "connectivity":
+            return _connectivity_probe_response(effective)
+
         request = QueryRequest.model_validate(payload)
         if effective.fail_closed:
             add_count(QUERY_METRICS, "ConfigFailClosed")
