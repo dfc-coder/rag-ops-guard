@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from rag_ops_guard.config import get_settings
 
 JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
@@ -13,7 +14,6 @@ DEFAULT_DATASET_PATHS = (
     Path("evaluation/datasets/golden-v1.json"),
     Path("evaluation/datasets/golden-mixed-v1.json"),
 )
-DEFAULT_RUNTIME_MODEL = "qwen3.5-0.8b-unsloth-ud-q4-k-xl"
 
 
 @dataclass(frozen=True)
@@ -61,14 +61,10 @@ def evaluation_dataset_sha256(
 def judge_identity_from_env(
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeIdentity:
-    provider = os.environ.get("RAGAS_JUDGE_PROVIDER", "local").strip() or "local"
-    runtime_model = os.environ.get("LLM_MODEL", DEFAULT_RUNTIME_MODEL).strip()
-    model = os.environ.get("RAGAS_JUDGE_MODEL", runtime_model).strip()
-    if not model:
-        raise SystemExit("RAGAS_JUDGE_MODEL must not be empty")
+    settings = get_settings()
     return JudgeIdentity(
-        provider=provider,
-        model=model,
+        provider=settings.ragas_judge_provider,
+        model=settings.resolved_ragas_judge_model,
         prompt_sha256=_sha256_bytes(JUDGE_SYSTEM_PROMPT.encode("utf-8")),
         dataset_sha256=evaluation_dataset_sha256(dataset_paths),
     )
@@ -77,22 +73,15 @@ def judge_identity_from_env(
 def judge_connection_from_env(
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeConnection:
+    settings = get_settings()
     identity = judge_identity_from_env(dataset_paths)
-    if identity.provider == "local":
-        base_url = os.environ.get(
-            "RAGAS_JUDGE_BASE_URL",
-            os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1"),
-        ).strip()
-        api_key = os.environ.get("RAGAS_JUDGE_API_KEY", "local").strip() or "local"
-    else:
-        base_url = os.environ.get("RAGAS_JUDGE_BASE_URL", "").strip()
-        api_key = os.environ.get("RAGAS_JUDGE_API_KEY", "").strip()
-        if not base_url:
-            raise SystemExit(
-                "RAGAS_JUDGE_BASE_URL is required when RAGAS_JUDGE_PROVIDER is not 'local'"
-            )
-        if not api_key:
-            raise SystemExit(
-                "RAGAS_JUDGE_API_KEY is required when RAGAS_JUDGE_PROVIDER is not 'local'"
-            )
-    return JudgeConnection(identity=identity, base_url=base_url.rstrip("/"), api_key=api_key)
+    api_key = (
+        settings.ragas_judge_api_key.get_secret_value()
+        if settings.ragas_judge_api_key is not None
+        else "local"
+    )
+    return JudgeConnection(
+        identity=identity,
+        base_url=settings.resolved_ragas_judge_base_url.rstrip("/"),
+        api_key=api_key,
+    )

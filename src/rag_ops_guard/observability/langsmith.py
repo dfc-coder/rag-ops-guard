@@ -14,7 +14,7 @@ def configure_langsmith(settings: Settings) -> None:
     os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
 
     if settings.langsmith_api_key:
-        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key.get_secret_value()
     else:
         os.environ.pop("LANGSMITH_API_KEY", None)
 

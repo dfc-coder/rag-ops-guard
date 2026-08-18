@@ -3,9 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
+from rag_ops_guard.config import get_settings
 from rag_ops_guard.evaluation.gates import enforce_metric_thresholds, grounded_segment_text
 from rag_ops_guard.evaluation.judge import judge_connection_from_env, judge_identity_from_env
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache() -> None:
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def test_single_hallucination_fails_gate_despite_passing_mean() -> None:
@@ -64,7 +73,7 @@ def test_external_judge_may_differ_from_runtime_model(
     dataset = tmp_path / "golden.json"
     dataset.write_text("[]", encoding="utf-8")
     monkeypatch.setenv("LLM_MODEL", "local-generation-model")
-    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "external")
+    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "openai")
     monkeypatch.setenv("RAGAS_JUDGE_MODEL", "external-judge-model")
     monkeypatch.setenv("RAGAS_JUDGE_BASE_URL", "https://judge.example/v1")
     monkeypatch.setenv("RAGAS_JUDGE_API_KEY", "secret")
@@ -72,7 +81,7 @@ def test_external_judge_may_differ_from_runtime_model(
     connection = judge_connection_from_env(dataset)
 
     assert connection.identity.model == "external-judge-model"
-    assert connection.identity.provider == "external"
+    assert connection.identity.provider == "openai"
     assert connection.base_url == "https://judge.example/v1"
     assert connection.api_key == "secret"
 
@@ -82,12 +91,17 @@ def test_external_judge_requires_credentials(
 ) -> None:
     dataset = tmp_path / "golden.json"
     dataset.write_text("[]", encoding="utf-8")
-    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "external")
+    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "openai")
     monkeypatch.setenv("RAGAS_JUDGE_MODEL", "judge")
     monkeypatch.delenv("RAGAS_JUDGE_BASE_URL", raising=False)
     monkeypatch.delenv("RAGAS_JUDGE_API_KEY", raising=False)
 
-    with pytest.raises(SystemExit, match="RAGAS_JUDGE_BASE_URL"):
+    with pytest.raises(ValidationError, match="ragas_judge_base_url"):
+        judge_connection_from_env(dataset)
+
+    monkeypatch.setenv("RAGAS_JUDGE_BASE_URL", "https://judge.example/v1")
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError, match="ragas_judge_api_key"):
         judge_connection_from_env(dataset)
 
 
@@ -95,8 +109,10 @@ def test_judge_identity_changes_when_dataset_changes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     dataset = tmp_path / "golden.json"
-    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "external")
+    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "openai")
     monkeypatch.setenv("RAGAS_JUDGE_MODEL", "judge")
+    monkeypatch.setenv("RAGAS_JUDGE_BASE_URL", "https://judge.example/v1")
+    monkeypatch.setenv("RAGAS_JUDGE_API_KEY", "secret")
     dataset.write_text("[]", encoding="utf-8")
     first = judge_identity_from_env(dataset)
     dataset.write_text('[{"id":"new"}]', encoding="utf-8")

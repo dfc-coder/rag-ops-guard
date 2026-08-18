@@ -1,5 +1,5 @@
 import { App } from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { RagOpsGuardStack } from '../lib/rag-ops-guard-stack';
 
 describe('RagOpsGuardStack', () => {
@@ -19,6 +19,21 @@ describe('RagOpsGuardStack', () => {
 
   test('creates query and ingest lambdas', () => {
     template.resourceCountIs('AWS::Lambda::Function', 2);
+  });
+
+  test('declares real AWS endpoint semantics for both lambdas', () => {
+    template.resourcePropertiesCountIs(
+      'AWS::Lambda::Function',
+      {
+        Environment: {
+          Variables: Match.objectLike({
+            APP_ENV: 'aws',
+            AWS_ENDPOINT_URL: '',
+          }),
+        },
+      },
+      2,
+    );
   });
 
   test('creates HTTP API routes', () => {

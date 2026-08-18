@@ -44,6 +44,7 @@ export class RagOpsGuardStack extends Stack {
       S3_VECTOR_INDEX: 'ops-knowledge-v1',
       VECTOR_DIMENSION: '1024',
       APP_ENV: 'aws',
+      AWS_ENDPOINT_URL: '',
     };
 
     const ingest = new lambda.Function(this, 'IngestFunction', {
