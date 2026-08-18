@@ -9,7 +9,8 @@ from langsmith import traceable
 from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
-from rag_ops_guard.domain.models import QueryRequest
+from rag_ops_guard.configstore.runtime import resolve_effective_config
+from rag_ops_guard.domain.models import QueryRequest, QueryResponse, ResponseOutcome
 from rag_ops_guard.observability.runtime import (
     QUERY_LOGGER,
     QUERY_METRICS,
@@ -25,6 +26,14 @@ def _internal_error_body(exc: Exception) -> str:
     return json.dumps(payload)
 
 
+def _proxy_response(response: QueryResponse) -> dict[str, Any]:
+    return {
+        "statusCode": 200,
+        "headers": {"content-type": "application/json"},
+        "body": response.model_dump_json(),
+    }
+
+
 @traceable(name="rag_query", run_type="chain")
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
@@ -34,7 +43,38 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         request = QueryRequest.model_validate(payload)
-        response = conversation_agent().invoke(request)
+        effective = resolve_effective_config()
+        QUERY_METRICS.add_metadata(key="config_hash", value=effective.config_hash)
+        QUERY_METRICS.add_metadata(key="config_source", value=effective.source)
+        if effective.stale:
+            add_count(QUERY_METRICS, "ConfigStaleServed")
+        if effective.fail_closed:
+            add_count(QUERY_METRICS, "ConfigFailClosed")
+            response = QueryResponse(
+                request_id="config-fail-closed",
+                outcome=ResponseOutcome.INSUFFICIENT_EVIDENCE,
+                message=(
+                    "Configuration safety policy is older than the permitted stale window; "
+                    "document-backed claims are disabled until a trusted configuration source "
+                    "is available."
+                ),
+                route="uncertain",
+                config_hash=effective.config_hash,
+            )
+            QUERY_LOGGER.warning(
+                "config_fail_closed",
+                extra={
+                    "config_hash": effective.config_hash,
+                    "config_source": effective.source,
+                    "config_revision": effective.revision_no,
+                    "stale_age_s": effective.stale_age_s,
+                },
+            )
+            return _proxy_response(response)
+
+        response = conversation_agent().invoke(request).model_copy(
+            update={"config_hash": effective.config_hash}
+        )
         add_count(QUERY_METRICS, f"{response.status.value.title().replace('_', '')}Count")
         QUERY_LOGGER.info(
             "query_completed",
@@ -43,13 +83,13 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
                 "status": response.status.value,
                 "citation_count": len(response.citations),
                 "thread_id": request.thread_id,
+                "config_hash": effective.config_hash,
+                "config_source": effective.source,
+                "config_revision": effective.revision_no,
+                "config_stale": effective.stale,
             },
         )
-        return {
-            "statusCode": 200,
-            "headers": {"content-type": "application/json"},
-            "body": response.model_dump_json(),
-        }
+        return _proxy_response(response)
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         add_count(QUERY_METRICS, "InvalidRequestCount")
         QUERY_LOGGER.warning("invalid_query_request", extra={"error_type": type(exc).__name__})
