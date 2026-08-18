@@ -13,6 +13,10 @@ import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 
+from rag_ops_guard.config import Settings
+from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
+from rag_ops_guard.configstore.runtime import snapshot_for_values
+
 ROOT = Path(__file__).resolve().parents[2]
 API_FILE = ROOT / ".local" / "api-url"
 GOLDEN_FILES = (
@@ -45,10 +49,10 @@ def _env_file(path: Path) -> dict[str, str]:
 
 
 def runtime_env() -> dict[str, str]:
-    """Load local config deterministically and ignore stale shell RAG_API_URL values."""
+    """Load bootstrap config deterministically and ignore stale shell API/floor artifacts."""
     env = os.environ.copy()
     env.update(_env_file(ROOT / ".env"))
-    env.update(_env_file(ROOT / ".local" / "relevance-floors.env"))
+    env["CONFIG_SOURCE"] = "db"
     if API_FILE.is_file():
         env["RAG_API_URL"] = API_FILE.read_text(encoding="utf-8").strip().rstrip("/")
     else:
@@ -110,6 +114,38 @@ def _lambda_environment(env: dict[str, str]) -> dict[str, str] | None:
         return None
     raw = response.get("Environment", {}).get("Variables", {})
     return {str(key): str(value) for key, value in raw.items()}
+
+
+def _local_config_hash(env: dict[str, str]) -> str | None:
+    try:
+        settings = Settings(
+            _env_file=ROOT / ".env",
+            aws_endpoint_url=env.get("AWS_ENDPOINT_URL", DEFAULT_ENDPOINT),
+            aws_region=env.get("AWS_REGION", DEFAULT_REGION),
+            aws_access_key_id=env.get("AWS_ACCESS_KEY_ID", "test"),
+            aws_secret_access_key=env.get("AWS_SECRET_ACCESS_KEY", "test"),
+        )
+        store = DynamoDbConfigStore(
+            endpoint_url=settings.aws_endpoint_url,
+            region=settings.aws_region,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key.get_secret_value(),
+            table=env.get("CONFIG_TABLE", "rag-ops-config"),
+        )
+        head = store.get_head()
+        values = {} if head is None else store.get_revision_values(head.revision_no)
+        return snapshot_for_values(
+            settings,
+            values,
+            revision_no=None if head is None else head.revision_no,
+        ).config_hash
+    except (BotoCoreError, ClientError, OSError, ValueError):
+        return None
+
+
+def _config_hash_matches(local_hash: str | None, lambda_env: dict[str, str]) -> bool:
+    remote = lambda_env.get("CONFIG_HASH", "").strip()
+    return bool(local_hash and remote and local_hash == remote)
 
 
 def _physical_model(env: dict[str, str]) -> str | None:
@@ -174,9 +210,11 @@ def status() -> int:
     branch, commit = _git_state()
     containers = _container_states()
     lambda_env = _lambda_environment(env)
+    local_hash = _local_config_hash(env)
     physical_model = _physical_model(env)
     local_model = env.get("LLM_MODEL", "<unset>")
     api_url = env.get("RAG_API_URL")
+    config_mismatch = False
 
     print("\nRAG OPS GUARD - LOCAL STATUS")
     print("=" * 52)
@@ -215,6 +253,15 @@ def status() -> int:
             _ok("Model cfg", lambda_model)
         else:
             _warn("Model cfg", f".env={local_model} | Lambda={lambda_model}")
+        if _config_hash_matches(local_hash, lambda_env):
+            _ok("Config hash", str(local_hash))
+        else:
+            config_mismatch = True
+            _fail(
+                "Config hash",
+                f"local={local_hash or '<unavailable>'} | "
+                f"Lambda={lambda_env.get('CONFIG_HASH', '<missing>')}",
+            )
         tracing = lambda_env.get("LANGSMITH_TRACING", "false")
         project = lambda_env.get("LANGSMITH_PROJECT", "<unset>")
         if tracing.casefold() == "true":
@@ -237,7 +284,7 @@ def status() -> int:
 
     print("=" * 52)
     print("Commands: make status | make golden CASE=<id> | make golden-all | make logs")
-    return 0
+    return 1 if config_mismatch else 0
 
 
 def _preflight(env: dict[str, str]) -> list[str]:
@@ -256,8 +303,11 @@ def _preflight(env: dict[str, str]) -> list[str]:
         state = containers.get(name, "")
         if not state.casefold().startswith("up"):
             problems.append(f"container {name} is not running")
-    if _lambda_environment(env) is None:
+    lambda_env = _lambda_environment(env)
+    if lambda_env is None:
         problems.append(f"Lambda {QUERY_FUNCTION} is unavailable")
+    elif not _config_hash_matches(_local_config_hash(env), lambda_env):
+        problems.append("effective config hash differs between local registry and Lambda bootstrap")
     return problems
 
 
@@ -301,6 +351,7 @@ def golden(case_id: str | None, all_cases: bool, force: bool) -> int:
     print(f"API       {env.get('RAG_API_URL', '<missing>')}")
     lambda_env = _lambda_environment(env) or {}
     print(f"MODEL     {lambda_env.get('LLM_MODEL', env.get('LLM_MODEL', '<unknown>'))}")
+    print(f"CONFIG    {lambda_env.get('CONFIG_HASH', '<missing>')}")
     print(
         "LANGSMITH "
         f"{lambda_env.get('LANGSMITH_TRACING', 'false')} / "
@@ -330,7 +381,11 @@ def golden(case_id: str | None, all_cases: bool, force: bool) -> int:
     print("-" * 72)
     if return_code == 0:
         print(f"PASS {label} ({elapsed:.1f}s)")
-        print("Next: `make golden-all`" if not all_cases else "Results: artifacts/evaluation/summary.json")
+        print(
+            "Next: `make golden-all`"
+            if not all_cases
+            else "Results: artifacts/evaluation/summary.json"
+        )
         return 0
 
     reason = _classify_failure("\n".join(lines), elapsed)
