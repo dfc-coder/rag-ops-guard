@@ -6,7 +6,6 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from rag_ops_guard.adapters.llm.openai_tool_calling import (
-    STRUCTURED_MAX_TOKENS,
     OpenAIToolCallingAdapter,
     _content_text,
     _to_langchain_messages,
@@ -93,7 +92,7 @@ class _FakeModel:
         return _FakeRunnable(self.response)
 
 
-def _adapter() -> OpenAIToolCallingAdapter:
+def _adapter(max_completion_tokens: int = 512) -> OpenAIToolCallingAdapter:
     return OpenAIToolCallingAdapter(
         base_url="http://localhost:8080/v1",
         model="test",
@@ -103,7 +102,7 @@ def _adapter() -> OpenAIToolCallingAdapter:
         min_p=0.0,
         presence_penalty=1.5,
         repeat_penalty=1.0,
-        max_completion_tokens=512,
+        max_completion_tokens=max_completion_tokens,
         timeout_seconds=60,
     )
 
@@ -135,7 +134,19 @@ def test_structured_response_uses_schema_constrained_json_and_pydantic_validatio
     assert citation_schema["maxItems"] == 0
     assert fake.bind_kwargs["temperature"] == 0.0
     assert fake.bind_kwargs["presence_penalty"] == 0.0
-    assert fake.bind_kwargs["max_completion_tokens"] == STRUCTURED_MAX_TOKENS
+    assert fake.bind_kwargs["max_completion_tokens"] == 512
+
+
+def test_structured_response_uses_configured_completion_budget_without_hidden_cap() -> None:
+    adapter = _adapter(max_completion_tokens=768)
+    fake = _FakeModel(
+        AIMessage(content='{"segments":[{"text":"ok","citation_ids":[]}]}')
+    )
+    adapter._model = fake  # type: ignore[assignment]
+
+    adapter.invoke_structured([ModelMessage(role="user", content="x")], StructuredAnswer)
+
+    assert fake.bind_kwargs["max_completion_tokens"] == 768
 
 
 def test_structured_response_limits_citation_ids_to_retrieved_sources() -> None:

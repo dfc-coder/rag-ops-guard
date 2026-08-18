@@ -54,7 +54,10 @@ export class RagOpsGuardStack extends Stack {
       S3_VECTOR_BUCKET: vectors.ref,
       S3_VECTOR_INDEX: 'ops-knowledge-v1',
       VECTOR_DIMENSION: '1024',
+      CONFIG_SOURCE: 'db',
       CONFIG_TABLE: configTable.tableName,
+      CONFIG_HEAD_TTL_SECONDS: '45',
+      CONFIG_MAX_STALE_SECONDS: '300',
       APP_ENV: 'aws',
       AWS_ENDPOINT_URL: '',
     };

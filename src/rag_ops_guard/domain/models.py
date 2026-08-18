@@ -34,6 +34,7 @@ class QueryStatus(StrEnum):
     ANSWERED_MIXED = "answered_mixed"
     ANSWERED_UNGROUNDED = "answered_ungrounded"
     CLARIFICATION_REQUIRED = "clarification_required"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
     SAFETY_BLOCKED = "safety_blocked"
     ERROR = "error"
 
@@ -41,6 +42,7 @@ class QueryStatus(StrEnum):
 class ResponseOutcome(StrEnum):
     ANSWER = "answer"
     CLARIFICATION_REQUIRED = "clarification_required"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
     SAFETY_BLOCKED = "safety_blocked"
     ERROR = "error"
 
@@ -216,6 +218,7 @@ class QueryResponse(BaseModel):
     grounded_relevance_score: float | None = None
     retrieval_query: str | None = None
     rewritten_query: str | None = None
+    config_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_outcome_contract(self) -> QueryResponse:
@@ -234,6 +237,8 @@ class QueryResponse(BaseModel):
     def status(self) -> QueryStatus:
         if self.outcome == ResponseOutcome.CLARIFICATION_REQUIRED:
             return QueryStatus.CLARIFICATION_REQUIRED
+        if self.outcome == ResponseOutcome.INSUFFICIENT_EVIDENCE:
+            return QueryStatus.INSUFFICIENT_EVIDENCE
         if self.outcome == ResponseOutcome.SAFETY_BLOCKED:
             return QueryStatus.SAFETY_BLOCKED
         if self.outcome == ResponseOutcome.ERROR:

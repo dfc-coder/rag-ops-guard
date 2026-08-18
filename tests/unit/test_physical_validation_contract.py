@@ -93,7 +93,7 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     hosted_ci = _read(".github/workflows/ci.yml")
     provision = _read("scripts/local/provision.py")
 
-    assert "floci/floci:1.6.0" in compose
+    assert "localhost/rag-ops-floci-jvm:1.6.0" in compose
     assert "floci/floci:1.6.0" in hosted_ci
     assert "floci:override-id" not in provision
     assert '"hot-reload"' not in provision
@@ -102,27 +102,39 @@ def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
     assert "/execute-api/{api_id}/" in provision
 
 
-def test_physical_floci_matches_rootless_podman_proxy_workaround_contract() -> None:
+def test_physical_floci_avoids_native_unix_socket_bug_on_rootless_podman() -> None:
     compose = _read("docker/docker-compose.yml")
+    makefile = _read("Makefile")
+    image_builder = _read("scripts/local/floci_jvm_image.py")
+    api_service = _read("scripts/local/podman_api_service.py")
 
-    # Floci 1.6.0 can fail from its native docker-java Unix-domain-socket path
-    # on rootless Podman. Keep the host socket behind an internal TCP proxy so
-    # Floci never receives the Unix socket directly and port 2375 is not
-    # published on the host.
-    assert "docker-proxy:" in compose
-    assert "docker.io/alpine/socat:1.8.1.3" in compose
-    assert "TCP-LISTEN:2375,fork,reuseaddr" in compose
-    assert "UNIX-CONNECT:/var/run/docker.sock" in compose
-    assert 'FLOCI_DOCKER_DOCKER_HOST: tcp://docker-proxy:2375' in compose
-    assert 'FLOCI_SERVICES_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
-    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_NETWORK: ${RAG_OPS_NETWORK:-rag-ops-net}' in compose
-    assert 'FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE: floci' in compose
-    assert '"${PODMAN_SOCKET}:/var/run/docker.sock:z"' in compose
-    assert "docker-control:" in compose
-    assert "internal: true" in compose
-    assert "2375:2375" not in compose
+    # Upstream Floci 1.6.0 native/GraalVM can fail in docker-java's UnixDomainSockets
+    # path. The local physical runtime therefore builds the official JVM Dockerfile
+    # from the exact 1.6.0 release commit and connects it directly to a dedicated,
+    # long-lived rootless Podman API Unix socket. No unauthenticated Docker API TCP
+    # port and no socat proxy are required.
+    assert 'FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock' in compose
+    assert '"${PODMAN_API_SOCKET}:/var/run/docker.sock"' in compose
+    assert "docker-proxy:" not in compose
+    assert "socat" not in compose
+    assert "2375" not in compose
     assert "security_opt:" in compose
     assert "- label=disable" in compose
+
+    assert 'FLOCI_VERSION = "1.6.0"' in image_builder
+    assert 'FLOCI_SOURCE_COMMIT = "e0aab2e27d896772847517a29cd4025203ddc4f8"' in image_builder
+    assert '"-f",\n                "docker/Dockerfile"' in image_builder
+    assert "org.opencontainers.image.revision" in image_builder
+
+    assert '"podman", "system", "service", "--time=0"' in api_service
+    assert "socket.AF_UNIX" in api_service
+    assert "GET /_ping HTTP/1.1" in api_service
+    assert "_owned_process" in api_service
+
+    assert "PODMAN_API_SOCKET ?=" in makefile
+    assert "floci_jvm_image.py ensure" in makefile
+    assert "podman_api_service.py start" in makefile
+    assert "podman_api_service.py stop" in makefile
 
 
 def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
@@ -136,7 +148,11 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     assert "LAMBDA_OPENVINO_ENV" in makefile
     assert "LAMBDA_EMBEDDING_BASE_URL" in provision
     assert "LAMBDA_RERANKER_BASE_URL" in provision
-    assert "EMBEDDING_TIMEOUT_SECONDS" in provision
+    lambda_env = provision.split("def lambda_environment", maxsplit=1)[1].split(
+        "def publish_lambda_code", maxsplit=1
+    )[0]
+    assert "EMBEDDING_TIMEOUT_SECONDS" not in lambda_env
+    assert "RERANKER_TIMEOUT_SECONDS" not in lambda_env
     assert "make physical-ready" in release
     assert "OpenVINO/Qwen3-Embedding-0.6B-int8-ov" in release
     assert "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov" in release
@@ -153,12 +169,15 @@ def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -
 
     assert "physical-relevance-calibrate: physical-generation-contract" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
+    assert "--publish" in makefile
     assert "physical-ready: physical-relevance-calibrate package-lambda" in makefile
-    assert makefile.index("source .local/relevance-floors.env") < makefile.index(
-        "uv run python scripts/validate_retrieval.py", makefile.index("physical-ready:")
-    )
+    physical_ready = makefile.split("physical-ready:", maxsplit=1)[1].split(
+        "physical-eval-measure:", maxsplit=1
+    )[0]
+    assert "CONFIG_SOURCE=db" in physical_ready
+    assert "source .local/relevance-floors.env" not in physical_ready
+    assert "publish_config_revision" in calibrator
     assert "expected_grounded_score" in calibrator
-    assert "A high score on the wrong document must never count" in calibrator
     assert dataset_name in calibrator
     assert dataset_name in validator
     assert not (ROOT / "evaluation/datasets/retrieval-calibration-v1.json").exists()

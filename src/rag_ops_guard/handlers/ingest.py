@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from rag_ops_guard.app import ingestion_service
+from rag_ops_guard.configstore.runtime import EffectiveConfig, resolve_effective_config
 from rag_ops_guard.domain.errors import DocumentValidationError
 from rag_ops_guard.domain.models import IngestRequest
 from rag_ops_guard.observability.runtime import (
@@ -15,6 +16,9 @@ from rag_ops_guard.observability.runtime import (
     INGEST_METRICS,
     add_count,
     add_milliseconds,
+    add_seconds,
+    config_observability_fields,
+    set_config_dimensions,
 )
 
 
@@ -25,11 +29,55 @@ def _internal_error_body(exc: Exception) -> str:
     return json.dumps(payload)
 
 
+def _record_config_observability(effective: EffectiveConfig, resolve_latency_ms: float) -> dict[str, object]:
+    fields = config_observability_fields(
+        revision_no=effective.revision_no,
+        config_hash=effective.config_hash,
+        source=effective.source,
+    )
+    set_config_dimensions(
+        INGEST_METRICS,
+        revision_no=effective.revision_no,
+        config_hash=effective.config_hash,
+        source=effective.source,
+    )
+    add_milliseconds(INGEST_METRICS, "ConfigResolveLatencyMs", resolve_latency_ms)
+    if effective.source == "cache":
+        add_count(INGEST_METRICS, "ConfigCacheHit")
+    elif effective.source != "env":
+        add_count(INGEST_METRICS, "ConfigCacheMiss")
+    if effective.db_unavailable:
+        add_count(INGEST_METRICS, "ConfigDbUnavailable")
+    if effective.stale:
+        add_count(INGEST_METRICS, "ConfigStaleServed")
+    if effective.revision_age_s is not None:
+        add_seconds(INGEST_METRICS, "ConfigRevisionAge", effective.revision_age_s)
+    return dict(fields)
+
+
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
     started = perf_counter()
-    add_count(INGEST_METRICS, "IngestRequestCount")
+    config_fields: dict[str, object] = {
+        "config_revision": None,
+        "config_hash": "unknown",
+        "config_source": "unresolved",
+    }
+    set_config_dimensions(
+        INGEST_METRICS,
+        revision_no=None,
+        config_hash="unknown",
+        source="unresolved",
+    )
     try:
+        resolve_started = perf_counter()
+        effective = resolve_effective_config()
+        config_fields = _record_config_observability(
+            effective,
+            (perf_counter() - resolve_started) * 1000,
+        )
+        add_count(INGEST_METRICS, "IngestRequestCount")
+
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         request = IngestRequest.model_validate(payload)
@@ -38,6 +86,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         INGEST_LOGGER.info(
             "ingest_completed",
             extra={
+                **config_fields,
                 "status": response.status,
                 "logical_id": response.logical_id,
                 "version": response.version,
@@ -51,7 +100,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         }
     except DocumentValidationError as exc:
         add_count(INGEST_METRICS, "InvalidDocumentCount")
-        INGEST_LOGGER.warning("invalid_document", extra={"error_type": type(exc).__name__})
+        INGEST_LOGGER.warning(
+            "invalid_document",
+            extra={**config_fields, "error_type": type(exc).__name__},
+        )
         return {
             "statusCode": 422,
             "headers": {"content-type": "application/json"},
@@ -59,7 +111,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         }
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         add_count(INGEST_METRICS, "InvalidRequestCount")
-        INGEST_LOGGER.warning("invalid_ingest_request", extra={"error_type": type(exc).__name__})
+        INGEST_LOGGER.warning(
+            "invalid_ingest_request",
+            extra={**config_fields, "error_type": type(exc).__name__},
+        )
         return {
             "statusCode": 400,
             "headers": {"content-type": "application/json"},
@@ -67,7 +122,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         }
     except Exception as exc:
         add_count(INGEST_METRICS, "InternalErrorCount")
-        INGEST_LOGGER.exception("ingest_failed", extra={"error_type": type(exc).__name__})
+        INGEST_LOGGER.exception(
+            "ingest_failed",
+            extra={**config_fields, "error_type": type(exc).__name__},
+        )
         return {
             "statusCode": 500,
             "headers": {"content-type": "application/json"},

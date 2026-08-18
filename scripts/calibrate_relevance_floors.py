@@ -3,11 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+# When this CLI is executed by file path (`python scripts/...py`), Python puts
+# `scripts/` rather than the repository root on sys.path. The calibration
+# publisher is intentionally another repository CLI module, so make the root
+# importable explicitly instead of depending on invocation style.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 DATASET = ROOT / "evaluation/datasets/retrieval-relevance-calibration.json"
 VALID_CLASSES = {"grounded", "in_domain_unanswerable", "out_of_domain"}
 
@@ -63,14 +71,15 @@ def calibrate_floors(observations: list[Observation]) -> CalibrationFloors:
     )
 
 
-def expected_grounded_score(result: Any, expected_titles: set[str]) -> tuple[float, list[str]]:
-    """Score only expected evidence that is eligible for admission with zero floors.
+def calibration_values(floors: CalibrationFloors) -> dict[str, object]:
+    return {
+        "retrieval_domain_min_relevance": floors.domain_floor,
+        "retrieval_min_relevance": floors.grounded_floor,
+    }
 
-    Calibration runs with both relevance floors forced to zero. Therefore ``admitted``
-    represents the evidence that survives candidate retrieval, resolver/anchor policy,
-    reranking and the configured context-k cap before a relevance threshold is applied.
-    A high score on the wrong document must never count as a grounded true positive.
-    """
+
+def expected_grounded_score(result: Any, expected_titles: set[str]) -> tuple[float, list[str]]:
+    """Score only expected evidence that is eligible for admission with zero floors."""
     matched_titles: list[str] = []
     scores: list[float] = []
     for item in result.admitted:
@@ -86,7 +95,7 @@ def expected_grounded_score(result: Any, expected_titles: set[str]) -> tuple[flo
 def _candidate_thresholds(samples: list[tuple[float, bool]]) -> list[float]:
     scores = sorted({float(score) for score, _expected in samples})
     thresholds = {0.0, 1.0, *scores}
-    thresholds.update((left + right) / 2.0 for left, right in zip(scores, scores[1:]))
+    thresholds.update((left + right) / 2.0 for left, right in zip(scores, scores[1:], strict=False))
     return sorted(thresholds)
 
 
@@ -108,12 +117,6 @@ def _best_threshold(samples: list[tuple[float, bool]]) -> tuple[float, int, int,
                 fp += 1
             else:
                 tn += 1
-
-        # First preserve the release policy: minimize false positives, then total
-        # classification errors. Among equally valid thresholds, maximize the distance
-        # to the nearest labelled score so tiny backend jitter cannot flip a boundary
-        # observation between calibration and validation. The final tie-break prefers
-        # the higher floor without changing the labelled confusion matrix.
         margin = min(abs(float(score) - threshold) for score, _expected in samples)
         ranked.append((fp, fp + fn, -margin, -threshold, tp, fp, tn, fn))
 
@@ -127,17 +130,24 @@ def _recall(tp: int, fn: int) -> float:
 
 
 def serialize_floor(value: float) -> str:
-    """Serialize the calibrated margin point without lossy decimal rounding."""
     return repr(value)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", type=Path)
+    parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--reason", default="relevance calibration")
+    parser.add_argument(
+        "--actor",
+        default=os.environ.get("USER") or os.environ.get("GITHUB_ACTOR") or "calibrator",
+    )
     args = parser.parse_args()
 
-    # Measure the backend before applying any admission threshold. This is labelled,
-    # offline calibration; it is not online self-calibration from user traffic.
+    # Calibration itself intentionally observes the explicitly selected backend with zero floors.
+    # CONFIG_SOURCE=env is an offline measurement mode; the resulting floors are then published
+    # into the versioned DB revision used by the data plane.
+    os.environ["CONFIG_SOURCE"] = "env"
     os.environ["RETRIEVAL_DOMAIN_MIN_RELEVANCE"] = "0.0"
     os.environ["RETRIEVAL_MIN_RELEVANCE"] = "0.0"
 
@@ -163,9 +173,7 @@ def main() -> None:
             grounded_score=grounded_score,
         )
         observations.append(observation)
-        expected_note = (
-            f" expected_matched={matched_titles}" if case_class == "grounded" else ""
-        )
+        expected_note = f" expected_matched={matched_titles}" if case_class == "grounded" else ""
         print(
             f"{observation.case_id}: class={observation.case_class} "
             f"domain={observation.domain_score:.6f} "
@@ -208,6 +216,20 @@ def main() -> None:
         print(f"wrote calibrated relevance environment: {args.env_file}")
     else:
         print(output, end="")
+
+    if args.publish:
+        from scripts.config_publish import publish_config_revision
+
+        published = publish_config_revision(
+            reason=args.reason,
+            actor=args.actor,
+            overrides=calibration_values(floors),
+            prefer_head=True,
+        )
+        print(
+            f"CALIBRATION PUBLISHED revision={published.revision_no} "
+            f"db_hash={published.content_hash}"
+        )
 
 
 if __name__ == "__main__":

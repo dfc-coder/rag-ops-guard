@@ -12,6 +12,10 @@ import httpx
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from rag_ops_guard.config import Settings
+from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
+from rag_ops_guard.configstore.runtime import snapshot_for_values
+
 ENDPOINT = os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID", "test")
@@ -174,43 +178,52 @@ def _langsmith_environment() -> dict[str, str]:
     return values
 
 
-def lambda_environment() -> dict[str, str]:
+def _config_store(settings: Settings) -> DynamoDbConfigStore:
+    return DynamoDbConfigStore(
+        endpoint_url=ENDPOINT,
+        region=REGION,
+        access_key=ACCESS_KEY,
+        secret_key=SECRET_KEY,
+        table=CONFIG_TABLE,
+    )
+
+
+def active_config_hash() -> str:
+    settings = Settings()
+    store = _config_store(settings)
+    head = store.get_head()
+    if head is None:
+        return snapshot_for_values(settings, {}, revision_no=None).config_hash
+    values = store.get_revision_values(head.revision_no)
+    return snapshot_for_values(settings, values, revision_no=head.revision_no).config_hash
+
+
+def lambda_environment(config_hash: str | None = None) -> dict[str, str]:
+    """Bootstrap only: behavioral tuning/floors are resolved from the config registry."""
     environment = {
         "APP_ENV": "local",
         "AWS_REGION": REGION,
         "AWS_ACCESS_KEY_ID": "test",
         "AWS_SECRET_ACCESS_KEY": "test",
         "AWS_ENDPOINT_URL": "http://floci:4566",
+        "CONFIG_SOURCE": "db",
         "CONFIG_TABLE": CONFIG_TABLE,
+        "CONFIG_HASH": config_hash or os.environ.get("CONFIG_HASH", "0" * 64),
+        "CONFIG_HEAD_TTL_SECONDS": os.environ.get("CONFIG_HEAD_TTL_SECONDS", "45"),
+        "CONFIG_MAX_STALE_SECONDS": os.environ.get("CONFIG_MAX_STALE_SECONDS", "300"),
+        # Resource identity and process-topology endpoints remain bootstrap because host and
+        # Lambda use different network addresses for the same physical services.
         "S3_DOCUMENT_BUCKET": DOC_BUCKET,
         "S3_VECTOR_BUCKET": VECTOR_BUCKET,
         "S3_VECTOR_INDEX": VECTOR_INDEX,
         "VECTOR_DIMENSION": os.environ.get("VECTOR_DIMENSION", "1024"),
-        "RETRIEVAL_TOP_K": os.environ.get("RETRIEVAL_TOP_K", "20"),
-        "RETRIEVAL_CONTEXT_K": os.environ.get("RETRIEVAL_CONTEXT_K", "4"),
-        "RETRIEVAL_DOMAIN_MIN_RELEVANCE": os.environ.get(
-            "RETRIEVAL_DOMAIN_MIN_RELEVANCE", "0.5"
-        ),
-        "RETRIEVAL_MIN_RELEVANCE": os.environ.get("RETRIEVAL_MIN_RELEVANCE", "0.5"),
-        "CHUNK_TOKENS": os.environ.get("CHUNK_TOKENS", "400"),
-        "CHUNK_OVERLAP": os.environ.get("CHUNK_OVERLAP", "60"),
         "LLM_BASE_URL": LAMBDA_LLM_BASE_URL,
         "LLM_MODEL": LLM_MODEL,
-        "LLM_ANSWER_MAX_TOKENS": os.environ.get("LLM_ANSWER_MAX_TOKENS", "512"),
-        "LLM_TIMEOUT_SECONDS": os.environ.get("LLM_TIMEOUT_SECONDS", "60"),
-        "LLM_TEMPERATURE": os.environ.get("LLM_TEMPERATURE", "0.7"),
-        "LLM_TOP_P": os.environ.get("LLM_TOP_P", "0.8"),
-        "LLM_TOP_K": os.environ.get("LLM_TOP_K", "20"),
-        "LLM_MIN_P": os.environ.get("LLM_MIN_P", "0.0"),
-        "LLM_PRESENCE_PENALTY": os.environ.get("LLM_PRESENCE_PENALTY", "1.5"),
-        "LLM_REPEAT_PENALTY": os.environ.get("LLM_REPEAT_PENALTY", "1.0"),
         "EMBEDDING_BASE_URL": LAMBDA_EMBEDDING_BASE_URL,
         "EMBEDDING_MODEL": LAMBDA_EMBEDDING_MODEL,
         "EMBEDDING_DIMENSION": os.environ.get("EMBEDDING_DIMENSION", "1024"),
-        "EMBEDDING_TIMEOUT_SECONDS": os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "60"),
         "RERANKER_BASE_URL": LAMBDA_RERANKER_BASE_URL,
         "RERANKER_MODEL": LAMBDA_RERANKER_MODEL,
-        "RERANKER_TIMEOUT_SECONDS": os.environ.get("RERANKER_TIMEOUT_SECONDS", "90"),
     }
     environment.update(_langsmith_environment())
     return environment
@@ -230,7 +243,14 @@ def publish_lambda_code() -> str:
     return key
 
 
-def recreate_lambda(name: str, handler: str, role_arn: str, code_key: str) -> str:
+def recreate_lambda(
+    name: str,
+    handler: str,
+    role_arn: str,
+    code_key: str,
+    *,
+    config_hash: str,
+) -> str:
     lamb = client("lambda")
     with suppress(ClientError):
         lamb.delete_function(FunctionName=name)
@@ -242,7 +262,7 @@ def recreate_lambda(name: str, handler: str, role_arn: str, code_key: str) -> st
         Code={"S3Bucket": LAMBDA_CODE_BUCKET, "S3Key": code_key},
         Timeout=LAMBDA_TIMEOUT_SECONDS,
         MemorySize=1024,
-        Environment={"Variables": lambda_environment()},
+        Environment={"Variables": lambda_environment(config_hash=config_hash)},
     )
     return str(response["FunctionArn"])
 
@@ -364,7 +384,14 @@ def main() -> None:
     ensure_s3()
     ensure_vectors()
     ensure_config_table()
+    config_hash = active_config_hash()
     code_key = publish_lambda_code()
+    config_read_actions = [
+        "dynamodb:GetItem",
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:DescribeTable",
+    ]
     ingest_role = ensure_role(
         "rag-ops-guard-ingest-role",
         [
@@ -373,6 +400,7 @@ def main() -> None:
             "s3vectors:PutVectors",
             "s3vectors:GetVectors",
             "s3vectors:DeleteVectors",
+            *config_read_actions,
         ],
     )
     query_role = ensure_role(
@@ -381,6 +409,7 @@ def main() -> None:
             "s3:GetObject",
             "s3vectors:QueryVectors",
             "s3vectors:GetVectors",
+            *config_read_actions,
         ],
     )
     ingest_arn = recreate_lambda(
@@ -388,12 +417,14 @@ def main() -> None:
         "rag_ops_guard.handlers.ingest.handler",
         ingest_role,
         code_key,
+        config_hash=config_hash,
     )
     query_arn = recreate_lambda(
         "rag-ops-guard-query",
         "rag_ops_guard.handlers.query.handler",
         query_role,
         code_key,
+        config_hash=config_hash,
     )
     probe_lambda("rag-ops-guard-ingest")
     probe_lambda("rag-ops-guard-query")
@@ -401,9 +432,10 @@ def main() -> None:
     print(f"Lambda package: s3://{LAMBDA_CODE_BUCKET}/{code_key}")
     print("Lambda direct invoke: ready")
     print(f"Lambda timeout: {LAMBDA_TIMEOUT_SECONDS}s")
-    tracing = lambda_environment().get("LANGSMITH_TRACING") == "true"
+    tracing = lambda_environment(config_hash=config_hash).get("LANGSMITH_TRACING") == "true"
     print(f"LangSmith tracing: {'enabled' if tracing else 'disabled'}")
     print(f"Config table: {CONFIG_TABLE}")
+    print(f"Config hash: {config_hash}")
     print(f"Local API: {endpoint}")
     print("API data plane: ready")
 

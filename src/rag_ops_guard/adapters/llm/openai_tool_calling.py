@@ -12,7 +12,6 @@ from pydantic import SecretStr
 from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool, ToolCall
 
 T = TypeVar("T")
-STRUCTURED_MAX_TOKENS = 256
 
 
 @dataclass(frozen=True)
@@ -138,8 +137,9 @@ class OpenAIToolCallingAdapter:
         Citation IDs are additionally constrained to chunk IDs returned by search_documents,
         so the model cannot invent an ID that the application must reject afterwards.
 
-        Final structured generation is deterministic and token-bounded. This prevents a
-        stochastic JSON response from consuming the whole Lambda wall-clock budget.
+        Final structured generation is deterministic and uses the effective configured
+        completion budget. The same versioned setting therefore governs normal and
+        schema-constrained generation without a hidden lower cap.
         """
         validator = getattr(schema, "model_validate_json", None)
         schema_factory = getattr(schema, "model_json_schema", None)
@@ -157,12 +157,11 @@ class OpenAIToolCallingAdapter:
             },
             temperature=0.0,
             presence_penalty=0.0,
-            max_completion_tokens=min(
-                self._config.max_completion_tokens,
-                STRUCTURED_MAX_TOKENS,
-            ),
+            max_completion_tokens=self._config.max_completion_tokens,
         )
-        response = runnable.invoke(_to_langchain_messages(messages))
+        response = runnable.invoke(
+            _to_langchain_messages(_structured_input_messages(messages))
+        )
         if not isinstance(response, AIMessage):
             raise TypeError(f"expected AIMessage, got {type(response).__name__}")
 
@@ -170,6 +169,18 @@ class OpenAIToolCallingAdapter:
         if not content:
             raise ValueError("model returned an empty structured response")
         return cast(T, validator(content))
+
+
+def _structured_input_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Remove only an unconstrained trailing assistant draft before JSON grammar generation.
+
+    llama.cpp prefills a trailing assistant message by default. Combining that prefill with
+    response_format/json-schema grammar can make sampler initialization fail before generation.
+    Tool-call protocol is preserved because completed tool turns end in a tool observation.
+    """
+    if messages and messages[-1].role == "assistant" and not messages[-1].tool_calls:
+        return messages[:-1]
+    return messages
 
 
 def _retrieved_citation_ids(messages: list[ModelMessage]) -> list[str]:
@@ -241,26 +252,25 @@ def _to_langchain_messages(messages: list[ModelMessage]) -> list[BaseMessage]:
     for message in messages:
         if message.role == "system":
             converted.append(SystemMessage(content=message.content))
-        elif message.role == "user":
+            continue
+        if message.role == "user":
             converted.append(HumanMessage(content=message.content))
-        elif message.role == "assistant":
-            converted.append(
-                AIMessage(
-                    content=message.content,
-                    tool_calls=[
-                        {
-                            "id": call.id,
-                            "name": call.name,
-                            "args": call.arguments,
-                            "type": "tool_call",
-                        }
-                        for call in message.tool_calls
-                    ],
-                )
-            )
-        elif message.role == "tool":
+            continue
+        if message.role == "assistant":
+            tool_calls = [
+                {
+                    "id": call.id,
+                    "name": call.name,
+                    "args": call.arguments,
+                    "type": "tool_call",
+                }
+                for call in message.tool_calls
+            ]
+            converted.append(AIMessage(content=message.content, tool_calls=tool_calls))
+            continue
+        if message.role == "tool":
             if not message.tool_call_id:
-                raise ValueError("tool messages require tool_call_id")
+                raise ValueError("tool message requires tool_call_id")
             converted.append(
                 ToolMessage(
                     content=message.content,
@@ -268,16 +278,22 @@ def _to_langchain_messages(messages: list[ModelMessage]) -> list[BaseMessage]:
                     name=message.name,
                 )
             )
-        else:  # pragma: no cover
-            raise ValueError(f"unsupported message role: {message.role}")
+            continue
+        raise ValueError(f"unsupported model message role: {message.role}")
     return converted
 
 
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         return content
-    if not isinstance(content, list):
-        return ""
-    return "".join(
-        str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in content
-    )
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""

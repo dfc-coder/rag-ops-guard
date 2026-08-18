@@ -95,6 +95,16 @@ def test_container_service_hosts_are_allowed_locally() -> None:
     assert settings.llm_base_url.startswith("http://llama-gen")
 
 
+def test_physical_lambda_openvino_host_is_allowed_locally() -> None:
+    settings = Settings(
+        _env_file=None,
+        embedding_base_url="http://rag-ops-ovms-rag:8000/v3",
+        reranker_base_url="http://rag-ops-ovms-rag:8000/v3",
+    )
+    assert settings.embedding_base_url == "http://rag-ops-ovms-rag:8000/v3"
+    assert settings.reranker_base_url == "http://rag-ops-ovms-rag:8000/v3"
+
+
 SENTINEL_LANGSMITH = "lsv2-sentinela-no-debe-aparecer"
 SENTINEL_AWS = "AKIA-sentinela-no-debe-aparecer"
 SENTINEL_JUDGE = "sk-sentinela-no-debe-aparecer"

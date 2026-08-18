@@ -31,10 +31,18 @@ def _decode_item(item: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _DESERIALIZER.deserialize(value) for key, value in item.items()}
 
 
+def _published_at_seconds(value: object) -> float | None:
+    if value is None:
+        return None
+    raw = int(value) if isinstance(value, Decimal) else int(str(value))
+    return raw / 1_000_000_000
+
+
 @dataclass(frozen=True)
 class ConfigHead:
     revision_no: int
     content_hash: str
+    published_at: float | None = None
 
 
 @dataclass(frozen=True)
@@ -113,7 +121,11 @@ class DynamoDbConfigStore:
             revision_no = revision_raw
         else:
             revision_no = int(str(revision_raw))
-        return ConfigHead(revision_no=revision_no, content_hash=str(item["content_hash"]))
+        return ConfigHead(
+            revision_no=revision_no,
+            content_hash=str(item["content_hash"]),
+            published_at=_published_at_seconds(item.get("published_at")),
+        )
 
     def get_revision_values(self, revision_no: int) -> dict[str, object]:
         revision_key = f"REV#{revision_no:020d}"
@@ -235,6 +247,7 @@ class DynamoDbConfigStore:
                                 "SK": "HEAD",
                                 "revision_no": revision_no,
                                 "content_hash": digest,
+                                "published_at": str(published_at),
                             }
                         ),
                         "ConditionExpression": (

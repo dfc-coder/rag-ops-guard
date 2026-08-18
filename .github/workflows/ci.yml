@@ -126,7 +126,7 @@ jobs:
           AWS_REGION: us-east-1
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
-      - name: Provision config table for shadow validation
+      - name: Provision config table for effective-config validation
         run: uv run python -c "from scripts.local.provision import ensure_config_table; ensure_config_table()"
         env:
           AWS_ENDPOINT_URL: http://localhost:4566
@@ -134,17 +134,17 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           CONFIG_TABLE: rag-ops-config
-      - name: Publish baseline config shadow
-        run: uv run python scripts/config_publish.py --reason "ci shadow baseline" --actor github-actions
+      - name: Publish baseline config revision
+        run: uv run python scripts/config_publish.py --reason "ci effective config baseline" --actor github-actions
         env:
           APP_ENV: local
+          CONFIG_SOURCE: env
           AWS_ENDPOINT_URL: http://localhost:4566
           AWS_REGION: us-east-1
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           CONFIG_TABLE: rag-ops-config
-      - name: Config shadow check (advisory in Phase 1)
-        continue-on-error: true
+      - name: Config shadow check (blocking in Phase 2)
         run: uv run python scripts/config_shadow_check.py
         env:
           APP_ENV: local

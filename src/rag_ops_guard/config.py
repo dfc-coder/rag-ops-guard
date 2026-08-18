@@ -13,7 +13,14 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
-_LOCAL_SERVICE_HOSTS = {"floci", "llama-gen", "llama-embed", "llama-rerank", "ovms-rag"}
+_LOCAL_SERVICE_HOSTS = {
+    "floci",
+    "llama-gen",
+    "llama-embed",
+    "llama-rerank",
+    "ovms-rag",
+    "rag-ops-ovms-rag",
+}
 
 
 def _host_of(url: str) -> str:
