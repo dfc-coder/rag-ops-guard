@@ -136,7 +136,11 @@ def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     assert "LAMBDA_OPENVINO_ENV" in makefile
     assert "LAMBDA_EMBEDDING_BASE_URL" in provision
     assert "LAMBDA_RERANKER_BASE_URL" in provision
-    assert "EMBEDDING_TIMEOUT_SECONDS" in provision
+    lambda_env = provision.split("def lambda_environment", maxsplit=1)[1].split(
+        "def publish_lambda_code", maxsplit=1
+    )[0]
+    assert "EMBEDDING_TIMEOUT_SECONDS" not in lambda_env
+    assert "RERANKER_TIMEOUT_SECONDS" not in lambda_env
     assert "make physical-ready" in release
     assert "OpenVINO/Qwen3-Embedding-0.6B-int8-ov" in release
     assert "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov" in release
@@ -153,12 +157,15 @@ def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -
 
     assert "physical-relevance-calibrate: physical-generation-contract" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
+    assert "--publish" in makefile
     assert "physical-ready: physical-relevance-calibrate package-lambda" in makefile
-    assert makefile.index("source .local/relevance-floors.env") < makefile.index(
-        "uv run python scripts/validate_retrieval.py", makefile.index("physical-ready:")
-    )
+    physical_ready = makefile.split("physical-ready:", maxsplit=1)[1].split(
+        "physical-eval-measure:", maxsplit=1
+    )[0]
+    assert "CONFIG_SOURCE=db" in physical_ready
+    assert "source .local/relevance-floors.env" not in physical_ready
+    assert "publish_config_revision" in calibrator
     assert "expected_grounded_score" in calibrator
-    assert "A high score on the wrong document must never count" in calibrator
     assert dataset_name in calibrator
     assert dataset_name in validator
     assert not (ROOT / "evaluation/datasets/retrieval-calibration-v1.json").exists()
