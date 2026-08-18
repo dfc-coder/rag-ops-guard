@@ -116,6 +116,24 @@ def _lambda_environment(env: dict[str, str]) -> dict[str, str] | None:
     return {str(key): str(value) for key, value in raw.items()}
 
 
+def _expected_lambda_rag_backends(env: dict[str, str]) -> dict[str, str]:
+    ovms_name = env.get("OVMS_CONTAINER_NAME", "rag-ops-ovms-rag")
+    base_url = f"http://{ovms_name}:8000/v3"
+    return {
+        "EMBEDDING_BASE_URL": base_url,
+        "RERANKER_BASE_URL": base_url,
+    }
+
+
+def _lambda_backend_mismatches(env: dict[str, str], lambda_env: dict[str, str]) -> list[str]:
+    mismatches: list[str] = []
+    for key, expected in _expected_lambda_rag_backends(env).items():
+        actual = lambda_env.get(key, "<missing>")
+        if actual.rstrip("/") != expected.rstrip("/"):
+            mismatches.append(f"{key}={actual} expected={expected}")
+    return mismatches
+
+
 def _local_config_hash(env: dict[str, str]) -> str | None:
     try:
         settings = Settings(
@@ -215,6 +233,7 @@ def status() -> int:
     local_model = env.get("LLM_MODEL", "<unset>")
     api_url = env.get("RAG_API_URL")
     config_mismatch = False
+    backend_mismatch = False
 
     print("\nRAG OPS GUARD - LOCAL STATUS")
     print("=" * 52)
@@ -262,6 +281,13 @@ def status() -> int:
                 f"local={local_hash or '<unavailable>'} | "
                 f"Lambda={lambda_env.get('CONFIG_HASH', '<missing>')}",
             )
+        backend_errors = _lambda_backend_mismatches(env, lambda_env)
+        if backend_errors:
+            backend_mismatch = True
+            _fail("Lambda RAG", "; ".join(backend_errors))
+        else:
+            expected_backend = next(iter(_expected_lambda_rag_backends(env).values()))
+            _ok("Lambda RAG", f"OpenVINO @ {expected_backend}")
         tracing = lambda_env.get("LANGSMITH_TRACING", "false")
         project = lambda_env.get("LANGSMITH_PROJECT", "<unset>")
         if tracing.casefold() == "true":
@@ -284,7 +310,7 @@ def status() -> int:
 
     print("=" * 52)
     print("Commands: make status | make golden CASE=<id> | make golden-all | make logs")
-    return 1 if config_mismatch else 0
+    return 1 if config_mismatch or backend_mismatch else 0
 
 
 def _preflight(env: dict[str, str]) -> list[str]:
@@ -306,8 +332,12 @@ def _preflight(env: dict[str, str]) -> list[str]:
     lambda_env = _lambda_environment(env)
     if lambda_env is None:
         problems.append(f"Lambda {QUERY_FUNCTION} is unavailable")
-    elif not _config_hash_matches(_local_config_hash(env), lambda_env):
-        problems.append("effective config hash differs between local registry and Lambda bootstrap")
+    else:
+        if not _config_hash_matches(_local_config_hash(env), lambda_env):
+            problems.append("effective config hash differs between local registry and Lambda bootstrap")
+        backend_errors = _lambda_backend_mismatches(env, lambda_env)
+        if backend_errors:
+            problems.append("Lambda RAG backend mismatch: " + "; ".join(backend_errors))
     return problems
 
 
