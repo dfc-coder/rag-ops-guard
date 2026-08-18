@@ -33,6 +33,14 @@ def test_interactive_ui_uses_floci_api_instead_of_direct_agent() -> None:
     assert "Floci API Gateway -> Lambda -> Agent" in wrapper
 
 
+def test_chainlit_wrapper_does_not_leak_package_version_into_cli_version_flag() -> None:
+    wrapper = _text("scripts/run_chainlit_beta.sh")
+
+    assert 'CHAINLIT_PACKAGE_VERSION="${CHAINLIT_VERSION:-2.11.1}"' in wrapper
+    assert "unset CHAINLIT_VERSION" in wrapper
+    assert 'chainlit==${CHAINLIT_PACKAGE_VERSION}' in wrapper
+
+
 def test_demo_uses_same_canonical_query_endpoint() -> None:
     demo = _text("scripts/demo.py")
 
