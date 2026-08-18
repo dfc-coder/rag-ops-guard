@@ -21,7 +21,20 @@ describe('RagOpsGuardStack', () => {
     template.resourceCountIs('AWS::Lambda::Function', 2);
   });
 
-  test('declares real AWS endpoint semantics for both lambdas', () => {
+  test('creates retained pay-per-request config table', () => {
+    template.resourceCountIs('AWS::DynamoDB::Table', 1);
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'rag-ops-config',
+      BillingMode: 'PAY_PER_REQUEST',
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+    });
+  });
+
+  test('declares real AWS endpoint and config table semantics for both lambdas', () => {
     template.resourcePropertiesCountIs(
       'AWS::Lambda::Function',
       {
@@ -29,11 +42,20 @@ describe('RagOpsGuardStack', () => {
           Variables: Match.objectLike({
             APP_ENV: 'aws',
             AWS_ENDPOINT_URL: '',
+            CONFIG_TABLE: Match.anyValue(),
           }),
         },
       },
       2,
     );
+  });
+
+  test('config table policy never grants Scan', () => {
+    const policies = template.findResources('AWS::IAM::Policy');
+    const serialized = JSON.stringify(policies);
+    expect(serialized).toContain('dynamodb:GetItem');
+    expect(serialized).toContain('dynamodb:Query');
+    expect(serialized).not.toContain('dynamodb:Scan');
   });
 
   test('creates HTTP API routes', () => {

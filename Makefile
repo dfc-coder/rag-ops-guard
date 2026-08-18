@@ -58,12 +58,14 @@ OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
-.PHONY: up down help status golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: up down help status config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 help:
 	@echo 'Canonical local workflow:'
 	@echo '  make up                         # start/provision the complete physical stack'
 	@echo '  make ui                         # interactive UI through Floci -> Lambda -> Agent'
+	@echo '  make config-publish REASON="..." # publish append-only config revision'
+	@echo '  make config-shadow-check        # compare DB shadow revision with local Settings'
 	@echo '  make golden CASE=<id>           # one Golden through the same /v1/query'
 	@echo '  make golden-all                 # all 34 Golden cases through the same /v1/query'
 	@echo '  make status                     # runtime/model/API/LangSmith state'
@@ -72,6 +74,13 @@ help:
 
 status:
 	@uv run python scripts/local/ops.py status
+
+config-publish:
+	@test -n "$(REASON)" || { echo 'REASON is required'; exit 2; }
+	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/config_publish.py --reason "$(REASON)" --actor "$${USER:-local}"
+
+config-shadow-check:
+	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/config_shadow_check.py
 
 up:
 	@test -f .env || { echo 'Missing .env. Copy/configure .env before starting the runtime.'; exit 2; }

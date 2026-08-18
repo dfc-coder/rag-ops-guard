@@ -5,6 +5,7 @@ import {
   Stack,
   StackProps,
   aws_apigatewayv2 as apigwv2,
+  aws_dynamodb as dynamodb,
   aws_iam as iam,
   aws_lambda as lambda,
   aws_s3 as s3,
@@ -37,12 +38,23 @@ export class RagOpsGuardStack extends Stack {
     });
     index.addDependency(vectors);
 
+    const configTable = new dynamodb.Table(this, 'ConfigTable', {
+      tableName: 'rag-ops-config',
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecovery: true,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     const code = lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda-placeholder'));
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
       S3_VECTOR_BUCKET: vectors.ref,
       S3_VECTOR_INDEX: 'ops-knowledge-v1',
       VECTOR_DIMENSION: '1024',
+      CONFIG_TABLE: configTable.tableName,
       APP_ENV: 'aws',
       AWS_ENDPOINT_URL: '',
     };
@@ -78,6 +90,13 @@ export class RagOpsGuardStack extends Stack {
         resources: ['*'],
       }),
     );
+
+    const configRead = new iam.PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
+      resources: [configTable.tableArn],
+    });
+    ingest.addToRolePolicy(configRead);
+    query.addToRolePolicy(configRead);
 
     const api = new apigwv2.CfnApi(this, 'HttpApi', {
       name: 'rag-ops-guard',
@@ -125,5 +144,6 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'DocumentBucketName', { value: documents.bucketName });
     new CfnOutput(this, 'VectorBucketName', { value: vectors.ref });
     new CfnOutput(this, 'VectorIndexName', { value: 'ops-knowledge-v1' });
+    new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
   }
 }
