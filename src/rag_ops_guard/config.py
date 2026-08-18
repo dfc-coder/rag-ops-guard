@@ -26,7 +26,7 @@ def _is_local_host(url: str) -> bool:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="forbid")
+    model_config = SettingsConfigDict(env_file=".env", extra="forbid", env_ignore_empty=True)
 
     app_env: Literal["local", "local-observed", "ci", "aws"] = "local"
 
