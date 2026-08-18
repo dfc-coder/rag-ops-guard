@@ -34,6 +34,12 @@ def _proxy_response(response: QueryResponse) -> dict[str, Any]:
     }
 
 
+def _add_config_metric_metadata(key: str, value: object) -> None:
+    add_metadata = getattr(QUERY_METRICS, "add_metadata", None)
+    if callable(add_metadata):
+        add_metadata(key=key, value=value)
+
+
 @traceable(name="rag_query", run_type="chain")
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
@@ -44,8 +50,8 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         payload = json.loads(body) if isinstance(body, str) else body
         request = QueryRequest.model_validate(payload)
         effective = resolve_effective_config()
-        QUERY_METRICS.add_metadata(key="config_hash", value=effective.config_hash)
-        QUERY_METRICS.add_metadata(key="config_source", value=effective.source)
+        _add_config_metric_metadata("config_hash", effective.config_hash)
+        _add_config_metric_metadata("config_source", effective.source)
         if effective.stale:
             add_count(QUERY_METRICS, "ConfigStaleServed")
         if effective.fail_closed:
