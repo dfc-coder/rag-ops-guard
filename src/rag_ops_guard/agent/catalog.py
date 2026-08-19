@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from rag_ops_guard.agent.responses import _is_spanish
 from rag_ops_guard.domain.models import Chunk, DocumentStatus, QueryContext
 from rag_ops_guard.ports import ObjectStore
+from rag_ops_guard.tenancy import KeyLayout
 
 
 @dataclass(frozen=True)
@@ -16,14 +17,15 @@ class CatalogEntry:
 
 
 class KnowledgeCatalog:
-    def __init__(self, objects: ObjectStore) -> None:
+    def __init__(self, objects: ObjectStore, key_layout: KeyLayout | None = None) -> None:
         self._objects = objects
+        self._keys = key_layout or KeyLayout("default")
 
     def entries(self, context: QueryContext | None = None) -> list[CatalogEntry]:
         context = context or QueryContext()
         seen: set[tuple[str, str]] = set()
         entries: list[CatalogEntry] = []
-        for key in self._objects.list_keys("chunks/"):
+        for key in self._objects.list_keys(self._keys.chunks_prefix):
             if not key.endswith(".json"):
                 continue
             chunk = Chunk.model_validate_json(self._objects.get_text(key))
