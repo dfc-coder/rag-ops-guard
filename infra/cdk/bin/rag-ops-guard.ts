@@ -18,18 +18,23 @@ if (!fs.existsSync(lambdaAssetPath)) {
   throw new Error(`Lambda asset not found at ${lambdaAssetPath}; run make package-lambda first`);
 }
 
-const stackId = target === 'local' ? 'RagOpsGuardLocal' : 'RagOpsGuardAws';
+const local = target === 'local';
+const stackId = local ? 'RagOpsGuardLocal' : 'RagOpsGuardAws';
 new RagOpsGuardStack(app, stackId, {
   target,
   pythonVersion,
   lambdaCode: lambda.Code.fromAsset(lambdaAssetPath),
   configHash: process.env.CONFIG_HASH,
-  llmBaseUrl: process.env.RAG_OPS_AWS_LLM_BASE_URL,
+  llmBaseUrl: local ? process.env.LAMBDA_LLM_BASE_URL : process.env.RAG_OPS_AWS_LLM_BASE_URL,
   llmModel: process.env.LLM_MODEL,
-  embeddingBaseUrl: process.env.RAG_OPS_AWS_EMBEDDING_BASE_URL,
-  embeddingModel: process.env.EMBEDDING_MODEL,
-  rerankerBaseUrl: process.env.RAG_OPS_AWS_RERANKER_BASE_URL,
-  rerankerModel: process.env.RERANKER_MODEL,
+  embeddingBaseUrl: local
+    ? process.env.LAMBDA_EMBEDDING_BASE_URL
+    : process.env.RAG_OPS_AWS_EMBEDDING_BASE_URL,
+  embeddingModel: process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL,
+  rerankerBaseUrl: local
+    ? process.env.LAMBDA_RERANKER_BASE_URL
+    : process.env.RAG_OPS_AWS_RERANKER_BASE_URL,
+  rerankerModel: process.env.LAMBDA_RERANKER_MODEL ?? process.env.RERANKER_MODEL,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
