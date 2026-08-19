@@ -207,6 +207,7 @@ local-infra: package-lambda
 
 local-provision: local-infra
 	@$(MAKE) config-bootstrap
+	@$(MAKE) local-infra
 
 seed:
 	uv run python scripts/seed.py
