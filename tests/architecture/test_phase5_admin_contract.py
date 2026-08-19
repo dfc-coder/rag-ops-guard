@@ -12,8 +12,10 @@ SRC = ROOT / "src/rag_ops_guard"
 PHASE4_ENV_READ_FILES = {
     "configstore/runtime.py",
     "configstore/tenant_runtime.py",
+    "diagnostics/connectivity.py",
     "handlers/ingest.py",
     "handlers/query.py",
+    "tenancy/runtime_auth.py",
 }
 PHASE4_LAMBDA_ENV_KEYS = {
     "S3_DOCUMENT_BUCKET",
