@@ -21,34 +21,10 @@ jobs:
       - name: Pin aws-cdk-local beside aws-cdk
         working-directory: infra/cdk
         run: npm install --save-dev --package-lock-only aws-cdk-local@3.0.4
-      - name: Switch local commands to repository-local cdklocal
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          makefile = Path('Makefile')
-          text = makefile.read_text()
-          text = text.replace(
-              'CDK_LOCAL ?= npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal',
-              'CDK_LOCAL ?= npx cdklocal',
-          )
-          makefile.write_text(text)
-
-          ci = Path('.github/workflows/ci.yml')
-          text = ci.read_text()
-          text = text.replace(
-              'npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal bootstrap',
-              'npx cdklocal bootstrap',
-          ).replace(
-              'npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal deploy',
-              'npx cdklocal deploy',
-          )
-          ci.write_text(text)
-          PY
-      - name: Commit lockfile and local adapter pin
+      - name: Commit deterministic local CDK tooling
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Makefile .github/workflows/ci.yml infra/cdk/package.json infra/cdk/package-lock.json
+          git add infra/cdk/package.json infra/cdk/package-lock.json
           git commit -m 'build: pin cdklocal with the CDK CLI'
           git push origin HEAD:chore/python313-cdk-canonical-infra
