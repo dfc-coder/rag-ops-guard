@@ -19,6 +19,7 @@ export interface RagOpsGuardStackProps extends StackProps {
   readonly target: InfraTarget;
   readonly pythonVersion: string;
   readonly lambdaCode: lambda.Code;
+  readonly tenantIds?: string[];
   readonly configHash?: string;
   readonly llmBaseUrl?: string;
   readonly llmModel?: string;
@@ -44,6 +45,16 @@ function targetUrl(
   return local ? (value ?? localDefault) : requireHttps(awsName, value);
 }
 
+function tenantIds(values: string[] | undefined): string[] {
+  const resolved = [...new Set(values?.length ? values : ['default'])];
+  for (const tenantId of resolved) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(tenantId)) {
+      throw new Error(`invalid tenant id ${tenantId}`);
+    }
+  }
+  return resolved.sort();
+}
+
 export class RagOpsGuardStack extends Stack {
   constructor(scope: Construct, id: string, props: RagOpsGuardStackProps) {
     super(scope, id, props);
@@ -52,10 +63,12 @@ export class RagOpsGuardStack extends Stack {
     const runtime = new lambda.Runtime(`python${props.pythonVersion}`, lambda.RuntimeFamily.PYTHON, {
       supportsInlineCode: true,
     });
+    const tenants = tenantIds(props.tenantIds);
 
     const documentBucketName = local ? 'rag-ops-guard-docs-local' : undefined;
     const localVectorBucketName = local ? 'rag-ops-guard-vectors-local' : undefined;
-    const vectorIndexName = local ? 'ops-knowledge-openvino-v1' : 'ops-knowledge-v1';
+    const vectorIndexBaseName = local ? 'ops-knowledge-openvino-v1' : 'ops-knowledge-v1';
+    const tenantVectorIndexes = tenants.map((tenantId) => `${vectorIndexBaseName}--${tenantId}`);
 
     const documents = new s3.Bucket(this, 'Documents', {
       bucketName: documentBucketName,
@@ -73,16 +86,18 @@ export class RagOpsGuardStack extends Stack {
     vectors.applyRemovalPolicy(RemovalPolicy.RETAIN);
     const vectorBucketName = localVectorBucketName ?? vectors.ref;
 
-    const index = new s3vectors.CfnIndex(this, 'KnowledgeIndex', {
-      vectorBucketName,
-      indexName: vectorIndexName,
-      dataType: 'float32',
-      dimension: 1024,
-      distanceMetric: 'cosine',
-      metadataConfiguration: { nonFilterableMetadataKeys: ['chunk_s3_key'] },
+    tenantVectorIndexes.forEach((indexName, position) => {
+      const index = new s3vectors.CfnIndex(this, `KnowledgeIndex${position}`, {
+        vectorBucketName,
+        indexName,
+        dataType: 'float32',
+        dimension: 1024,
+        distanceMetric: 'cosine',
+        metadataConfiguration: { nonFilterableMetadataKeys: ['chunk_s3_key'] },
+      });
+      index.addDependency(vectors);
+      index.applyRemovalPolicy(RemovalPolicy.RETAIN);
     });
-    index.addDependency(vectors);
-    index.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
     const configTable = new dynamodb.Table(this, 'ConfigTable', {
       tableName: 'rag-ops-config',
@@ -125,7 +140,7 @@ export class RagOpsGuardStack extends Stack {
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
       S3_VECTOR_BUCKET: vectorBucketName,
-      S3_VECTOR_INDEX: vectorIndexName,
+      S3_VECTOR_INDEX: vectorIndexBaseName,
       VECTOR_DIMENSION: '1024',
       CONFIG_SOURCE: 'db',
       CONFIG_TABLE: configTable.tableName,
@@ -236,7 +251,8 @@ export class RagOpsGuardStack extends Stack {
 
     new CfnOutput(this, 'DocumentBucketName', { value: documents.bucketName });
     new CfnOutput(this, 'VectorBucketName', { value: vectorBucketName });
-    new CfnOutput(this, 'VectorIndexName', { value: vectorIndexName });
+    new CfnOutput(this, 'VectorIndexName', { value: vectorIndexBaseName });
+    new CfnOutput(this, 'TenantVectorIndexNames', { value: JSON.stringify(tenantVectorIndexes) });
     new CfnOutput(this, 'VectorDimension', { value: '1024' });
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
     new CfnOutput(this, 'TenantTableName', { value: tenantTable.tableName });
