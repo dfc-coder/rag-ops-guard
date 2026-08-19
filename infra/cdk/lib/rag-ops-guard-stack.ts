@@ -94,6 +94,15 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    const tenantTable = new dynamodb.Table(this, 'TenantCredentialTable', {
+      tableName: 'rag-ops-tenants',
+      partitionKey: { name: 'key_id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecovery: true,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     const llmBaseUrl = targetUrl(
       local,
       props.llmBaseUrl,
@@ -120,6 +129,7 @@ export class RagOpsGuardStack extends Stack {
       VECTOR_DIMENSION: '1024',
       CONFIG_SOURCE: 'db',
       CONFIG_TABLE: configTable.tableName,
+      TENANT_TABLE: tenantTable.tableName,
       CONFIG_HASH: props.configHash ?? '0'.repeat(64),
       CONFIG_HEAD_TTL_SECONDS: '45',
       CONFIG_MAX_STALE_SECONDS: '300',
@@ -155,6 +165,12 @@ export class RagOpsGuardStack extends Stack {
 
     documents.grantReadWrite(ingest);
     documents.grantRead(query);
+    const tenantCredentialRead = new iam.PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+      resources: [tenantTable.tableArn],
+    });
+    ingest.addToRolePolicy(tenantCredentialRead);
+    query.addToRolePolicy(tenantCredentialRead);
     ingest.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3vectors:PutVectors', 's3vectors:GetVectors', 's3vectors:DeleteVectors'],
@@ -223,6 +239,7 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'VectorIndexName', { value: vectorIndexName });
     new CfnOutput(this, 'VectorDimension', { value: '1024' });
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
+    new CfnOutput(this, 'TenantTableName', { value: tenantTable.tableName });
     new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
     new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });
     new CfnOutput(this, 'ApiId', { value: api.ref });
