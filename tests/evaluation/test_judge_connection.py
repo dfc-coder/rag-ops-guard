@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from rag_ops_guard.config import get_settings
 from rag_ops_guard.evaluation.judge import judge_connection_from_env
 
 
@@ -13,13 +12,6 @@ def _dataset(tmp_path: Path) -> Path:
     path = tmp_path / "golden.json"
     path.write_text("[]", encoding="utf-8")
     return path
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache() -> None:
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 def test_local_judge_uses_runtime_endpoint_without_external_credentials(
@@ -54,12 +46,10 @@ def test_external_openai_compatible_judge_requires_explicit_endpoint_and_secret(
         judge_connection_from_env(_dataset(tmp_path))
 
     monkeypatch.setenv("RAGAS_JUDGE_BASE_URL", "https://judge.example/v1")
-    get_settings.cache_clear()
     with pytest.raises(ValidationError, match="ragas_judge_api_key"):
         judge_connection_from_env(_dataset(tmp_path))
 
     monkeypatch.setenv("RAGAS_JUDGE_API_KEY", "secret-value")
-    get_settings.cache_clear()
     connection = judge_connection_from_env(_dataset(tmp_path))
 
     assert connection.identity.provider == "openai"
