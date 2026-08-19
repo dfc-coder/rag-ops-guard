@@ -93,11 +93,18 @@ def _reachable() -> set[str]:
 
 
 def test_final_pipeline_owners_are_only_app_and_conversation_agent() -> None:
-    """SPEC-6 / R-3"""
+    """SPEC-6 / R-3 + SPEC-P4-MULTITENANCY 4.2."""
     assert PIPELINE_OWNERS == {"app", "agent.conversation"}
-    app = (SRC / "app.py").read_text(encoding="utf-8")
+    app_tree = ast.parse((SRC / "app.py").read_text(encoding="utf-8"))
     conversation = (SRC / "agent/conversation.py").read_text(encoding="utf-8")
-    assert "def conversation_agent()" in app
+    functions = {
+        node.name: node for node in app_tree.body if isinstance(node, ast.FunctionDef)
+    }
+    canonical = functions["conversation_agent"]
+    assert canonical.args.args[0].arg == "context"
+    assert canonical.args.defaults
+    assert isinstance(canonical.args.defaults[0], ast.Constant)
+    assert canonical.args.defaults[0].value is None
     assert "class ConversationAgent" in conversation
 
 
