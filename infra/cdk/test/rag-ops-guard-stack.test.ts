@@ -1,27 +1,74 @@
-import { App } from 'aws-cdk-lib';
+import { App, aws_lambda as lambda } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { RagOpsGuardStack } from '../lib/rag-ops-guard-stack';
 
+function inlineCode(): lambda.Code {
+  return lambda.Code.fromInline('def handler(event, context):\n    return {"statusCode": 200}\n');
+}
+
 describe('RagOpsGuardStack', () => {
-  const app = new App();
-  const stack = new RagOpsGuardStack(app, 'TestStack');
-  const template = Template.fromStack(stack);
+  test('local target uses the real application handlers and Python 3.13 contract', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'LocalTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourcePropertiesCountIs(
+      'AWS::Lambda::Function',
+      {
+        Runtime: 'python3.13',
+        Environment: {
+          Variables: Match.objectLike({
+            APP_ENV: 'local',
+            AWS_ENDPOINT_URL: 'http://floci:4566',
+            S3_VECTOR_BUCKET: 'rag-ops-guard-vectors-local',
+            S3_VECTOR_INDEX: 'ops-knowledge-openvino-v1',
+            EMBEDDING_BASE_URL: 'http://rag-ops-ovms-rag:8000/v3',
+            RERANKER_BASE_URL: 'http://rag-ops-ovms-rag:8000/v3',
+          }),
+        },
+      },
+      2,
+    );
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Handler: 'rag_ops_guard.handlers.ingest.handler',
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Handler: 'rag_ops_guard.handlers.query.handler',
+    });
+  });
 
   test('creates one S3 Vectors bucket and 1024-dimensional cosine index', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'VectorTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
+
     template.resourceCountIs('AWS::S3Vectors::VectorBucket', 1);
     template.hasResourceProperties('AWS::S3Vectors::Index', {
       DataType: 'float32',
       Dimension: 1024,
       DistanceMetric: 'cosine',
-      IndexName: 'ops-knowledge-v1',
+      IndexName: 'ops-knowledge-openvino-v1',
+      VectorBucketName: 'rag-ops-guard-vectors-local',
     });
   });
 
-  test('creates query and ingest lambdas', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 2);
-  });
-
   test('creates retained pay-per-request config table', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'ConfigTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
+
     template.resourceCountIs('AWS::DynamoDB::Table', 1);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'rag-ops-config',
@@ -34,15 +81,40 @@ describe('RagOpsGuardStack', () => {
     });
   });
 
-  test('declares real AWS endpoint and config table semantics for both lambdas', () => {
+  test('AWS target is fail-closed on external HTTPS inference endpoints', () => {
+    const app = new App();
+    expect(
+      () =>
+        new RagOpsGuardStack(app, 'InvalidAwsStack', {
+          target: 'aws',
+          pythonVersion: '3.13',
+          lambdaCode: inlineCode(),
+        }),
+    ).toThrow(/RAG_OPS_AWS_LLM_BASE_URL/);
+  });
+
+  test('AWS target declares real endpoint semantics when explicit endpoints are supplied', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'AwsTestStack', {
+      target: 'aws',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+      llmBaseUrl: 'https://llm.example.test/v1',
+      embeddingBaseUrl: 'https://embedding.example.test/v1',
+      rerankerBaseUrl: 'https://reranker.example.test/v1',
+    });
+    const template = Template.fromStack(stack);
+
     template.resourcePropertiesCountIs(
       'AWS::Lambda::Function',
       {
+        Runtime: 'python3.13',
         Environment: {
           Variables: Match.objectLike({
             APP_ENV: 'aws',
             AWS_ENDPOINT_URL: '',
             CONFIG_TABLE: Match.anyValue(),
+            LLM_BASE_URL: 'https://llm.example.test/v1',
           }),
         },
       },
@@ -51,6 +123,13 @@ describe('RagOpsGuardStack', () => {
   });
 
   test('config table policy never grants Scan', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'PolicyTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
     const policies = template.findResources('AWS::IAM::Policy');
     const serialized = JSON.stringify(policies);
     expect(serialized).toContain('dynamodb:GetItem');
@@ -59,6 +138,14 @@ describe('RagOpsGuardStack', () => {
   });
 
   test('creates HTTP API routes', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'ApiTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
+
     template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /v1/query',
     });

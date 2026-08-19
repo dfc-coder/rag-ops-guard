@@ -6,6 +6,7 @@ import os
 import uuid
 import zipfile
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 import boto3
@@ -16,8 +17,10 @@ from botocore.exceptions import ClientError
 
 pytestmark = pytest.mark.integration
 
+ROOT = Path(__file__).resolve().parents[2]
 ENDPOINT = os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
+PYTHON_VERSION = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
 
 
 def client(service: str, **kwargs: object) -> Any:
@@ -61,7 +64,7 @@ def test_floci_standard_s3_lambda_and_http_api_data_plane() -> None:
 
         function = lamb.create_function(
             FunctionName=function_name,
-            Runtime="python3.12",
+            Runtime=f"python{PYTHON_VERSION}",
             Role="arn:aws:iam::000000000000:role/rag-ops-ci",
             Handler="index.handler",
             Code={"S3Bucket": bucket, "S3Key": key},

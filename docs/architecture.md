@@ -92,7 +92,24 @@ Current pipeline:
 
 ## Infrastructure boundary
 
-Runtime code depends on ports for object storage, vectors, embeddings, reranking and tool calling. Local adapters use Floci, llama.cpp and OpenVINO-compatible endpoints. AWS/CDK infrastructure remains outside conversational decision logic.
+AWS CDK is the canonical infrastructure definition for both deployment targets:
+
+```text
+                     infra/cdk
+                        CDK
+                     /       \
+                    v         v
+             local target    aws target
+                 Floci        AWS
+```
+
+The same stack owns S3, S3 Vectors, DynamoDB, IAM, Lambda and API Gateway topology. Target-specific values are configuration: local Lambdas use Floci/OpenVINO/llama.cpp endpoints while the AWS target requires explicit HTTPS inference endpoints.
+
+The Lambda artifact is also shared: `scripts/package_lambda.sh` produces `.local/lambda-package.zip`, and CDK deploys that real application package rather than a placeholder handler.
+
+Floci 1.6.0 exposes the S3 Vectors API but does not materialize `AWS::S3Vectors::*` CloudFormation resources. `scripts/local/provision.py` is therefore deliberately limited to one compatibility bridge: it reads vector names/dimension from CDK stack outputs and realizes those resources through Floci's S3 Vectors API. It must not create S3 buckets, DynamoDB tables, IAM roles, Lambdas or API Gateway resources.
+
+`.python-version` is the operational Python runtime source of truth. Local `uv`, Lambda packaging, CDK runtime naming, `doctor`, mypy/Ruff and CI are required to remain aligned with it.
 
 ## Architecture fitness
 
@@ -103,5 +120,7 @@ Runtime code depends on ports for object storage, vectors, embeddings, reranking
 - the core has no LangChain/LangGraph imports;
 - unreachable pipeline code is exactly zero;
 - citation validation remains reachable from the canonical path.
+
+Additional infrastructure/runtime contracts enforce that CDK owns local provisioning and that Python runtime consumers stay aligned with `.python-version`.
 
 Ruff is advisory. Architecture, mypy, unit/property/integration, adversarial security and dependency/security checks are blocking.

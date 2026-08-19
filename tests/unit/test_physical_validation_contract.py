@@ -17,19 +17,23 @@ def _env_value(name: str) -> str:
 
 def test_make_workflows_pin_canonical_python() -> None:
     makefile = _read("Makefile")
-    assert "UV_PYTHON ?= 3.12" in makefile
-    assert "export UV_PYTHON " in makefile
-    assert _read(".python-version").strip() == "3.12"
+    assert _read(".python-version").strip() == "3.13"
+    assert "PYTHON_VERSION := $(strip $(shell cat .python-version))" in makefile
+    assert "UV_PYTHON ?= $(PYTHON_VERSION)" in makefile
+    assert "LAMBDA_PYTHON_VERSION ?= $(PYTHON_VERSION)" in makefile
+    assert "export PYTHON_VERSION UV_PYTHON LAMBDA_PYTHON_VERSION" in makefile
 
 
 def test_physical_runtime_uses_one_generation_model_alias() -> None:
     alias = _env_value("LLM_MODEL")
     compose = _read("docker/docker-compose.yml")
-    provision = _read("scripts/local/provision.py")
+    stack = _read("infra/cdk/lib/rag-ops-guard-stack.ts")
+    entrypoint = _read("infra/cdk/bin/rag-ops-guard.ts")
     release = _read(".github/workflows/release-validation.yml")
 
     assert f"- {alias}" in compose
-    assert '"LLM_MODEL": LLM_MODEL' in provision
+    assert f"props.llmModel ?? '{alias}'" in stack
+    assert "llmModel: process.env.LLM_MODEL" in entrypoint
     assert f"LLM_MODEL: {alias}" in release
     assert f"RAGAS_JUDGE_MODEL: {alias}" in release
 
@@ -88,17 +92,22 @@ def test_generation_contract_uses_tool_calling_plus_schema_constrained_final_out
     assert "FINAL_RESPONSE_TOOL" not in adapter
 
 
-def test_physical_floci_uses_standard_lambda_and_api_contract() -> None:
+def test_physical_floci_uses_canonical_cdk_lambda_and_api_contract() -> None:
     compose = _read("docker/docker-compose.yml")
     hosted_ci = _read(".github/workflows/ci.yml")
     provision = _read("scripts/local/provision.py")
+    stack = _read("infra/cdk/lib/rag-ops-guard-stack.ts")
+    makefile = _read("Makefile")
 
     assert "localhost/rag-ops-floci-jvm:1.6.0" in compose
     assert "floci/floci:1.6.0" in hosted_ci
+    assert "$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)" in makefile
+    assert "rag_ops_guard.handlers.ingest.handler" in stack
+    assert "rag_ops_guard.handlers.query.handler" in stack
+    assert "create_function" not in provision
+    assert "create_api" not in provision
     assert "floci:override-id" not in provision
     assert '"hot-reload"' not in provision
-    assert "S3_LAMBDA_CODE_BUCKET" in provision
-    assert 'Code={"S3Bucket": LAMBDA_CODE_BUCKET, "S3Key": code_key}' in provision
     assert "/execute-api/{api_id}/" in provision
 
 
@@ -108,11 +117,6 @@ def test_physical_floci_avoids_native_unix_socket_bug_on_rootless_podman() -> No
     image_builder = _read("scripts/local/floci_jvm_image.py")
     api_service = _read("scripts/local/podman_api_service.py")
 
-    # Upstream Floci 1.6.0 native/GraalVM can fail in docker-java's UnixDomainSockets
-    # path. The local physical runtime therefore builds the official JVM Dockerfile
-    # from the exact 1.6.0 release commit and connects it directly to a dedicated,
-    # long-lived rootless Podman API Unix socket. No unauthenticated Docker API TCP
-    # port and no socat proxy are required.
     assert 'FLOCI_DOCKER_DOCKER_HOST: unix:///var/run/docker.sock' in compose
     assert '"${PODMAN_API_SOCKET}:/var/run/docker.sock"' in compose
     assert "docker-proxy:" not in compose
@@ -139,20 +143,16 @@ def test_physical_floci_avoids_native_unix_socket_bug_on_rootless_podman() -> No
 
 def test_physical_profile_uses_openvino_for_embedding_and_reranking() -> None:
     makefile = _read("Makefile")
-    provision = _read("scripts/local/provision.py")
+    stack = _read("infra/cdk/lib/rag-ops-guard-stack.ts")
+    entrypoint = _read("infra/cdk/bin/rag-ops-guard.ts")
     release = _read(".github/workflows/release-validation.yml")
     reranker = _read("src/rag_ops_guard/adapters/reranking/llamacpp_reranker.py")
 
     assert "physical-ready:" in makefile
     assert "OVMS_NETWORK=$(RAG_OPS_NETWORK)" in makefile
-    assert "LAMBDA_OPENVINO_ENV" in makefile
-    assert "LAMBDA_EMBEDDING_BASE_URL" in provision
-    assert "LAMBDA_RERANKER_BASE_URL" in provision
-    lambda_env = provision.split("def lambda_environment", maxsplit=1)[1].split(
-        "def publish_lambda_code", maxsplit=1
-    )[0]
-    assert "EMBEDDING_TIMEOUT_SECONDS" not in lambda_env
-    assert "RERANKER_TIMEOUT_SECONDS" not in lambda_env
+    assert "http://rag-ops-ovms-rag:8000/v3" in stack
+    assert "LAMBDA_EMBEDDING_BASE_URL" in entrypoint
+    assert "LAMBDA_RERANKER_BASE_URL" in entrypoint
     assert "make physical-ready" in release
     assert "OpenVINO/Qwen3-Embedding-0.6B-int8-ov" in release
     assert "OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov" in release
@@ -170,12 +170,13 @@ def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -
     assert "physical-relevance-calibrate: physical-generation-contract" in makefile
     assert "--env-file .local/relevance-floors.env" in makefile
     assert "--publish" in makefile
-    assert "physical-ready: physical-relevance-calibrate package-lambda" in makefile
+    assert "physical-ready: physical-relevance-calibrate" in makefile
     physical_ready = makefile.split("physical-ready:", maxsplit=1)[1].split(
         "physical-eval-measure:", maxsplit=1
     )[0]
     assert "CONFIG_SOURCE=db" in physical_ready
     assert "source .local/relevance-floors.env" not in physical_ready
+    assert "$(MAKE) local-infra" in physical_ready
     assert "publish_config_revision" in calibrator
     assert "expected_grounded_score" in calibrator
     assert dataset_name in calibrator
@@ -209,6 +210,8 @@ def test_physical_provisioning_propagates_langsmith_without_hardcoded_disable() 
     loader = _read("scripts/local/configure_langsmith_ci.py")
 
     assert '_langsmith_environment()' in provision
+    assert "apply_local_runtime_secrets" in provision
+    assert "update_function_configuration" in provision
     assert '"LANGSMITH_TRACING": "false"' not in provision
     assert '"LANGSMITH_API_KEY"' in provision
     assert '@traceable(name="rag_query", run_type="chain")' in handler

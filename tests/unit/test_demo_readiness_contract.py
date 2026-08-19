@@ -30,7 +30,10 @@ def test_obsolete_react_smoke_shims_are_not_release_targets() -> None:
 def test_release_check_keeps_style_advisory_but_correctness_blocking() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "release-check: lint-advisory types test test-integration test-e2e eval" in makefile
+    assert (
+        "release-check: package-lambda lint-advisory types test test-integration test-e2e eval"
+        in makefile
+    )
     assert "lint-advisory:" in makefile
     assert "types:" in makefile
     assert "test-unit:" in makefile
