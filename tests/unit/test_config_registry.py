@@ -35,7 +35,7 @@ def test_relevance_floors_are_fail_closed() -> None:
 
 
 def test_secret_values_are_never_publication_values() -> None:
-    settings = Settings(_env_file=None)
+    settings = Settings()
     values = public_settings_values(settings)
     assert len(values) == 53
     assert "aws_secret_access_key" not in values
