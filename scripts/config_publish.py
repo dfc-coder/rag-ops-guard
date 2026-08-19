@@ -12,7 +12,7 @@ from rag_ops_guard.configstore.registry import (
     registry_entries,
     validate_value_against_schema,
 )
-from rag_ops_guard.configstore.runtime import snapshot_for_values
+from rag_ops_guard.configstore.runtime import snapshot_for_values, write_local_snapshot
 from rag_ops_guard.configstore.tenant_runtime import (
     tenant_snapshot_key,
     upload_tenant_snapshot,
@@ -70,6 +70,9 @@ def publish_config_revision(
     published = store.publish(values, actor=actor, change_reason=reason)
     snapshot = snapshot_for_values(settings, values, revision_no=published.revision_no)
     local_path = write_tenant_snapshot(snapshot, tenant)
+    # Keep the active local snapshot for the CDK CONFIG_HASH bootstrap; tenant data remains
+    # authoritative in the tenant partition and tenant-scoped S3 snapshot.
+    write_local_snapshot(snapshot)
     try:
         upload_tenant_snapshot(snapshot, settings, tenant)
         snapshot_state = f"s3://{settings.s3_document_bucket}/{tenant_snapshot_key(tenant)}"
