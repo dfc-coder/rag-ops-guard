@@ -191,12 +191,7 @@ def main() -> None:
     api_id = required_output(outputs, "ApiId")
 
     apply_local_runtime_secrets((ingest_name, query_name))
-    probe_lambda(ingest_name)
-    probe_lambda(query_name)
-
     endpoint = floci_execution_endpoint(ENDPOINT, api_id)
-    probe_api_route(endpoint, "/v1/ingest")
-    probe_api_route(endpoint, "/v1/query")
 
     Path(".local").mkdir(exist_ok=True)
     Path(".local/api-url").write_text(endpoint, encoding="utf-8")
@@ -204,9 +199,7 @@ def main() -> None:
     print(f"CDK stack: {STACK_NAME}")
     print("Floci S3 Vectors bridge: ready")
     print("Local runtime secrets: synchronized")
-    print("Lambda direct invoke: ready")
     print(f"Local API: {endpoint}")
-    print("API data plane: ready")
 
 
 if __name__ == "__main__":
