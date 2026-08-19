@@ -26,13 +26,12 @@ def _header(event: dict[str, Any], name: str) -> str:
 
 def _default_authenticator() -> TenantAuthenticator:
     settings = Settings()
-    table = os.environ.get("TENANT_TABLE", settings.tenant_table)
     store = DynamoDbTenantCredentialStore(
         endpoint_url=settings.aws_endpoint_url,
         region=settings.aws_region,
         access_key=settings.aws_access_key_id,
         secret_key=settings.aws_secret_access_key.get_secret_value(),
-        table=table,
+        table=os.environ.get("TENANT_TABLE", "rag-ops-tenants"),
     )
     return TenantAuthenticator(store=store)
 
