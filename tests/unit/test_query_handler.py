@@ -7,6 +7,9 @@ from unittest.mock import MagicMock
 
 from rag_ops_guard.domain.models import QueryResponse, ResponseOutcome
 from rag_ops_guard.handlers import query
+from rag_ops_guard.tenancy import RequestContext
+
+_CONTEXT = RequestContext(principal="api-key:key-a", tenant_id="tenant-a")
 
 
 class _FailingAgent:
@@ -65,13 +68,14 @@ def _quiet_observability(monkeypatch) -> tuple[MagicMock, MagicMock, list[str], 
         raising=False,
     )
     monkeypatch.setattr(query, "resolve_effective_config", lambda: _effective())
+    monkeypatch.setattr(query, "request_context_from_event", lambda event: _CONTEXT)
     return logger, metrics, counts, measures
 
 
 def test_unexpected_query_failure_returns_diagnostic_500_in_local(monkeypatch) -> None:
     logger, _, _, _ = _quiet_observability(monkeypatch)
     monkeypatch.setenv("APP_ENV", "local")
-    monkeypatch.setattr(query, "conversation_agent", lambda: _FailingAgent())
+    monkeypatch.setattr(query, "conversation_agent", lambda context: _FailingAgent())
 
     response = query.handler(
         {"body": json.dumps({"question": "hello", "context": {}})},
@@ -89,7 +93,7 @@ def test_unexpected_query_failure_returns_diagnostic_500_in_local(monkeypatch) -
 def test_unexpected_query_failure_does_not_expose_detail_outside_local(monkeypatch) -> None:
     _quiet_observability(monkeypatch)
     monkeypatch.setenv("APP_ENV", "aws")
-    monkeypatch.setattr(query, "conversation_agent", lambda: _FailingAgent())
+    monkeypatch.setattr(query, "conversation_agent", lambda context: _FailingAgent())
 
     response = query.handler(
         {"body": json.dumps({"question": "hello", "context": {}})},
@@ -114,7 +118,7 @@ def test_phase2_query_emits_required_config_dimensions_metrics_and_trace_metadat
 
     monkeypatch.setattr(query, "get_current_run_tree", lambda: run_tree, raising=False)
     monkeypatch.setattr(query, "tracing_context", fake_tracing_context, raising=False)
-    monkeypatch.setattr(query, "conversation_agent", lambda: _SuccessfulAgent())
+    monkeypatch.setattr(query, "conversation_agent", lambda context: _SuccessfulAgent())
 
     response = query.handler(
         {"body": json.dumps({"question": "hello", "context": {}})},
@@ -129,13 +133,13 @@ def test_phase2_query_emits_required_config_dimensions_metrics_and_trace_metadat
     assert "ConfigDbUnavailable" not in counts
     assert any(name == "ConfigResolveLatencyMs" for name, _ in measures)
     assert ("ConfigRevisionAge", 12.5) in measures
-    expected_metadata = {
+    expected_config_metadata = {
         "config_revision": 7,
         "config_hash": "abcdef12",
         "config_source": "dynamodb",
     }
-    assert run_tree.metadata == expected_metadata
-    assert inherited_metadata == [expected_metadata]
+    assert run_tree.metadata == expected_config_metadata
+    assert inherited_metadata == [{**expected_config_metadata, "tenant_id": "tenant-a"}]
 
 
 def test_phase2_query_reports_stale_cache_and_dynamodb_unavailability(monkeypatch) -> None:
@@ -150,7 +154,7 @@ def test_phase2_query_reports_stale_cache_and_dynamodb_unavailability(monkeypatc
             db_unavailable=True,
         ),
     )
-    monkeypatch.setattr(query, "conversation_agent", lambda: _SuccessfulAgent())
+    monkeypatch.setattr(query, "conversation_agent", lambda context: _SuccessfulAgent())
 
     response = query.handler(
         {"body": json.dumps({"question": "hello", "context": {}})},

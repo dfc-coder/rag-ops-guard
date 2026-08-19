@@ -6,6 +6,9 @@ from unittest.mock import MagicMock
 
 from rag_ops_guard.domain.models import IngestResponse
 from rag_ops_guard.handlers import ingest
+from rag_ops_guard.tenancy import RequestContext
+
+_CONTEXT = RequestContext(principal="api-key:key-a", tenant_id="tenant-a")
 
 
 class _FailingIngestionService:
@@ -65,16 +68,17 @@ def _quiet_observability(monkeypatch) -> tuple[MagicMock, MagicMock, list[str], 
         raising=False,
     )
     monkeypatch.setattr(ingest, "resolve_effective_config", lambda: _effective(), raising=False)
+    monkeypatch.setattr(ingest, "request_context_from_event", lambda event: _CONTEXT)
     return logger, metrics, counts, measures
 
 
 def test_unexpected_ingest_failure_returns_diagnostic_500_in_local(monkeypatch) -> None:
     logger, _, _, _ = _quiet_observability(monkeypatch)
     monkeypatch.setenv("APP_ENV", "local")
-    monkeypatch.setattr(ingest, "ingestion_service", lambda: _FailingIngestionService())
+    monkeypatch.setattr(ingest, "ingestion_service", lambda context: _FailingIngestionService())
 
     response = ingest.handler(
-        {"body": json.dumps({"s3_key": "raw/test.md"})},
+        {"body": json.dumps({"s3_key": "t/tenant-a/raw/test.md"})},
         object(),
     )
 
@@ -88,10 +92,10 @@ def test_unexpected_ingest_failure_returns_diagnostic_500_in_local(monkeypatch) 
 
 def test_phase2_ingest_emits_required_config_dimensions_and_health_metrics(monkeypatch) -> None:
     logger, metrics, counts, measures = _quiet_observability(monkeypatch)
-    monkeypatch.setattr(ingest, "ingestion_service", lambda: _SuccessfulIngestionService())
+    monkeypatch.setattr(ingest, "ingestion_service", lambda context: _SuccessfulIngestionService())
 
     response = ingest.handler(
-        {"body": json.dumps({"s3_key": "raw/test.md"})},
+        {"body": json.dumps({"s3_key": "t/tenant-a/raw/test.md"})},
         object(),
     )
 
@@ -107,3 +111,4 @@ def test_phase2_ingest_emits_required_config_dimensions_and_health_metrics(monke
     assert log_extra["config_revision"] == 9
     assert log_extra["config_hash"] == "12345678"
     assert log_extra["config_source"] == "dynamodb"
+    assert log_extra["tenant_id"] == "tenant-a"
