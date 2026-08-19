@@ -92,6 +92,24 @@ describe('RagOpsGuardStack', () => {
     });
   });
 
+  test('tenant config admin roles enforce dynamodb LeadingKeys', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'TenantIamTestStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+      tenantIds: ['tenant-a', 'tenant-b'],
+    });
+    const template = Template.fromStack(stack);
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+
+    expect(policies).toContain('dynamodb:LeadingKeys');
+    expect(policies).toContain('TENANT#tenant-a');
+    expect(policies).toContain('TENANT#tenant-b');
+    expect(policies).toContain('ForAllValues:StringEquals');
+    expect(policies).not.toContain('dynamodb:Scan');
+  });
+
   test('AWS target is fail-closed on external HTTPS inference endpoints', () => {
     const app = new App();
     expect(

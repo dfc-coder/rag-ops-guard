@@ -3,12 +3,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_phase2_data_plane_uses_effective_config() -> None:
+def test_phase4_data_plane_uses_tenant_effective_config() -> None:
     app = (ROOT / "src/rag_ops_guard/app.py").read_text(encoding="utf-8")
     query = (ROOT / "src/rag_ops_guard/handlers/query.py").read_text(encoding="utf-8")
+    ingest = (ROOT / "src/rag_ops_guard/handlers/ingest.py").read_text(encoding="utf-8")
 
-    assert "resolve_effective_config" in app
-    assert "resolve_effective_config" in query
+    assert "resolve_tenant_effective_config" in app
+    assert "resolve_tenant_effective_config(request_context.tenant_id)" in query
+    assert "resolve_tenant_effective_config(request_context.tenant_id)" in ingest
     assert "config_hash" in query
 
 

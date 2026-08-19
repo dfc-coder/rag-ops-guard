@@ -10,7 +10,8 @@ from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
 from rag_ops_guard.agent.conversation import ConversationAgent
-from rag_ops_guard.configstore.runtime import EffectiveConfig, resolve_effective_config
+from rag_ops_guard.configstore.runtime import EffectiveConfig
+from rag_ops_guard.configstore.tenant_runtime import resolve_tenant_effective_config
 from rag_ops_guard.container import Container
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
@@ -131,7 +132,7 @@ def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> 
 def dependencies(context: RequestContext | None = None) -> DependencyBundle:
     """Resolve one warm dependency graph per authenticated tenant/config generation."""
     request_context = context or _DEFAULT_CONTEXT
-    effective = resolve_effective_config()
+    effective = resolve_tenant_effective_config(request_context.tenant_id)
     return _CONTAINER.get(
         request_context,
         effective.config_hash,

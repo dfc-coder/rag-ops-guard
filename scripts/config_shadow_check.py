@@ -4,18 +4,24 @@ import json
 import os
 
 from rag_ops_guard.config import Settings
-from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
 from rag_ops_guard.configstore.registry import public_settings_values
 from rag_ops_guard.configstore.resolver import resolve_shadow
+from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
+from rag_ops_guard.tenancy import KeyLayout
 
 
-def _store(settings: Settings) -> DynamoDbConfigStore:
-    return DynamoDbConfigStore(
+def _tenant_id() -> str:
+    return KeyLayout(os.environ.get("RAG_OPS_TENANT_ID", "default")).tenant_id
+
+
+def _store(settings: Settings, tenant_id: str) -> TenantDynamoDbConfigStore:
+    return TenantDynamoDbConfigStore(
         endpoint_url=settings.aws_endpoint_url,
         region=settings.aws_region,
         access_key=settings.aws_access_key_id,
         secret_key=settings.aws_secret_access_key.get_secret_value(),
         table=os.environ.get("CONFIG_TABLE", "rag-ops-config"),
+        tenant_id=tenant_id,
     )
 
 
@@ -24,19 +30,19 @@ def _display(value: object) -> str:
 
 
 def main() -> int:
-    # Shadow mode intentionally compares the publisher-facing environment with the DB revision;
-    # do not use the effective resolver here or divergence would compare DB with itself.
+    # Shadow mode compares the publisher-facing environment with this tenant's DB revision.
     settings = Settings()
+    tenant_id = _tenant_id()
     local_values = public_settings_values(settings)
-    result = resolve_shadow(_store(settings), local_values)
+    result = resolve_shadow(_store(settings, tenant_id), local_values)
 
     if result.revision_no is None:
-        print("CONFIG SHADOW DIVERGENCE: no published HEAD")
+        print(f"CONFIG SHADOW DIVERGENCE tenant={tenant_id}: no published HEAD")
         print(f"local_hash={result.local_hash}")
         return 1
 
     print(
-        f"CONFIG SHADOW revision={result.revision_no} "
+        f"CONFIG SHADOW tenant={tenant_id} revision={result.revision_no} "
         f"local_hash={result.local_hash} db_hash={result.db_hash}"
     )
     for key in result.divergences:

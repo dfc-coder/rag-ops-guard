@@ -67,7 +67,12 @@ def _quiet_observability(monkeypatch) -> tuple[MagicMock, MagicMock, list[str], 
         lambda _metrics, name, value: measures.append((name, value)),
         raising=False,
     )
-    monkeypatch.setattr(ingest, "resolve_effective_config", lambda: _effective(), raising=False)
+    monkeypatch.setattr(
+        ingest,
+        "resolve_tenant_effective_config",
+        lambda tenant_id: _effective(),
+        raising=False,
+    )
     monkeypatch.setattr(ingest, "request_context_from_event", lambda event: _CONTEXT)
     return logger, metrics, counts, measures
 

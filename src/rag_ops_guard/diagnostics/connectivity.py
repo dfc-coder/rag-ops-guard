@@ -9,8 +9,8 @@ import httpx
 from botocore.config import Config
 
 from rag_ops_guard.app import embeddings, reranker, vector_store
-from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
 from rag_ops_guard.configstore.runtime import EffectiveConfig
+from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
 from rag_ops_guard.tenancy import KeyLayout, RequestContext
 
 
@@ -38,21 +38,22 @@ def _aws_client(service: str, effective: EffectiveConfig, **kwargs: object) -> A
     )
 
 
-def _probe_dynamodb(effective: EffectiveConfig) -> dict[str, object]:
+def _probe_dynamodb(effective: EffectiveConfig, context: RequestContext) -> dict[str, object]:
     settings = effective.settings
     table = os.environ.get("CONFIG_TABLE", "rag-ops-config")
     client = _aws_client("dynamodb", effective)
     client.describe_table(TableName=table)
-    store = DynamoDbConfigStore(
+    store = TenantDynamoDbConfigStore(
         endpoint_url=settings.aws_endpoint_url,
         region=settings.aws_region,
         access_key=settings.aws_access_key_id,
         secret_key=settings.aws_secret_access_key.get_secret_value(),
         table=table,
+        tenant_id=context.tenant_id,
     )
     head = store.get_head()
     if head is None:
-        raise RuntimeError("config table has no HEAD revision")
+        raise RuntimeError(f"tenant {context.tenant_id} config table has no HEAD revision")
     if effective.revision_no is not None and head.revision_no != effective.revision_no:
         raise RuntimeError(
             f"live HEAD revision {head.revision_no} != effective revision {effective.revision_no}"
@@ -60,6 +61,7 @@ def _probe_dynamodb(effective: EffectiveConfig) -> dict[str, object]:
     return {
         "endpoint": settings.aws_endpoint_url,
         "table": table,
+        "tenant_id": context.tenant_id,
         "head_revision": head.revision_no,
     }
 
@@ -163,7 +165,7 @@ def probe_runtime_connectivity(
 ) -> dict[str, object]:
     """Exercise every physical dependency from one authenticated tenant runtime."""
     checks: dict[str, dict[str, object]] = {}
-    checks["dynamodb"] = _check(lambda: _probe_dynamodb(effective))
+    checks["dynamodb"] = _check(lambda: _probe_dynamodb(effective, context))
     checks["s3"] = _check(lambda: _probe_s3(effective))
     checks["llm"] = _check(lambda: _probe_llm(effective))
 

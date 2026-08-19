@@ -118,6 +118,38 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    tenants.forEach((tenantId, position) => {
+      const tenantConfigAdmin = new iam.Role(this, `TenantConfigAdmin${position}`, {
+        assumedBy: new iam.AccountPrincipal(this.account),
+        description: `Administrative config role restricted to tenant ${tenantId}`,
+      });
+      tenantConfigAdmin.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            'dynamodb:GetItem',
+            'dynamodb:BatchGetItem',
+            'dynamodb:Query',
+            'dynamodb:PutItem',
+            'dynamodb:UpdateItem',
+            'dynamodb:DeleteItem',
+            'dynamodb:TransactWriteItems',
+          ],
+          resources: [configTable.tableArn],
+          conditions: {
+            'ForAllValues:StringEquals': {
+              'dynamodb:LeadingKeys': [`TENANT#${tenantId}`],
+            },
+          },
+        }),
+      );
+      tenantConfigAdmin.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['dynamodb:DescribeTable'],
+          resources: [configTable.tableArn],
+        }),
+      );
+    });
+
     const llmBaseUrl = targetUrl(
       local,
       props.llmBaseUrl,
