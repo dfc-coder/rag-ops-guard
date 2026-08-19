@@ -19,11 +19,16 @@ if (!fs.existsSync(lambdaAssetPath)) {
 }
 
 const local = target === 'local';
+const configuredTenants = (process.env.RAG_OPS_TENANTS ?? process.env.RAG_OPS_TENANT_ID ?? 'default')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
 const stackId = local ? 'RagOpsGuardLocal' : 'RagOpsGuardAws';
 new RagOpsGuardStack(app, stackId, {
   target,
   pythonVersion,
   lambdaCode: lambda.Code.fromAsset(lambdaAssetPath),
+  tenantIds: configuredTenants,
   configHash: process.env.CONFIG_HASH,
   llmBaseUrl: local ? process.env.LAMBDA_LLM_BASE_URL : process.env.RAG_OPS_AWS_LLM_BASE_URL,
   llmModel: process.env.LLM_MODEL,
