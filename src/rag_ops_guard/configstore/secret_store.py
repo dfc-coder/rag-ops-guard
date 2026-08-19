@@ -43,6 +43,8 @@ class SecretRecordStore(Protocol):
 
     def list_secrets(self, *, scope: str) -> list[EncryptedSecretRecord]: ...
 
+    def delete_secret(self, *, scope: str, key_name: str) -> None: ...
+
 
 class DynamoDbSecretStore:
     """Persist wrapped DEKs and encrypted secret envelopes in a PK/SK DynamoDB table."""
@@ -210,3 +212,6 @@ class DynamoDbSecretStore:
         items = response.get("Items", [])
         records = [self._decode_secret(item) for item in items if isinstance(item, dict)]
         return sorted(records, key=lambda record: record.key_name)
+
+    def delete_secret(self, *, scope: str, key_name: str) -> None:
+        self._table.delete_item(Key={"PK": self._pk(scope), "SK": self._secret_sk(key_name)})
