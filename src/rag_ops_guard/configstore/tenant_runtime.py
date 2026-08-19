@@ -19,10 +19,19 @@ from rag_ops_guard.configstore.runtime import (
     RuntimeConfigResolver,
 )
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
-from rag_ops_guard.runtime_environment import settings_from_process_environment
 from rag_ops_guard.tenancy import KeyLayout
 
 SnapshotLoader = Callable[[], ConfigSnapshot | None]
+
+
+def settings_from_process_environment() -> Settings:
+    """Phase-6.1 compatibility adapter; removed by Phase 6.2."""
+    values: dict[str, object] = {}
+    for field_name in Settings.model_fields:
+        environment_name = field_name.upper()
+        if environment_name in os.environ:
+            values[field_name] = os.environ[environment_name]
+    return Settings.model_validate(values)
 
 
 def tenant_snapshot_key(tenant_id: str) -> str:
