@@ -16,23 +16,26 @@ class S3VectorsStore:
         vector_bucket: str,
         index_name: str,
         object_store: ObjectStore,
-        endpoint_url: str,
-        region_name: str,
-        access_key: str,
-        secret_key: str,
+        endpoint_url: str | None = None,
+        region_name: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
         key_layout: KeyLayout | None = None,
     ) -> None:
         self._bucket = vector_bucket
         self._keys = key_layout or KeyLayout("default")
         self._index = index_name
         self._objects = object_store
-        self._client: Any = boto3.client(
-            "s3vectors",
-            endpoint_url=endpoint_url,
-            region_name=region_name,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-        )
+        client_kwargs: dict[str, object] = {}
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+        if region_name:
+            client_kwargs["region_name"] = region_name
+        if access_key is not None:
+            client_kwargs["aws_access_key_id"] = access_key
+        if secret_key is not None:
+            client_kwargs["aws_secret_access_key"] = secret_key
+        self._client: Any = boto3.client("s3vectors", **client_kwargs)
 
     def put(self, chunks: list[Chunk], embeddings: list[list[float]]) -> list[str]:
         if len(chunks) != len(embeddings):
