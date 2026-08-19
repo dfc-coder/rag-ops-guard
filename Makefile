@@ -1,5 +1,7 @@
 SHELL := /bin/bash
-UV_PYTHON ?= 3.12
+PYTHON_VERSION := $(strip $(shell cat .python-version))
+UV_PYTHON ?= $(PYTHON_VERSION)
+LAMBDA_PYTHON_VERSION ?= $(PYTHON_VERSION)
 COMPOSE := podman compose -f docker/docker-compose.yml
 PODMAN_API_SOCKET ?= /run/user/$(shell id -u)/rag-ops-guard/podman-api.sock
 CACHE_HOME ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)
@@ -51,12 +53,14 @@ RAGAS_MAX_RETRIES ?= 2
 RAGAS_MAX_WAIT_SECONDS ?= 5
 RAGAS_MAX_WORKERS ?= 2
 RAGAS_SUITE_TIMEOUT_SECONDS ?= 1800
-LAMBDA_PYTHON_VERSION ?= 3.12
-export UV_PYTHON PODMAN_API_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_IMAGE FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K RETRIEVAL_DOMAIN_MIN_RELEVANCE RETRIEVAL_MIN_RELEVANCE LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY EMBEDDING_TIMEOUT_SECONDS RERANKER_TIMEOUT_SECONDS GOLDEN_HTTP_TIMEOUT_SECONDS GOLDEN_CASE_TIMEOUT_SECONDS RAGAS_JUDGE_TIMEOUT_SECONDS RAGAS_OPERATION_TIMEOUT_SECONDS RAGAS_MAX_RETRIES RAGAS_MAX_WAIT_SECONDS RAGAS_MAX_WORKERS RAGAS_SUITE_TIMEOUT_SECONDS LAMBDA_PYTHON_VERSION
+CDK_LOCAL ?= npx --yes --package aws-cdk-local@3.0.4 cdklocal
+CDK_LOCAL_STACK ?= RagOpsGuardLocal
+CDK_LOCAL_ACCOUNT ?= 000000000000
+CDK_LOCAL_REGION ?= us-east-1
+export PYTHON_VERSION UV_PYTHON LAMBDA_PYTHON_VERSION PODMAN_API_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_IMAGE FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K RETRIEVAL_DOMAIN_MIN_RELEVANCE RETRIEVAL_MIN_RELEVANCE LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY EMBEDDING_TIMEOUT_SECONDS RERANKER_TIMEOUT_SECONDS GOLDEN_HTTP_TIMEOUT_SECONDS GOLDEN_CASE_TIMEOUT_SECONDS RAGAS_JUDGE_TIMEOUT_SECONDS RAGAS_OPERATION_TIMEOUT_SECONDS RAGAS_MAX_RETRIES RAGAS_MAX_WAIT_SECONDS RAGAS_MAX_WORKERS RAGAS_SUITE_TIMEOUT_SECONDS
 
 OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) EMBEDDING_TIMEOUT_SECONDS=$(EMBEDDING_TIMEOUT_SECONDS) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) RERANKER_TIMEOUT_SECONDS=$(RERANKER_TIMEOUT_SECONDS) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
-LAMBDA_OPENVINO_ENV := LAMBDA_EMBEDDING_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) LAMBDA_RERANKER_BASE_URL=http://$(OVMS_CONTAINER_NAME):8000/v3 LAMBDA_RERANKER_MODEL=$(OVMS_RERANKER_MODEL)
 
 .PHONY: up down help status connectivity config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
@@ -80,7 +84,6 @@ connectivity:
 	@uv run python scripts/local/connectivity.py
 
 config-bootstrap:
-	@set -a; [ ! -f .env ] || source .env; set +a; uv run python -c 'from scripts.local.provision import ensure_s3, ensure_config_table; ensure_s3(); ensure_config_table()'
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=env $(OPENVINO_BACKEND_ENV) uv run python scripts/config_publish.py --reason "physical runtime baseline" --actor "$${USER:-local}"
 
 config-publish:
@@ -109,7 +112,7 @@ logs:
 	@uv run python scripts/local/ops.py logs
 
 doctor:
-	@uv run --no-project --python 3.12 python scripts/doctor.py
+	@uv run --no-project --python $(PYTHON_VERSION) python scripts/doctor.py
 
 setup:
 	uv sync --frozen --all-extras --group dev
@@ -141,12 +144,14 @@ local-core-up:
 
 local-down:
 	-uv run python scripts/openvino_runtime.py down
-	-$(COMPOSE) down
+	-podman ps -aq --filter name=floci-rag-ops-guard- | xargs -r podman rm -f
+	-$(COMPOSE) down --remove-orphans
 	-uv run python scripts/local/podman_api_service.py stop --socket "$(PODMAN_API_SOCKET)"
 
 local-clean:
 	-uv run python scripts/openvino_runtime.py down
-	-$(COMPOSE) down -v
+	-podman ps -aq --filter name=floci-rag-ops-guard- | xargs -r podman rm -f
+	-$(COMPOSE) down -v --remove-orphans
 	-uv run python scripts/local/podman_api_service.py stop --socket "$(PODMAN_API_SOCKET)"
 
 local-data:
@@ -156,7 +161,21 @@ retrieval-validate:
 	uv run python scripts/validate_retrieval.py
 
 local-provision: package-lambda
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
+	@set -a; [ ! -f .env ] || source .env; set +a; \
+	CONFIG_HASH="$$(uv run python -c 'import json; from pathlib import Path; p=Path(".local/config-snapshot.json"); print(json.loads(p.read_text()).get("config_hash", "0" * 64) if p.is_file() else "0" * 64)')"; \
+	export RAG_OPS_INFRA_TARGET=local; \
+	export RAG_OPS_LAMBDA_ASSET="$(abspath .local/lambda-package.zip)"; \
+	export RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)"; \
+	export CONFIG_HASH; \
+	export AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)"; \
+	export AWS_REGION="$(CDK_LOCAL_REGION)"; \
+	export AWS_ACCESS_KEY_ID="$${AWS_ACCESS_KEY_ID:-test}"; \
+	export AWS_SECRET_ACCESS_KEY="$${AWS_SECRET_ACCESS_KEY:-test}"; \
+	export CDK_DEFAULT_ACCOUNT="$(CDK_LOCAL_ACCOUNT)"; \
+	export CDK_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
+	cd infra/cdk && $(CDK_LOCAL) bootstrap aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
+	$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK) --require-approval never
+	@set -a; [ ! -f .env ] || source .env; set +a; RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
 	@uv run python scripts/local/connectivity.py
 
 seed:
@@ -221,6 +240,7 @@ chainlit-gate:
 
 physical-up: generation-model local-core-up openvino-models
 	OVMS_NETWORK=$(RAG_OPS_NETWORK) uv run python scripts/openvino_runtime.py up
+	@$(MAKE) local-provision
 	@$(MAKE) config-bootstrap
 	CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/local/ensure_data.py
 
@@ -231,9 +251,9 @@ physical-relevance-calibrate: physical-generation-contract
 	$(OPENVINO_BACKEND_ENV) uv run python scripts/calibrate_relevance_floors.py --env-file .local/relevance-floors.env --publish --reason "physical relevance calibration"
 	@cat .local/relevance-floors.env
 
-physical-ready: physical-relevance-calibrate package-lambda
+physical-ready: physical-relevance-calibrate
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) $(LAMBDA_OPENVINO_ENV) uv run python scripts/local/provision.py
+	@$(MAKE) local-provision
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py
 	@uv run python scripts/local/connectivity.py
 
@@ -304,13 +324,13 @@ eval-judge-calibrate:
 eval-langsmith:
 	uv run --extra eval python evaluation/runners/run_langsmith.py
 
-release-check: lint-advisory types test test-integration test-e2e eval
-	cd infra/cdk && npm test && npx cdk synth
+release-check: package-lambda lint-advisory types test test-integration test-e2e eval
+	cd infra/cdk && RAG_OPS_INFRA_TARGET=local RAG_OPS_LAMBDA_ASSET="$(abspath .local/lambda-package.zip)" npm test && RAG_OPS_INFRA_TARGET=local RAG_OPS_LAMBDA_ASSET="$(abspath .local/lambda-package.zip)" npx cdk synth
 
 reset:
 	-uv run python scripts/openvino_runtime.py down
 	-uv run python scripts/local/reset.py
-	-$(COMPOSE) down -v
+	-$(COMPOSE) down -v --remove-orphans
 	-uv run python scripts/local/podman_api_service.py stop --socket "$(PODMAN_API_SOCKET)"
 	rm -rf .local/lambda-build .local/lambda-package .local/lambda-package.zip .local/api-url artifacts/*
 	touch artifacts/.gitkeep
