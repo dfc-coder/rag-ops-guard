@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import tempfile
 from pathlib import Path
 
 from rag_ops_guard.config import Settings
@@ -36,14 +35,28 @@ def migrated_text(text: str) -> tuple[str, list[str]]:
     return "".join(kept), sorted(set(removed))
 
 
+def _explicit_settings_values(text: str) -> dict[str, object]:
+    fields_by_environment_name = {name.upper(): name for name in Settings.model_fields}
+    values: dict[str, object] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").strip()
+        raw_key, raw_value = line.split("=", 1)
+        field_name = fields_by_environment_name.get(raw_key.strip().upper())
+        if field_name is None:
+            continue
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[field_name] = value
+    return values
+
+
 def _validated_candidate(text: str) -> None:
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".env", delete=False) as handle:
-        handle.write(text)
-        candidate = Path(handle.name)
-    try:
-        Settings(_env_file=candidate)
-    finally:
-        candidate.unlink(missing_ok=True)
+    Settings.model_validate(_explicit_settings_values(text))
 
 
 def migrate(path: Path = ENV_FILE) -> int:
@@ -58,7 +71,6 @@ def migrate(path: Path = ENV_FILE) -> int:
         print("Phase-0 .env migration: no deprecated keys found; configuration is valid")
         return 0
 
-    # Validate the complete candidate before touching the developer's real file.
     _validated_candidate(candidate)
 
     backup = path.with_name(f"{path.name}.pre-phase0.bak")
