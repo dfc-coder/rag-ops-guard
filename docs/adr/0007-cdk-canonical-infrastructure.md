@@ -41,7 +41,9 @@ Floci 1.6.0 exposes the S3 Vectors API but does not currently materialize `AWS::
 1. read names and dimensions from the deployed CDK stack outputs;
 2. materialize only the missing S3 Vectors bucket/index through Floci's S3 Vectors API;
 3. inject local-only observability secrets without putting them in a CloudFormation template;
-4. probe Lambda/API data planes and write `.local/api-url`.
+4. write the Floci API data-plane URL from the CDK stack output.
+
+Runtime connectivity is validated separately by `scripts/local/connectivity.py` after the Phase-3 configuration revision exists.
 
 It must not create S3 buckets, DynamoDB tables, IAM roles, Lambda functions or API Gateway resources.
 
