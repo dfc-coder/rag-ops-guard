@@ -25,6 +25,23 @@ class _Body:
         return self._payload
 
 
+class _FakeAppConfig:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def list_applications(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(("list_applications", dict(kwargs)))
+        return {"Items": [{"Id": "app-123", "Name": APPCONFIG_APPLICATION}]}
+
+    def list_environments(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(("list_environments", dict(kwargs)))
+        return {"Items": [{"Id": "env-456", "Name": APPCONFIG_ENVIRONMENT}]}
+
+    def list_configuration_profiles(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(("list_configuration_profiles", dict(kwargs)))
+        return {"Items": [{"Id": "prof-789", "Name": APPCONFIG_PROFILE}]}
+
+
 class _FakeAppConfigData:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -75,38 +92,65 @@ def _payload() -> dict[str, object]:
     }
 
 
-def test_fetch_control_plane_uses_canonical_appconfigdata_session() -> None:
-    client = _FakeAppConfigData(_payload())
+def test_fetch_control_plane_resolves_names_then_uses_physical_ids() -> None:
+    management = _FakeAppConfig()
+    data = _FakeAppConfigData(_payload())
 
-    resolved = fetch_control_plane(client=client)
+    resolved = fetch_control_plane(management_client=management, data_client=data)
 
     assert resolved == ControlPlaneConfig.model_validate(_payload())
-    assert client.started_with == {
-        "ApplicationIdentifier": APPCONFIG_APPLICATION,
-        "EnvironmentIdentifier": APPCONFIG_ENVIRONMENT,
-        "ConfigurationProfileIdentifier": APPCONFIG_PROFILE,
+    assert management.calls == [
+        ("list_applications", {}),
+        ("list_environments", {"ApplicationId": "app-123"}),
+        ("list_configuration_profiles", {"ApplicationId": "app-123"}),
+    ]
+    assert data.started_with == {
+        "ApplicationIdentifier": "app-123",
+        "EnvironmentIdentifier": "env-456",
+        "ConfigurationProfileIdentifier": "prof-789",
     }
-    assert client.latest_with == {"ConfigurationToken": "token-1"}
+    assert data.latest_with == {"ConfigurationToken": "token-1"}
 
 
-def test_application_resolver_never_overrides_aws_endpoint() -> None:
+def test_application_resolver_uses_standard_sdk_provider_chain_only() -> None:
     source = (ROOT / "src/rag_ops_guard/control_plane.py").read_text(encoding="utf-8")
 
+    assert 'boto3.client("appconfig")' in source
     assert 'boto3.client("appconfigdata")' in source
     assert "endpoint_url=" not in source
     assert "AWS_ENDPOINT_URL" not in source
     assert "os.getenv" not in source
     assert "os.environ" not in source
+    assert APPCONFIG_APPLICATION in source
+    assert APPCONFIG_ENVIRONMENT in source
+    assert APPCONFIG_PROFILE in source
+
+
+def test_missing_named_control_plane_resource_fails_closed() -> None:
+    management = _FakeAppConfig()
+
+    def no_environments(**kwargs: object) -> dict[str, object]:
+        management.calls.append(("list_environments", dict(kwargs)))
+        return {"Items": []}
+
+    management.list_environments = no_environments  # type: ignore[method-assign]
+
+    with pytest.raises(ControlPlaneResolutionError, match="runtime"):
+        fetch_control_plane(
+            management_client=management,
+            data_client=_FakeAppConfigData(_payload()),
+        )
 
 
 def test_empty_initial_configuration_fails_closed() -> None:
-    client = _FakeAppConfigData(_payload())
+    management = _FakeAppConfig()
+    data = _FakeAppConfigData(_payload())
 
     def empty_latest(**kwargs: object) -> dict[str, object]:
-        client.latest_with = dict(kwargs)
+        data.latest_with = dict(kwargs)
         return {"Configuration": _Body(b""), "NextPollConfigurationToken": "token-2"}
 
-    client.get_latest_configuration = empty_latest  # type: ignore[method-assign]
+    data.get_latest_configuration = empty_latest  # type: ignore[method-assign]
 
     with pytest.raises(ControlPlaneResolutionError, match="empty"):
-        fetch_control_plane(client=client)
+        fetch_control_plane(management_client=management, data_client=data)
