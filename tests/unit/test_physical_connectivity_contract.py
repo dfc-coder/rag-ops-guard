@@ -62,8 +62,12 @@ def test_local_provision_is_tenant_independent_and_ready_runs_authenticated_conn
     assert 'RAG_OPS_INFRA_TARGET=local' in infra
     assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in infra
     assert 'scripts/local/provision.py' in infra
+    assert 'if [ "$(SKIP_CDK_BOOTSTRAP)" != "1" ]' in infra
     assert '$(MAKE) config-bootstrap' in provision
     assert 'scripts/local/connectivity.py' not in provision
-    assert provision.index('$(MAKE) config-bootstrap') < provision.index('$(MAKE) local-infra')
+    assert '$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1' in provision
+    assert provision.index('$(MAKE) config-bootstrap') < provision.index(
+        '$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1'
+    )
     assert '$(MAKE) tenant-sync TENANT=$(TENANT)' in ready
     assert 'scripts/local/connectivity.py --tenant-id "$(TENANT)"' in ready
