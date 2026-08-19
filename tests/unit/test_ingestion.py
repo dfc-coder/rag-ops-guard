@@ -1,5 +1,6 @@
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
+from rag_ops_guard.tenancy import KeyLayout
 from tests.fixtures.fakes import FakeEmbeddingProvider, FakeObjectStore, FakeVectorStore
 
 DOCUMENT = """---
@@ -41,6 +42,8 @@ Retry a Calypso timeout at most three times.
 Escalate to Treasury Integrations after the third failure.
 """
 
+_LAYOUT = KeyLayout("default")
+
 
 def _service(objects: FakeObjectStore, vectors: FakeVectorStore) -> IngestionService:
     return IngestionService(
@@ -48,6 +51,7 @@ def _service(objects: FakeObjectStore, vectors: FakeVectorStore) -> IngestionSer
         vector_store=vectors,
         embeddings=FakeEmbeddingProvider(),
         chunker=MarkdownChunker(lambda text: len(text.split()), 400, 60),
+        key_layout=_LAYOUT,
     )
 
 
@@ -97,7 +101,8 @@ def test_changed_document_deletes_stale_chunk_objects() -> None:
 
     first = service.ingest("raw/policy.md")
     assert first.chunks == 2
-    old_keys = objects.list_keys("chunks/payment-retry-policy/2.0/")
+    chunk_prefix = _LAYOUT.chunk_prefix("payment-retry-policy", "2.0")
+    old_keys = objects.list_keys(chunk_prefix)
     assert len(old_keys) == 2
 
     objects.put_text("raw/policy.md", DOCUMENT)
@@ -105,6 +110,6 @@ def test_changed_document_deletes_stale_chunk_objects() -> None:
 
     assert second.status == "ingested"
     assert second.chunks == 1
-    current_keys = objects.list_keys("chunks/payment-retry-policy/2.0/")
+    current_keys = objects.list_keys(chunk_prefix)
     assert len(current_keys) == 1
     assert old_keys[1] in objects.deleted

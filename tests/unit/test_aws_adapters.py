@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from rag_ops_guard.adapters.aws import s3_store, s3_vectors
 from rag_ops_guard.adapters.aws.s3_store import S3ObjectStore
 from rag_ops_guard.adapters.aws.s3_vectors import S3VectorsStore
+from rag_ops_guard.tenancy import KeyLayout
 from tests.fixtures.builders import evidence
 from tests.fixtures.fakes import FakeObjectStore
 
@@ -82,9 +83,11 @@ def test_s3_vectors_put_query_delete(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(s3_vectors.boto3, "client", lambda *args, **kwargs: fake)
     objects = FakeObjectStore()
     item = evidence()
-    chunk_key = (
-        f"chunks/{item.chunk.logical_id}/{item.chunk.version}/"
-        f"chunk-{item.chunk.chunk_index:03d}.json"
+    layout = KeyLayout("default")
+    chunk_key = layout.chunk_key(
+        item.chunk.logical_id,
+        item.chunk.version,
+        item.chunk.chunk_index,
     )
     objects.put_text(chunk_key, item.chunk.model_dump_json())
     fake.query_response = {
@@ -104,12 +107,14 @@ def test_s3_vectors_put_query_delete(monkeypatch: pytest.MonkeyPatch) -> None:
         "us-east-1",
         "test",
         "test",
+        layout,
     )
 
     keys = store.put([item.chunk], [[1.0, 0.0, 0.0, 0.0]])
     assert keys == [item.chunk.id]
     assert fake.put_payload is not None
     assert fake.put_payload["vectors"][0]["metadata"]["logical_id"] == item.chunk.logical_id
+    assert fake.put_payload["vectors"][0]["metadata"]["chunk_s3_key"] == chunk_key
 
     result = store.query([1.0, 0.0, 0.0, 0.0], 1)
     assert result[0].chunk.id == item.chunk.id
@@ -117,6 +122,32 @@ def test_s3_vectors_put_query_delete(monkeypatch: pytest.MonkeyPatch) -> None:
 
     store.delete(keys)
     assert fake.deleted == keys
+
+
+def test_s3_vectors_ignore_cross_tenant_chunk_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeVectorsClient()
+    monkeypatch.setattr(s3_vectors.boto3, "client", lambda *args, **kwargs: fake)
+    fake.query_response = {
+        "vectors": [
+            {
+                "key": "foreign",
+                "distance": 0.1,
+                "metadata": {"chunk_s3_key": "t/tenant-b/chunks/doc/1/chunk-000.json"},
+            }
+        ]
+    }
+    store = S3VectorsStore(
+        "vectors",
+        "index",
+        FakeObjectStore(),
+        "http://floci",
+        "us-east-1",
+        "test",
+        "test",
+        KeyLayout("tenant-a"),
+    )
+
+    assert store.query([1.0], 1) == []
 
 
 def test_s3_vectors_reject_invalid_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
