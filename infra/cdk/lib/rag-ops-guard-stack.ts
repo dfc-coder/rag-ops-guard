@@ -54,9 +54,7 @@ export class RagOpsGuardStack extends Stack {
     });
 
     const documentBucketName = local ? 'rag-ops-guard-docs-local' : undefined;
-    const vectorBucketName = local
-      ? 'rag-ops-guard-vectors-local'
-      : `rag-ops-guard-vectors-${this.account}-${this.region}`;
+    const localVectorBucketName = local ? 'rag-ops-guard-vectors-local' : undefined;
     const vectorIndexName = local ? 'ops-knowledge-openvino-v1' : 'ops-knowledge-v1';
 
     const documents = new s3.Bucket(this, 'Documents', {
@@ -67,8 +65,13 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    const vectors = new s3vectors.CfnVectorBucket(this, 'VectorBucket', { vectorBucketName });
+    const vectors = new s3vectors.CfnVectorBucket(
+      this,
+      'VectorBucket',
+      localVectorBucketName ? { vectorBucketName: localVectorBucketName } : {},
+    );
     vectors.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const vectorBucketName = localVectorBucketName ?? vectors.ref;
 
     const index = new s3vectors.CfnIndex(this, 'KnowledgeIndex', {
       vectorBucketName,
