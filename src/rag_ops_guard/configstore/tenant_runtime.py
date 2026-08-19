@@ -24,6 +24,16 @@ from rag_ops_guard.tenancy import KeyLayout
 SnapshotLoader = Callable[[], ConfigSnapshot | None]
 
 
+def settings_from_process_environment() -> Settings:
+    """Phase-6.1 compatibility adapter; removed by Phase 6.2."""
+    values: dict[str, object] = {}
+    for field_name in Settings.model_fields:
+        environment_name = field_name.upper()
+        if environment_name in os.environ:
+            values[field_name] = os.environ[environment_name]
+    return Settings.model_validate(values)
+
+
 def tenant_snapshot_key(tenant_id: str) -> str:
     return f"{KeyLayout(tenant_id).tenant_prefix}config/runtime-snapshot.json"
 
@@ -99,7 +109,7 @@ def _baked_loader(tenant_id: str) -> SnapshotLoader:
 @lru_cache(maxsize=32)
 def _tenant_resolver(tenant_id: str) -> RuntimeConfigResolver:
     tenant = KeyLayout(tenant_id).tenant_id
-    bootstrap = Settings()
+    bootstrap = settings_from_process_environment()
     source_raw = os.environ.get("CONFIG_SOURCE", "db").strip().casefold()
     if source_raw not in {"db", "env"}:
         raise ValueError("CONFIG_SOURCE must be 'db' or 'env'")

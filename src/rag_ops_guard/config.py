@@ -1,16 +1,10 @@
-"""Fase 0 — endurecimiento de configuración sin DB.
+"""Validated application settings with no implicit environment loading."""
 
-Cierra: C1 (extra=ignore), C2 (secretos en claro), C3 (sin validación cruzada),
-C6/A10 (URLs sin allowlist), C11 (shadow config RAGAS_*), C12 (secreto fuera de
-Settings), INV-1 (floor anulado por max()), INV-2 (coherencia de entorno).
-"""
-
-from functools import lru_cache
+from collections.abc import Mapping
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 _LOCAL_SERVICE_HOSTS = {
@@ -32,8 +26,10 @@ def _is_local_host(url: str) -> bool:
     return host in _LOOPBACK or host in _LOCAL_SERVICE_HOSTS
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="forbid", env_ignore_empty=True)
+class Settings(BaseModel):
+    """Pure validated settings model constructed only from explicit values."""
+
+    model_config = ConfigDict(extra="forbid")
 
     app_env: Literal["local", "local-observed", "ci", "aws"] = "local"
 
@@ -195,6 +191,7 @@ class Settings(BaseSettings):
         return self.ragas_judge_base_url or self.llm_base_url
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
+def get_settings(values: Mapping[str, object] | None = None) -> Settings:
+    """Build settings deterministically from explicit values only."""
+
+    return Settings.model_validate(dict(values or {}))

@@ -117,7 +117,6 @@ def test_published_tuning_wins_over_environment_bootstrap() -> None:
         change_reason="phase2 source inversion",
     )
     bootstrap = Settings(
-        _env_file=None,
         aws_endpoint_url=ENDPOINT,
         retrieval_top_k=2,
         retrieval_context_k=2,

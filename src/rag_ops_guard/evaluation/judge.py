@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from rag_ops_guard.config import get_settings
+from rag_ops_guard.configstore.tenant_runtime import settings_from_process_environment
 
 JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
@@ -61,7 +61,7 @@ def evaluation_dataset_sha256(
 def judge_identity_from_env(
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeIdentity:
-    settings = get_settings()
+    settings = settings_from_process_environment()
     return JudgeIdentity(
         provider=settings.ragas_judge_provider,
         model=settings.resolved_ragas_judge_model,
@@ -73,8 +73,13 @@ def judge_identity_from_env(
 def judge_connection_from_env(
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeConnection:
-    settings = get_settings()
-    identity = judge_identity_from_env(dataset_paths)
+    settings = settings_from_process_environment()
+    identity = JudgeIdentity(
+        provider=settings.ragas_judge_provider,
+        model=settings.resolved_ragas_judge_model,
+        prompt_sha256=_sha256_bytes(JUDGE_SYSTEM_PROMPT.encode("utf-8")),
+        dataset_sha256=evaluation_dataset_sha256(dataset_paths),
+    )
     api_key = (
         settings.ragas_judge_api_key.get_secret_value()
         if settings.ragas_judge_api_key is not None
