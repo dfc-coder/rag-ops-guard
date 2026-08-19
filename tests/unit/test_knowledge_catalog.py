@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
 from rag_ops_guard.domain.models import DocumentStatus, DocumentType, QueryContext
+from rag_ops_guard.tenancy import KeyLayout
 from tests.fixtures.builders import evidence, metadata
 from tests.fixtures.fakes import FakeObjectStore
 
+_LAYOUT = KeyLayout("default")
+
 
 def _store_chunk(objects: FakeObjectStore, item) -> None:
-    key = (
-        f"chunks/{item.chunk.logical_id}/{item.chunk.version}/"
-        f"chunk-{item.chunk.chunk_index:03d}.json"
+    key = _LAYOUT.chunk_key(
+        item.chunk.logical_id,
+        item.chunk.version,
+        item.chunk.chunk_index,
     )
     objects.put_text(key, item.chunk.model_dump_json())
 
@@ -31,7 +35,7 @@ def test_catalog_lists_active_documents_once_and_skips_deprecated() -> None:
     for item in (active, second_chunk, old):
         _store_chunk(objects, item)
 
-    entries = KnowledgeCatalog(objects).entries()
+    entries = KnowledgeCatalog(objects, _LAYOUT).entries()
 
     assert [(item.title, item.document_type) for item in entries] == [
         ("Calypso Integration API", "api")
@@ -47,7 +51,7 @@ def test_catalog_respects_context_and_renders_real_titles() -> None:
     for item in (evidence(meta=calypso_meta), evidence(meta=payments_meta)):
         _store_chunk(objects, item)
 
-    rendered = KnowledgeCatalog(objects).render(
+    rendered = KnowledgeCatalog(objects, _LAYOUT).render(
         "¿Qué documentación tienes disponible?",
         QueryContext(system="calypso"),
     )
