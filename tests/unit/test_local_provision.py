@@ -28,7 +28,7 @@ def test_floci_execution_endpoint_uses_real_api_id_and_path_style_data_plane() -
     )
 
 
-def test_lambda_packaging_python_is_derived_from_project_runtime() -> None:
+def test_lambda_packaging_python_and_dependencies_are_canonical() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     package_script = (ROOT / "scripts/package_lambda.sh").read_text(encoding="utf-8")
 
@@ -36,7 +36,12 @@ def test_lambda_packaging_python_is_derived_from_project_runtime() -> None:
     assert "PYTHON_VERSION := $(strip $(shell cat .python-version))" in makefile
     assert "LAMBDA_PYTHON_VERSION ?= $(PYTHON_VERSION)" in makefile
     assert 'PYTHON_VERSION_FILE="$ROOT/.python-version"' in package_script
-    assert 'uv pip install --python "$PROJECT_PYTHON_VERSION" --target "$BUILD_DIR" .' in package_script
+    assert "uv export" in package_script
+    assert "--frozen" in package_script
+    assert "--no-emit-project" in package_script
+    assert '--requirement "$REQUIREMENTS_PATH"' in package_script
+    assert "uv build --wheel" in package_script
+    assert "--no-deps" in package_script
     assert ".local/lambda-package.zip" in package_script
 
 
