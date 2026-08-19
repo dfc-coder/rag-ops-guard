@@ -133,6 +133,8 @@ jobs:
       - name: Deploy the canonical CDK stack to Floci
         env:
           AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ENDPOINT_URL_S3: http://s3.localhost.localstack.cloud:4566
+          AWS_ENVAR_ALLOWLIST: AWS_REGION,AWS_DEFAULT_REGION
           AWS_REGION: us-east-1
           AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: test
