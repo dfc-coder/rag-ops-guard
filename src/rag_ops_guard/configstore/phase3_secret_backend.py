@@ -1,12 +1,25 @@
 from __future__ import annotations
 
-from rag_ops_guard.configstore.secret_service import EnvelopeSecretService
+from typing import Protocol
+
+
+class EnvelopeSecretPort(Protocol):
+    def set_secret(
+        self,
+        *,
+        scope: str,
+        key_name: str,
+        secret: bytes,
+        kek_ref: str,
+    ) -> None: ...
+
+    def delete_secret(self, *, scope: str, key_name: str) -> None: ...
 
 
 class EnvelopeSecretBackend:
     """Phase-3 compatibility adapter behind the Phase-5 SecretBackend port."""
 
-    def __init__(self, *, service: EnvelopeSecretService, kek_ref: str) -> None:
+    def __init__(self, *, service: EnvelopeSecretPort, kek_ref: str) -> None:
         if not kek_ref.strip():
             raise ValueError("kek_ref must not be empty")
         self._service = service
