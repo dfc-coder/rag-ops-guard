@@ -8,9 +8,12 @@ import chainlit as cl
 import httpx
 from chainlit.input_widget import Select
 
+from rag_ops_guard.local_credentials import require_local_api_key
+
 ROOT = Path(__file__).resolve().parents[1]
 API_FILE = ROOT / ".local" / "api-url"
 QUERY_TIMEOUT_SECONDS = float(os.environ.get("UI_QUERY_TIMEOUT_SECONDS", "300"))
+TENANT_ID = os.environ.get("RAG_OPS_TENANT_ID", "default").strip() or "default"
 
 _ENVIRONMENTS: dict[str, str | None] = {
     "Cualquier ambiente": None,
@@ -79,8 +82,9 @@ async def _run_turn(message: str) -> None:
                 "context": _context(),
                 "thread_id": thread_id,
             }
+            headers = {"x-api-key": require_local_api_key(TENANT_ID)}
             async with httpx.AsyncClient(timeout=QUERY_TIMEOUT_SECONDS) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
 
             if response.status_code >= 400:
                 detail = response.text.strip() or "<empty body>"
@@ -183,7 +187,8 @@ async def on_chat_start() -> None:
             "## RAG Ops Guard · canonical data plane\n\n"
             "Esta UI no ejecuta el agente directamente. Cada mensaje recorre "
             "**Chainlit → Floci API Gateway → Lambda → Agent → Qwen/Retrieval**.\n\n"
-            f"API actual: {api_line}"
+            f"API actual: {api_line}\n\n"
+            f"Tenant local: `{TENANT_ID}` (credential desde OS Secret Service)"
         ),
         actions=[
             cl.Action(
@@ -223,6 +228,8 @@ async def diagnostics(action: cl.Action) -> None:
         message = (
             "### Data plane\n"
             f"- **API:** `{api}`\n"
+            f"- **Tenant:** `{TENANT_ID}`\n"
+            "- **Credencial:** OS Secret Service\n"
             "- **Ruta UI:** Chainlit → `/v1/query` → Floci → Lambda → Agent\n"
             "- **Golden:** usa la misma `/v1/query`\n\n"
             "Para runtime/containers/modelo real: ejecutá `make status`."
