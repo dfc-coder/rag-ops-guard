@@ -1,0 +1,31 @@
+name: phase3-lock
+
+on:
+  push:
+    branches: [feat/config-secrets-phase-3]
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: feat/config-secrets-phase-3
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.12'
+          version: '0.12.3'
+      - name: Resolve Phase 3 dependency lock
+        run: uv lock
+      - name: Commit lock and remove one-shot workflow
+        run: |
+          rm .github/workflows/phase3-lock.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock .github/workflows/phase3-lock.yml
+          git commit -m "build: lock phase 3 crypto dependencies"
+          git push origin HEAD:feat/config-secrets-phase-3
