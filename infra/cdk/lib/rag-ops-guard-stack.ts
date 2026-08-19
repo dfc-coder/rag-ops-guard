@@ -338,7 +338,7 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'TenantVectorIndexNames', { value: JSON.stringify(tenantVectorIndexes) });
     new CfnOutput(this, 'VectorDimension', { value: '1024' });
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
-    new CfnOutput(this, 'ConfigSecretsKeyAlias', { value: configSecretsAlias.aliasName });
+    new CfnOutput(this, 'ConfigSecretsKeyAliasOutput', { value: configSecretsAlias.aliasName });
     new CfnOutput(this, 'TenantTableName', { value: tenantTable.tableName });
     new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
     new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });
