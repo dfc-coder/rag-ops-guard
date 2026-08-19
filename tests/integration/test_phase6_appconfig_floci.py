@@ -7,7 +7,12 @@ from rag_ops_guard.control_plane import fetch_control_plane
 pytestmark = pytest.mark.integration
 
 
-def test_floci_serves_canonical_appconfig_control_plane_through_application_resolver() -> None:
+def test_floci_serves_canonical_appconfig_control_plane_through_application_resolver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Platform/test-runner concern only: application code still relies exclusively on the SDK provider chain.
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
     resolved = fetch_control_plane()
 
     assert resolved.schema_version == 1
