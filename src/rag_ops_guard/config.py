@@ -31,7 +31,7 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    app_env: Literal["local", "local-observed", "ci", "aws"] = "local"
+    app_env: Literal["runtime", "local", "local-observed", "ci", "aws"] = "local"
 
     aws_region: str = "us-east-1"
     aws_access_key_id: str = "test"
@@ -129,6 +129,8 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def _check_environment_coherence(self) -> "Settings":
+        if self.app_env == "runtime":
+            return self
         endpoint_is_local = _is_local_host(self.aws_endpoint_url)
         if self.app_env in ("local", "local-observed", "ci"):
             if not endpoint_is_local:
