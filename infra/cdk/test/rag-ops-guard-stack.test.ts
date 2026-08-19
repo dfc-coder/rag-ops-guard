@@ -42,23 +42,27 @@ describe('RagOpsGuardStack', () => {
     });
   });
 
-  test('creates one S3 Vectors bucket and 1024-dimensional cosine index', () => {
+  test('creates one S3 Vectors bucket and one structural index per tenant', () => {
     const app = new App();
     const stack = new RagOpsGuardStack(app, 'VectorTestStack', {
       target: 'local',
       pythonVersion: '3.13',
       lambdaCode: inlineCode(),
+      tenantIds: ['tenant-a', 'tenant-b'],
     });
     const template = Template.fromStack(stack);
 
     template.resourceCountIs('AWS::S3Vectors::VectorBucket', 1);
-    template.hasResourceProperties('AWS::S3Vectors::Index', {
-      DataType: 'float32',
-      Dimension: 1024,
-      DistanceMetric: 'cosine',
-      IndexName: 'ops-knowledge-openvino-v1',
-      VectorBucketName: 'rag-ops-guard-vectors-local',
-    });
+    template.resourceCountIs('AWS::S3Vectors::Index', 2);
+    for (const tenantId of ['tenant-a', 'tenant-b']) {
+      template.hasResourceProperties('AWS::S3Vectors::Index', {
+        DataType: 'float32',
+        Dimension: 1024,
+        DistanceMetric: 'cosine',
+        IndexName: `ops-knowledge-openvino-v1--${tenantId}`,
+        VectorBucketName: 'rag-ops-guard-vectors-local',
+      });
+    }
   });
 
   test('creates retained pay-per-request config and tenant credential tables', () => {
