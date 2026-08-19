@@ -8,6 +8,7 @@ from rag_ops_guard.ingestion.manifest import document_sha256, load_manifest, sav
 from rag_ops_guard.ingestion.metadata import parse_document
 from rag_ops_guard.ports import EmbeddingProvider, ObjectStore, VectorStore
 from rag_ops_guard.retrieval.text import retrieval_text
+from rag_ops_guard.tenancy import KeyLayout
 
 
 class IngestionService:
@@ -17,17 +18,24 @@ class IngestionService:
         vector_store: VectorStore,
         embeddings: EmbeddingProvider,
         chunker: MarkdownChunker,
+        key_layout: KeyLayout | None = None,
     ) -> None:
         self._objects = object_store
         self._vectors = vector_store
         self._embeddings = embeddings
         self._chunker = chunker
+        self._keys = key_layout or KeyLayout("default")
 
     def ingest(self, s3_key: str) -> IngestResponse:
         content = self._objects.get_text(s3_key)
         metadata, body = parse_document(content, filename=s3_key)
         digest = document_sha256(content)
-        previous = load_manifest(self._objects, metadata.logical_id, metadata.version)
+        previous = load_manifest(
+            self._objects,
+            metadata.logical_id,
+            metadata.version,
+            self._keys,
+        )
 
         if previous and previous.content_sha256 == digest:
             return IngestResponse(
@@ -38,7 +46,7 @@ class IngestionService:
                 chunks=len(previous.vector_keys),
             )
 
-        chunk_prefix = f"chunks/{metadata.logical_id}/{metadata.version}/"
+        chunk_prefix = self._keys.chunk_prefix(metadata.logical_id, metadata.version)
         previous_chunk_keys = set(self._objects.list_keys(chunk_prefix))
         chunks = self._chunker.split(metadata, body)
         texts = [retrieval_text(chunk) for chunk in chunks]
@@ -49,7 +57,11 @@ class IngestionService:
 
         current_chunk_keys: set[str] = set()
         for chunk in chunks:
-            chunk_key = f"{chunk_prefix}chunk-{chunk.chunk_index:03d}.json"
+            chunk_key = self._keys.chunk_key(
+                metadata.logical_id,
+                metadata.version,
+                chunk.chunk_index,
+            )
             current_chunk_keys.add(chunk_key)
             self._objects.put_text(
                 chunk_key,
@@ -70,6 +82,7 @@ class IngestionService:
                 content_sha256=digest,
                 vector_keys=vector_keys,
             ),
+            self._keys,
         )
         return IngestResponse(
             status="ingested",
