@@ -13,7 +13,10 @@ def test_canonical_make_targets_expose_one_local_pipeline() -> None:
     makefile = _text("Makefile")
 
     assert "\nup:\n" in makefile
-    assert "$(MAKE) physical-ready" in makefile
+    assert "$(MAKE) physical-up" in makefile
+    assert "\nready: physical-ready\n" in makefile
+    assert "\ntenant-create:\n" in makefile
+    assert "\ntenant-sync:\n" in makefile
     assert "\ndown: local-down\n" in makefile
     assert "\nui:\n" in makefile
     assert "scripts/run_chainlit_beta.sh" in makefile
