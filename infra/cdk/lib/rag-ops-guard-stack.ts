@@ -430,6 +430,7 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'AppConfigApplicationName', { value: 'rag-ops-guard' });
     new CfnOutput(this, 'AppConfigEnvironmentName', { value: 'runtime' });
     new CfnOutput(this, 'AppConfigProfileName', { value: 'control-plane' });
+    new CfnOutput(this, 'AppConfigControlPlanePayload', { value: controlPlanePayload });
     new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
     new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });
     new CfnOutput(this, 'ApiId', { value: api.ref });
