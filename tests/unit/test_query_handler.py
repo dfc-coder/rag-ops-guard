@@ -67,7 +67,7 @@ def _quiet_observability(monkeypatch) -> tuple[MagicMock, MagicMock, list[str], 
         lambda _metrics, name, value: measures.append((name, value)),
         raising=False,
     )
-    monkeypatch.setattr(query, "resolve_effective_config", lambda: _effective())
+    monkeypatch.setattr(query, "resolve_tenant_effective_config", lambda tenant_id: _effective())
     monkeypatch.setattr(query, "request_context_from_event", lambda event: _CONTEXT)
     return logger, metrics, counts, measures
 
@@ -146,8 +146,8 @@ def test_phase2_query_reports_stale_cache_and_dynamodb_unavailability(monkeypatc
     _, metrics, counts, _ = _quiet_observability(monkeypatch)
     monkeypatch.setattr(
         query,
-        "resolve_effective_config",
-        lambda: _effective(
+        "resolve_tenant_effective_config",
+        lambda tenant_id: _effective(
             source="cache",
             stale=True,
             stale_age_s=40.0,
