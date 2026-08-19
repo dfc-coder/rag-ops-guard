@@ -47,7 +47,7 @@ def test_golden_preflight_requires_direct_lambda_and_api_connectivity() -> None:
     assert '$(MAKE) connectivity' in golden_all
 
 
-def test_local_provision_materializes_cdk_publishes_config_then_runs_connectivity() -> None:
+def test_local_provision_is_tenant_independent_and_ready_runs_authenticated_connectivity() -> None:
     makefile = _read("Makefile")
     infra = makefile.split("local-infra: package-lambda", maxsplit=1)[1].split(
         "\nlocal-provision:", maxsplit=1
@@ -55,9 +55,14 @@ def test_local_provision_materializes_cdk_publishes_config_then_runs_connectivit
     provision = makefile.split("local-provision: local-infra", maxsplit=1)[1].split(
         "\nseed:", maxsplit=1
     )[0]
+    ready = makefile.split("physical-ready: physical-relevance-calibrate", maxsplit=1)[1].split(
+        "\nphysical-eval-measure:", maxsplit=1
+    )[0]
 
     assert 'RAG_OPS_INFRA_TARGET=local' in infra
     assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in infra
     assert 'scripts/local/provision.py' in infra
     assert '$(MAKE) config-bootstrap' in provision
-    assert 'scripts/local/connectivity.py' in provision
+    assert 'scripts/local/connectivity.py' not in provision
+    assert '$(MAKE) tenant-sync TENANT=$(TENANT)' in ready
+    assert 'scripts/local/connectivity.py --tenant-id "$(TENANT)"' in ready
