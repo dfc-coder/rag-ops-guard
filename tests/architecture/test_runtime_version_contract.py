@@ -10,7 +10,9 @@ def test_python_runtime_has_one_project_source_of_truth() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     package_script = (ROOT / "scripts/package_lambda.sh").read_text(encoding="utf-8")
     cdk_bin = (ROOT / "infra/cdk/bin/rag-ops-guard.ts").read_text(encoding="utf-8")
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflows = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
+    )
 
     assert version == "3.13"
     assert pyproject["project"]["requires-python"] == ">=3.13,<3.14"
@@ -28,5 +30,5 @@ def test_python_runtime_has_one_project_source_of_truth() -> None:
 
     assert ".python-version" in cdk_bin
     assert "pythonVersion" in cdk_bin
-    assert "python-version: '3.12'" not in ci
-    assert "python-version: '3.13'" in ci
+    assert "python-version: '3.12'" not in workflows
+    assert "python-version: '3.13'" in workflows
