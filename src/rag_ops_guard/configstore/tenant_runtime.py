@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -19,6 +20,8 @@ from rag_ops_guard.configstore.runtime import (
 )
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
 from rag_ops_guard.tenancy import KeyLayout
+
+SnapshotLoader = Callable[[], ConfigSnapshot | None]
 
 
 def tenant_snapshot_key(tenant_id: str) -> str:
@@ -64,7 +67,7 @@ def _float_env(name: str, default: float) -> float:
     return value
 
 
-def _s3_loader(bootstrap: Settings, tenant_id: str):
+def _s3_loader(bootstrap: Settings, tenant_id: str) -> SnapshotLoader:
     def load() -> ConfigSnapshot | None:
         client = boto3.client(
             "s3",
@@ -83,7 +86,7 @@ def _s3_loader(bootstrap: Settings, tenant_id: str):
     return load
 
 
-def _baked_loader(tenant_id: str):
+def _baked_loader(tenant_id: str) -> SnapshotLoader:
     def load() -> ConfigSnapshot | None:
         path = tenant_snapshot_path(tenant_id)
         if not path.is_file():
