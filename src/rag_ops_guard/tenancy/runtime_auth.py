@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
+from functools import lru_cache
 from typing import Any
 
-from rag_ops_guard.config import Settings
+from rag_ops_guard.runtime_settings import runtime_control_plane
 from rag_ops_guard.tenancy.auth import TenantAuthenticator
 from rag_ops_guard.tenancy.context import RequestContext
 from rag_ops_guard.tenancy.dynamo_credentials import DynamoDbTenantCredentialStore
@@ -24,14 +24,11 @@ def _header(event: dict[str, Any], name: str) -> str:
     return ""
 
 
+@lru_cache(maxsize=1)
 def _default_authenticator() -> TenantAuthenticator:
-    settings = Settings()
+    control_plane = runtime_control_plane()
     store = DynamoDbTenantCredentialStore(
-        endpoint_url=settings.aws_endpoint_url,
-        region=settings.aws_region,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key.get_secret_value(),
-        table=os.environ.get("TENANT_TABLE", "rag-ops-tenants"),
+        table=control_plane.resources.tenant_credential_table,
     )
     return TenantAuthenticator(store=store)
 
