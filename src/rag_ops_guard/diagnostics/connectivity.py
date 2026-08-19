@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -11,6 +10,7 @@ from botocore.config import Config
 from rag_ops_guard.app import embeddings, reranker, vector_store
 from rag_ops_guard.configstore.runtime import EffectiveConfig
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
+from rag_ops_guard.runtime_settings import runtime_control_plane
 from rag_ops_guard.tenancy import KeyLayout, RequestContext
 
 
@@ -25,32 +25,21 @@ def _check(operation: Callable[[], dict[str, object]]) -> dict[str, object]:
         }
 
 
-def _aws_client(service: str, effective: EffectiveConfig, **kwargs: object) -> Any:
-    settings = effective.settings
+def _aws_client(service: str, **kwargs: object) -> Any:
     client_factory = cast(Any, boto3.client)
-    return client_factory(
-        service,
-        endpoint_url=settings.aws_endpoint_url,
-        region_name=settings.aws_region,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key.get_secret_value(),
-        **kwargs,
-    )
+    return client_factory(service, **kwargs)
+
+
+def _endpoint(client: Any) -> str:
+    return str(getattr(getattr(client, "meta", None), "endpoint_url", ""))
 
 
 def _probe_dynamodb(effective: EffectiveConfig, context: RequestContext) -> dict[str, object]:
-    settings = effective.settings
-    table = os.environ.get("CONFIG_TABLE", "rag-ops-config")
-    client = _aws_client("dynamodb", effective)
+    control_plane = runtime_control_plane()
+    table = control_plane.resources.config_table
+    client = _aws_client("dynamodb")
     client.describe_table(TableName=table)
-    store = TenantDynamoDbConfigStore(
-        endpoint_url=settings.aws_endpoint_url,
-        region=settings.aws_region,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key.get_secret_value(),
-        table=table,
-        tenant_id=context.tenant_id,
-    )
+    store = TenantDynamoDbConfigStore(table=table, tenant_id=context.tenant_id)
     head = store.get_head()
     if head is None:
         raise RuntimeError(f"tenant {context.tenant_id} config table has no HEAD revision")
@@ -59,7 +48,7 @@ def _probe_dynamodb(effective: EffectiveConfig, context: RequestContext) -> dict
             f"live HEAD revision {head.revision_no} != effective revision {effective.revision_no}"
         )
     return {
-        "endpoint": settings.aws_endpoint_url,
+        "endpoint": _endpoint(client),
         "table": table,
         "tenant_id": context.tenant_id,
         "head_revision": head.revision_no,
@@ -68,14 +57,10 @@ def _probe_dynamodb(effective: EffectiveConfig, context: RequestContext) -> dict
 
 def _probe_s3(effective: EffectiveConfig) -> dict[str, object]:
     settings = effective.settings
-    client = _aws_client(
-        "s3",
-        effective,
-        config=Config(s3={"addressing_style": "path"}),
-    )
+    client = _aws_client("s3", config=Config(s3={"addressing_style": "path"}))
     response = client.list_objects_v2(Bucket=settings.s3_document_bucket, MaxKeys=1)
     return {
-        "endpoint": settings.aws_endpoint_url,
+        "endpoint": _endpoint(client),
         "bucket": settings.s3_document_bucket,
         "sample_count": len(response.get("Contents", [])),
     }
@@ -88,14 +73,14 @@ def _probe_s3vectors(
 ) -> dict[str, object]:
     settings = effective.settings
     index_name = KeyLayout(context.tenant_id).vector_index(settings.s3_vector_index)
-    client = _aws_client("s3vectors", effective)
+    client = _aws_client("s3vectors")
     client.get_index(
         vectorBucketName=settings.s3_vector_bucket,
         indexName=index_name,
     )
     hits = vector_store(context).query(vector, top_k=1)
     return {
-        "endpoint": settings.aws_endpoint_url,
+        "endpoint": _endpoint(client),
         "bucket": settings.s3_vector_bucket,
         "index": index_name,
         "query_hits": len(hits),
