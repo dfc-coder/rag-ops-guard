@@ -66,11 +66,13 @@ The hosted configuration payload MUST be schema-versioned and contain non-secret
 - references to recoverable secrets, never secret values;
 - cache/fail-closed policy needed before tenant config is resolved.
 
-The application starts an AppConfigData session using the canonical names and retrieves the active payload. No resource identifier in this payload may also be supplied through an application environment variable.
+The canonical names above are stable code-level identifiers. The application resolves those names to their physical AppConfig IDs through read-only AppConfig management APIs and starts AppConfigData with the resolved IDs. The same resolution path MUST execute in Floci and AWS; no emulator-specific branch or application-side endpoint override is permitted. No resource identifier in the hosted payload may also be supplied through an application environment variable.
 
 ### 6.0 entry gate
 
 Before implementation proceeds, integration tests MUST prove that the pinned Floci version supports the exact AppConfig/AppConfigData operations needed by the runtime and that the same client contract works against AWS SDK interfaces without application-side endpoint overrides.
+
+The Phase 6.0 red integration gate established that pinned Floci 1.6.0 supports the required management and data-plane operations but its AppConfigData session lookup requires physical application/environment/profile IDs. Therefore the canonical cross-platform contract is name discovery through `ListApplications`, `ListEnvironments` and `ListConfigurationProfiles`, followed by `StartConfigurationSession`/`GetLatestConfiguration` using the resolved IDs. This is a single AWS-SDK code path, not a Floci compatibility branch.
 
 ## 6.1 — `Settings` becomes a pure validated model
 
@@ -200,6 +202,7 @@ A real-AWS blocking security gate MUST prove both allowed and denied cross-tenan
 The application path MUST be identical:
 
 ```python
+boto3.client("appconfig")
 boto3.client("appconfigdata")
 boto3.client("dynamodb")
 boto3.client("secretsmanager")
@@ -270,7 +273,8 @@ Each unit starts from current `develop`, begins with a red contract test, turns 
 Given a freshly deployed Lambda with no custom application environment variables
 When it cold-starts
 Then it uses the AWS SDK workload identity
-And retrieves `rag-ops-guard/runtime/control-plane` from AppConfigData
+And resolves the canonical `rag-ops-guard/runtime/control-plane` identifiers to physical AppConfig IDs
+And retrieves the active payload through AppConfigData
 And constructs validated runtime configuration without reading process environment.
 
 ### Scenario B — no `.env` dependency

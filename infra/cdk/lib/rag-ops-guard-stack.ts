@@ -5,6 +5,7 @@ import {
   Stack,
   StackProps,
   aws_apigatewayv2 as apigwv2,
+  aws_appconfig as appconfig,
   aws_cloudwatch as cloudwatch,
   aws_dynamodb as dynamodb,
   aws_iam as iam,
@@ -184,6 +185,77 @@ export class RagOpsGuardStack extends Stack {
       'http://rag-ops-ovms-rag:8000/v3',
       'RAG_OPS_AWS_RERANKER_BASE_URL',
     );
+    const llmModel = props.llmModel ?? 'qwen3.5-2b-unsloth-ud-q4-k-xl';
+    const embeddingModel = props.embeddingModel ?? 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov';
+    const rerankerModel = props.rerankerModel ?? 'OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov';
+
+    const controlPlaneApplication = new appconfig.CfnApplication(this, 'ControlPlaneApplication', {
+      name: 'rag-ops-guard',
+      description: 'RAG Ops Guard platform discovery control plane',
+    });
+    const controlPlaneEnvironment = new appconfig.CfnEnvironment(this, 'ControlPlaneEnvironment', {
+      applicationId: controlPlaneApplication.ref,
+      name: 'runtime',
+      description: 'Runtime workload control plane',
+    });
+    const controlPlaneProfile = new appconfig.CfnConfigurationProfile(this, 'ControlPlaneProfile', {
+      applicationId: controlPlaneApplication.ref,
+      name: 'control-plane',
+      locationUri: 'hosted',
+      description: 'Non-secret platform discovery configuration',
+    });
+    const controlPlanePayload = this.toJsonString({
+      schema_version: 1,
+      resources: {
+        config_table: configTable.tableName,
+        tenant_credential_table: tenantTable.tableName,
+        document_bucket: documents.bucketName,
+        vector_bucket: vectorBucketName,
+        vector_index_base: vectorIndexBaseName,
+      },
+      services: {
+        llm: {
+          base_url: llmBaseUrl,
+          model: llmModel,
+        },
+        embedding: {
+          base_url: embeddingBaseUrl,
+          model: embeddingModel,
+          dimension: 1024,
+        },
+        reranker: {
+          base_url: rerankerBaseUrl,
+          model: rerankerModel,
+        },
+      },
+      secret_refs: {},
+      bootstrap: {
+        config_head_ttl_seconds: 45,
+        config_max_stale_seconds: 300,
+        fail_closed: true,
+      },
+    });
+    const controlPlaneVersion = new appconfig.CfnHostedConfigurationVersion(
+      this,
+      'ControlPlaneHostedVersion',
+      {
+        applicationId: controlPlaneApplication.ref,
+        configurationProfileId: controlPlaneProfile.ref,
+        content: controlPlanePayload,
+        contentType: 'application/json',
+        description: 'Schema v1 RAG Ops Guard platform discovery payload',
+        versionLabel: 'schema-v1',
+      },
+    );
+    const controlPlaneDeployment = new appconfig.CfnDeployment(this, 'ControlPlaneDeployment', {
+      applicationId: controlPlaneApplication.ref,
+      environmentId: controlPlaneEnvironment.ref,
+      configurationProfileId: controlPlaneProfile.ref,
+      configurationVersion: controlPlaneVersion.ref,
+      deploymentStrategyId: 'AppConfig.AllAtOnce',
+      description: 'Deploy the active RAG Ops Guard runtime control plane',
+    });
+    controlPlaneDeployment.addResourceDependency(controlPlaneVersion);
 
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
@@ -199,12 +271,12 @@ export class RagOpsGuardStack extends Stack {
       APP_ENV: local ? 'local' : 'aws',
       AWS_ENDPOINT_URL: local ? 'http://floci:4566' : '',
       LLM_BASE_URL: llmBaseUrl,
-      LLM_MODEL: props.llmModel ?? 'qwen3.5-2b-unsloth-ud-q4-k-xl',
+      LLM_MODEL: llmModel,
       EMBEDDING_BASE_URL: embeddingBaseUrl,
-      EMBEDDING_MODEL: props.embeddingModel ?? 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov',
+      EMBEDDING_MODEL: embeddingModel,
       EMBEDDING_DIMENSION: '1024',
       RERANKER_BASE_URL: rerankerBaseUrl,
-      RERANKER_MODEL: props.rerankerModel ?? 'OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov',
+      RERANKER_MODEL: rerankerModel,
     };
 
     const ingest = new lambda.Function(this, 'IngestFunction', {
@@ -225,6 +297,24 @@ export class RagOpsGuardStack extends Stack {
       memorySize: 1024,
       environment: commonEnvironment,
     });
+
+    const controlPlaneDiscover = new iam.PolicyStatement({
+      actions: [
+        'appconfig:ListApplications',
+        'appconfig:ListEnvironments',
+        'appconfig:ListConfigurationProfiles',
+      ],
+      resources: ['*'],
+    });
+    const controlPlaneConfigurationArn = `arn:${this.partition}:appconfig:${this.region}:${this.account}:application/${controlPlaneApplication.ref}/environment/${controlPlaneEnvironment.ref}/configuration/${controlPlaneProfile.ref}`;
+    const controlPlaneRead = new iam.PolicyStatement({
+      actions: ['appconfig:StartConfigurationSession', 'appconfig:GetLatestConfiguration'],
+      resources: [controlPlaneConfigurationArn],
+    });
+    ingest.addToRolePolicy(controlPlaneDiscover);
+    ingest.addToRolePolicy(controlPlaneRead);
+    query.addToRolePolicy(controlPlaneDiscover);
+    query.addToRolePolicy(controlPlaneRead);
 
     documents.grantReadWrite(ingest);
     documents.grantRead(query);
@@ -268,10 +358,7 @@ export class RagOpsGuardStack extends Stack {
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: 'Configuration resolution',
-          left: [
-            metric('ConfigResolveLatencyMs', 'p99'),
-            metric('ConfigRevisionAge', 'Maximum'),
-          ],
+          left: [metric('ConfigResolveLatencyMs', 'p99'), metric('ConfigRevisionAge', 'Maximum')],
         }),
         new cloudwatch.GraphWidget({
           title: 'Configuration cache and availability',
@@ -340,6 +427,10 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
     new CfnOutput(this, 'ConfigSecretsKeyAliasOutput', { value: configSecretsAlias.aliasName });
     new CfnOutput(this, 'TenantTableName', { value: tenantTable.tableName });
+    new CfnOutput(this, 'AppConfigApplicationName', { value: 'rag-ops-guard' });
+    new CfnOutput(this, 'AppConfigEnvironmentName', { value: 'runtime' });
+    new CfnOutput(this, 'AppConfigProfileName', { value: 'control-plane' });
+    new CfnOutput(this, 'AppConfigControlPlanePayload', { value: controlPlanePayload });
     new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
     new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });
     new CfnOutput(this, 'ApiId', { value: api.ref });
