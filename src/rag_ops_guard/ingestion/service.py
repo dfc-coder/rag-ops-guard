@@ -27,8 +27,9 @@ class IngestionService:
         self._keys = key_layout or KeyLayout("default")
 
     def ingest(self, s3_key: str) -> IngestResponse:
-        content = self._objects.get_text(s3_key)
-        metadata, body = parse_document(content, filename=s3_key)
+        source_key = self._keys.require_ingest_key(s3_key)
+        content = self._objects.get_text(source_key)
+        metadata, body = parse_document(content, filename=source_key)
         digest = document_sha256(content)
         previous = load_manifest(
             self._objects,
