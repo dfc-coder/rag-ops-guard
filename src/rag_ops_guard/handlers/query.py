@@ -9,7 +9,8 @@ from langsmith import get_current_run_tree, traceable, tracing_context
 from pydantic import ValidationError
 
 from rag_ops_guard.app import conversation_agent
-from rag_ops_guard.configstore.runtime import EffectiveConfig, resolve_effective_config
+from rag_ops_guard.configstore.runtime import EffectiveConfig
+from rag_ops_guard.configstore.tenant_runtime import resolve_tenant_effective_config
 from rag_ops_guard.diagnostics.connectivity import probe_runtime_connectivity
 from rag_ops_guard.domain.models import QueryRequest, QueryResponse, ResponseOutcome
 from rag_ops_guard.observability.runtime import (
@@ -113,7 +114,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     try:
         request_context = request_context_from_event(event)
         resolve_started = perf_counter()
-        effective = resolve_effective_config()
+        effective = resolve_tenant_effective_config(request_context.tenant_id)
         config_fields = _record_config_observability(
             effective,
             (perf_counter() - resolve_started) * 1000,
