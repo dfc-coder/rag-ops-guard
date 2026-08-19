@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from scripts import calibrate_relevance_floors
-from scripts.local import ops, provision
+from scripts.local import ops
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_calibration_values_are_publishable_config_overrides() -> None:
@@ -20,12 +24,15 @@ def test_calibration_values_are_publishable_config_overrides() -> None:
     }
 
 
-def test_lambda_environment_contains_bootstrap_not_runtime_tuning() -> None:
-    environment = provision.lambda_environment(config_hash="b" * 64)
+def test_cdk_lambda_environment_contains_bootstrap_not_runtime_tuning() -> None:
+    stack = (ROOT / "infra/cdk/lib/rag-ops-guard-stack.ts").read_text(encoding="utf-8")
+    environment = stack.split("const commonEnvironment =", maxsplit=1)[1].split(
+        "const ingest =", maxsplit=1
+    )[0]
 
-    assert environment["CONFIG_SOURCE"] == "db"
-    assert environment["CONFIG_HASH"] == "b" * 64
-    assert "CONFIG_TABLE" in environment
+    assert "CONFIG_SOURCE: 'db'" in environment
+    assert "CONFIG_HASH:" in environment
+    assert "CONFIG_TABLE:" in environment
     assert "RETRIEVAL_TOP_K" not in environment
     assert "RETRIEVAL_CONTEXT_K" not in environment
     assert "RETRIEVAL_DOMAIN_MIN_RELEVANCE" not in environment
