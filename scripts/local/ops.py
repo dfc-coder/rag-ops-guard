@@ -30,30 +30,9 @@ DEFAULT_ENDPOINT = "http://localhost:4566"
 DEFAULT_REGION = "us-east-1"
 
 
-def _env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.is_file():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line.removeprefix("export ").strip()
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        if key:
-            values[key] = value
-    return values
-
-
 def runtime_env() -> dict[str, str]:
-    """Load bootstrap config deterministically and ignore stale shell API/floor artifacts."""
+    """Build local operational context without loading application dotenv files."""
     env = os.environ.copy()
-    env.update(_env_file(ROOT / ".env"))
     env["CONFIG_SOURCE"] = "db"
     if API_FILE.is_file():
         env["RAG_API_URL"] = API_FILE.read_text(encoding="utf-8").strip().rstrip("/")
@@ -139,7 +118,7 @@ def _lambda_backend_mismatches(env: dict[str, str], lambda_env: dict[str, str]) 
 def _local_config_hash(env: dict[str, str]) -> str | None:
     try:
         settings = Settings(
-            _env_file=ROOT / ".env",
+            _env_file=None,
             aws_endpoint_url=env.get("AWS_ENDPOINT_URL", DEFAULT_ENDPOINT),
             aws_region=env.get("AWS_REGION", DEFAULT_REGION),
             aws_access_key_id=env.get("AWS_ACCESS_KEY_ID", "test"),
@@ -234,7 +213,6 @@ def status() -> int:
     lambda_env = _lambda_environment(env)
     local_hash = _local_config_hash(env)
     physical_model = _physical_model(env)
-    local_model = env.get("LLM_MODEL", "<unset>")
     api_url = env.get("RAG_API_URL")
     config_mismatch = False
     backend_mismatch = False
@@ -272,10 +250,12 @@ def status() -> int:
     else:
         _ok("Lambda", QUERY_FUNCTION)
         lambda_model = lambda_env.get("LLM_MODEL", "<unset>")
-        if lambda_model == local_model:
-            _ok("Model cfg", lambda_model)
+        if physical_model is None:
+            _warn("Model cfg", f"Lambda={lambda_model} | server=<unavailable>")
+        elif lambda_model == physical_model:
+            _ok("Model cfg", f"{lambda_model} (Lambda = llama.cpp)")
         else:
-            _warn("Model cfg", f".env={local_model} | Lambda={lambda_model}")
+            _warn("Model cfg", f"Lambda={lambda_model} | server={physical_model}")
         if _config_hash_matches(local_hash, lambda_env):
             _ok("Config hash", str(local_hash))
         else:
@@ -300,10 +280,7 @@ def status() -> int:
             _warn("LangSmith", f"disabled - {project}")
 
     if physical_model:
-        if physical_model == local_model:
-            _ok("Model real", physical_model)
-        else:
-            _warn("Model real", f"server={physical_model} | .env={local_model}")
+        _ok("Model real", physical_model)
     else:
         _fail("Model real", "llama.cpp /v1/models unavailable")
 
@@ -404,7 +381,7 @@ def golden(case_id: str | None, all_cases: bool, force: bool, tenant_id: str) ->
     print(f"API       {env.get('RAG_API_URL', '<missing>')}")
     print(f"TENANT    {normalized_tenant}")
     lambda_env = _lambda_environment(env) or {}
-    print(f"MODEL     {lambda_env.get('LLM_MODEL', env.get('LLM_MODEL', '<unknown>'))}")
+    print(f"MODEL     {lambda_env.get('LLM_MODEL', '<unknown>')}")
     print(f"CONFIG    {lambda_env.get('CONFIG_HASH', '<missing>')}")
     print(
         "LANGSMITH "
