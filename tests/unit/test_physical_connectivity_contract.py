@@ -47,11 +47,13 @@ def test_golden_preflight_requires_direct_lambda_and_api_connectivity() -> None:
     assert '$(MAKE) connectivity' in golden_all
 
 
-def test_local_provision_runs_connectivity_gate_after_redeploy() -> None:
+def test_local_provision_redeploys_cdk_then_runs_connectivity_gate() -> None:
     makefile = _read("Makefile")
     block = makefile.split("local-provision: package-lambda", maxsplit=1)[1].split(
         "\nseed:", maxsplit=1
     )[0]
 
-    assert '$(LAMBDA_OPENVINO_ENV)' in block
+    assert 'RAG_OPS_INFRA_TARGET=local' in block
+    assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in block
+    assert 'scripts/local/provision.py' in block
     assert 'scripts/local/connectivity.py' in block
