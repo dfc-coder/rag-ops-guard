@@ -14,8 +14,9 @@ import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 
 from rag_ops_guard.config import Settings
-from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
 from rag_ops_guard.configstore.runtime import snapshot_for_values
+from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
+from rag_ops_guard.tenancy import KeyLayout
 
 ROOT = Path(__file__).resolve().parents[2]
 API_FILE = ROOT / ".local" / "api-url"
@@ -143,12 +144,14 @@ def _local_config_hash(env: dict[str, str]) -> str | None:
             aws_access_key_id=env.get("AWS_ACCESS_KEY_ID", "test"),
             aws_secret_access_key=env.get("AWS_SECRET_ACCESS_KEY", "test"),
         )
-        store = DynamoDbConfigStore(
+        tenant_id = KeyLayout(env.get("RAG_OPS_TENANT_ID", "default")).tenant_id
+        store = TenantDynamoDbConfigStore(
             endpoint_url=settings.aws_endpoint_url,
             region=settings.aws_region,
             access_key=settings.aws_access_key_id,
             secret_key=settings.aws_secret_access_key.get_secret_value(),
             table=env.get("CONFIG_TABLE", "rag-ops-config"),
+            tenant_id=tenant_id,
         )
         head = store.get_head()
         values = {} if head is None else store.get_revision_values(head.revision_no)
@@ -319,6 +322,8 @@ def _preflight(env: dict[str, str]) -> list[str]:
         problems.append("GitHub self-hosted runner is active and can steal CPU from Qwen")
     if not env.get("RAG_API_URL"):
         problems.append(".local/api-url is missing")
+    if not env.get("RAG_OPS_API_KEY", "").strip():
+        problems.append("RAG_OPS_API_KEY is missing")
     containers = _container_states()
     for key, default in (
         ("FLOCI_CONTAINER_NAME", "rag-ops-floci"),
@@ -334,7 +339,7 @@ def _preflight(env: dict[str, str]) -> list[str]:
         problems.append(f"Lambda {QUERY_FUNCTION} is unavailable")
     else:
         if not _config_hash_matches(_local_config_hash(env), lambda_env):
-            problems.append("effective config hash differs between local registry and Lambda bootstrap")
+            problems.append("effective tenant config hash differs between local registry and Lambda bootstrap")
         backend_errors = _lambda_backend_mismatches(env, lambda_env)
         if backend_errors:
             problems.append("Lambda RAG backend mismatch: " + "; ".join(backend_errors))
@@ -379,6 +384,7 @@ def golden(case_id: str | None, all_cases: bool, force: bool) -> int:
 
     print(f"\nRUN  {label}")
     print(f"API       {env.get('RAG_API_URL', '<missing>')}")
+    print(f"TENANT    {env.get('RAG_OPS_TENANT_ID', 'default')}")
     lambda_env = _lambda_environment(env) or {}
     print(f"MODEL     {lambda_env.get('LLM_MODEL', env.get('LLM_MODEL', '<unknown>'))}")
     print(f"CONFIG    {lambda_env.get('CONFIG_HASH', '<missing>')}")
