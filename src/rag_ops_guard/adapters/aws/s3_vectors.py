@@ -7,6 +7,7 @@ import boto3
 
 from rag_ops_guard.domain.models import Chunk, Evidence
 from rag_ops_guard.ports import ObjectStore
+from rag_ops_guard.tenancy import KeyLayout
 
 
 class S3VectorsStore:
@@ -19,8 +20,10 @@ class S3VectorsStore:
         region_name: str,
         access_key: str,
         secret_key: str,
+        key_layout: KeyLayout | None = None,
     ) -> None:
         self._bucket = vector_bucket
+        self._keys = key_layout or KeyLayout("default")
         self._index = index_name
         self._objects = object_store
         self._client: Any = boto3.client(
@@ -38,8 +41,10 @@ class S3VectorsStore:
         for chunk, embedding in zip(chunks, embeddings, strict=True):
             if not embedding or not all(math.isfinite(value) for value in embedding):
                 raise ValueError("embedding must contain finite values")
-            chunk_s3_key = (
-                f"chunks/{chunk.logical_id}/{chunk.version}/chunk-{chunk.chunk_index:03d}.json"
+            chunk_s3_key = self._keys.chunk_key(
+                chunk.logical_id,
+                chunk.version,
+                chunk.chunk_index,
             )
             vectors.append(
                 {
@@ -77,7 +82,7 @@ class S3VectorsStore:
         for result in response.get("vectors", []):
             metadata = result.get("metadata") or {}
             chunk_s3_key = metadata.get("chunk_s3_key")
-            if not isinstance(chunk_s3_key, str):
+            if not isinstance(chunk_s3_key, str) or not self._keys.owns(chunk_s3_key):
                 continue
             chunk = Chunk.model_validate_json(self._objects.get_text(chunk_s3_key))
             evidence.append(Evidence(chunk=chunk, distance=result.get("distance")))
