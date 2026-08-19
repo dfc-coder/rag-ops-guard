@@ -35,6 +35,15 @@ function requireHttps(name: string, value: string | undefined): string {
   return value;
 }
 
+function targetUrl(
+  local: boolean,
+  value: string | undefined,
+  localDefault: string,
+  awsName: string,
+): string {
+  return local ? (value ?? localDefault) : requireHttps(awsName, value);
+}
+
 export class RagOpsGuardStack extends Stack {
   constructor(scope: Construct, id: string, props: RagOpsGuardStackProps) {
     super(scope, id, props);
@@ -58,9 +67,7 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    const vectors = new s3vectors.CfnVectorBucket(this, 'VectorBucket', {
-      vectorBucketName,
-    });
+    const vectors = new s3vectors.CfnVectorBucket(this, 'VectorBucket', { vectorBucketName });
     vectors.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
     const index = new s3vectors.CfnIndex(this, 'KnowledgeIndex', {
@@ -69,9 +76,7 @@ export class RagOpsGuardStack extends Stack {
       dataType: 'float32',
       dimension: 1024,
       distanceMetric: 'cosine',
-      metadataConfiguration: {
-        nonFilterableMetadataKeys: ['chunk_s3_key'],
-      },
+      metadataConfiguration: { nonFilterableMetadataKeys: ['chunk_s3_key'] },
     });
     index.addDependency(vectors);
     index.applyRemovalPolicy(RemovalPolicy.RETAIN);
@@ -86,15 +91,24 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    const llmBaseUrl = local
-      ? 'http://llama-gen:8080/v1'
-      : requireHttps('RAG_OPS_AWS_LLM_BASE_URL', props.llmBaseUrl);
-    const embeddingBaseUrl = local
-      ? 'http://rag-ops-ovms-rag:8000/v3'
-      : requireHttps('RAG_OPS_AWS_EMBEDDING_BASE_URL', props.embeddingBaseUrl);
-    const rerankerBaseUrl = local
-      ? 'http://rag-ops-ovms-rag:8000/v3'
-      : requireHttps('RAG_OPS_AWS_RERANKER_BASE_URL', props.rerankerBaseUrl);
+    const llmBaseUrl = targetUrl(
+      local,
+      props.llmBaseUrl,
+      'http://llama-gen:8080/v1',
+      'RAG_OPS_AWS_LLM_BASE_URL',
+    );
+    const embeddingBaseUrl = targetUrl(
+      local,
+      props.embeddingBaseUrl,
+      'http://rag-ops-ovms-rag:8000/v3',
+      'RAG_OPS_AWS_EMBEDDING_BASE_URL',
+    );
+    const rerankerBaseUrl = targetUrl(
+      local,
+      props.rerankerBaseUrl,
+      'http://rag-ops-ovms-rag:8000/v3',
+      'RAG_OPS_AWS_RERANKER_BASE_URL',
+    );
 
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
