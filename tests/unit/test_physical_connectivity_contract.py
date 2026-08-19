@@ -73,24 +73,22 @@ def test_local_provision_is_tenant_independent_and_ready_runs_authenticated_conn
     assert 'scripts/local/connectivity.py --tenant-id "$(TENANT)"' in ready
 
 
-def test_local_openvino_model_identity_has_one_canonical_source() -> None:
+def test_local_cdk_uses_ovms_model_identity_not_generic_env_fallback() -> None:
     makefile = _read("Makefile")
     cdk_app = _read("infra/cdk/bin/rag-ops-guard.ts")
-    infra = makefile.split("local-infra: package-lambda", maxsplit=1)[1].split(
-        "\nlocal-provision:", maxsplit=1
-    )[0]
 
-    assert 'export LAMBDA_EMBEDDING_MODEL="$(OVMS_EMBEDDING_MODEL)"' in infra
-    assert 'export LAMBDA_RERANKER_MODEL="$(OVMS_RERANKER_MODEL)"' in infra
+    assert 'OVMS_EMBEDDING_MODEL ?= OpenVINO/Qwen3-Embedding-0.6B-int8-ov' in makefile
+    assert 'OVMS_RERANKER_MODEL ?= OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov' in makefile
+    assert 'OVMS_EMBEDDING_MODEL' in makefile.split("export ", maxsplit=1)[1].split("\n", maxsplit=1)[0]
+    assert 'OVMS_RERANKER_MODEL' in makefile.split("export ", maxsplit=1)[1].split("\n", maxsplit=1)[0]
+
     assert (
-        'embeddingModel: local ? process.env.LAMBDA_EMBEDDING_MODEL : process.env.EMBEDDING_MODEL'
+        'embeddingModel: local ? process.env.OVMS_EMBEDDING_MODEL : process.env.EMBEDDING_MODEL'
         in cdk_app
     )
     assert (
-        'rerankerModel: local ? process.env.LAMBDA_RERANKER_MODEL : process.env.RERANKER_MODEL'
+        'rerankerModel: local ? process.env.OVMS_RERANKER_MODEL : process.env.RERANKER_MODEL'
         in cdk_app
     )
-    assert (
-        'process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL' not in cdk_app
-    )
+    assert 'process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL' not in cdk_app
     assert 'process.env.LAMBDA_RERANKER_MODEL ?? process.env.RERANKER_MODEL' not in cdk_app
