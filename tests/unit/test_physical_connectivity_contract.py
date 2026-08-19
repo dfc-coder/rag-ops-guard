@@ -103,3 +103,15 @@ def test_physical_make_workflow_does_not_require_or_source_dotenv() -> None:
     assert 'source .env' not in makefile
     assert '[ ! -f .env ]' not in makefile
     assert 'test -f .env' not in makefile
+
+
+def test_local_status_does_not_load_or_compare_against_dotenv() -> None:
+    ops = _read("scripts/local/ops.py")
+
+    assert 'env.update(_env_file(ROOT / ".env"))' not in ops
+    assert '_env_file=ROOT / ".env"' not in ops
+    assert '.env={local_model}' not in ops
+    assert 'server={physical_model} | .env=' not in ops
+    assert '_env_file=None' in ops
+    assert 'Lambda={lambda_model} | server={physical_model}' in ops
+    assert '(Lambda = llama.cpp)' in ops
