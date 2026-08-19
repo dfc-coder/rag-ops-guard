@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from rag_ops_guard.runtime_environment import settings_from_process_environment
+from rag_ops_guard.configstore.tenant_runtime import settings_from_process_environment
 
 JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
