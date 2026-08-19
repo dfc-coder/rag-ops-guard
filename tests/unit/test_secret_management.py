@@ -42,6 +42,12 @@ class FakeDynamoTable:
         ]
         return {"Items": items}
 
+    def delete_item(self, **kwargs: Any) -> dict[str, object]:
+        key_data = kwargs["Key"]
+        key = (str(key_data["PK"]), str(key_data["SK"]))
+        self.items.pop(key, None)
+        return {}
+
 
 def _store() -> tuple[FakeDynamoTable, DynamoDbSecretStore]:
     table = FakeDynamoTable()
@@ -112,6 +118,22 @@ def test_secret_round_trip_uses_scoped_dek() -> None:
     dek = store.get_latest_dek(scope="tenant-a")
     assert dek is not None
     assert dek.version == 1
+
+
+def test_secret_delete_removes_only_the_encrypted_value() -> None:
+    _, store, service = _service()
+    service.set_secret(
+        scope="tenant-a",
+        key_name="openai_api_key",
+        secret=b"secret-value",
+        kek_ref="kek-v1",
+    )
+    assert store.get_latest_dek(scope="tenant-a") is not None
+
+    service.delete_secret(scope="tenant-a", key_name="openai_api_key")
+
+    assert service.get_secret(scope="tenant-a", key_name="openai_api_key") is None
+    assert store.get_latest_dek(scope="tenant-a") is not None
 
 
 def test_kek_rotation_rewraps_deks_without_touching_secret_ciphertext() -> None:
