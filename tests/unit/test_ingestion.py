@@ -45,6 +45,10 @@ Escalate to Treasury Integrations after the third failure.
 _LAYOUT = KeyLayout("default")
 
 
+def _raw(relative: str) -> str:
+    return _LAYOUT.raw_key(relative)
+
+
 def _service(objects: FakeObjectStore, vectors: FakeVectorStore) -> IngestionService:
     return IngestionService(
         object_store=objects,
@@ -56,11 +60,12 @@ def _service(objects: FakeObjectStore, vectors: FakeVectorStore) -> IngestionSer
 
 
 def test_ingestion_is_idempotent() -> None:
-    objects = FakeObjectStore({"raw/policy.md": DOCUMENT})
+    key = _raw("policy.md")
+    objects = FakeObjectStore({key: DOCUMENT})
     vectors = FakeVectorStore()
     service = _service(objects, vectors)
-    first = service.ingest("raw/policy.md")
-    second = service.ingest("raw/policy.md")
+    first = service.ingest(key)
+    second = service.ingest(key)
     assert first.status == "ingested"
     assert second.status == "no_op"
     assert first.chunks == second.chunks
@@ -69,12 +74,11 @@ def test_ingestion_is_idempotent() -> None:
 
 def test_plain_markdown_without_frontmatter_flows_through_service() -> None:
     """SPEC-2.1"""
-    objects = FakeObjectStore(
-        {"raw/architecture-notes.md": "# Architecture Notes\n\nGeneric content."}
-    )
+    key = _raw("architecture-notes.md")
+    objects = FakeObjectStore({key: "# Architecture Notes\n\nGeneric content."})
     vectors = FakeVectorStore()
 
-    result = _service(objects, vectors).ingest("raw/architecture-notes.md")
+    result = _service(objects, vectors).ingest(key)
 
     assert result.status == "ingested"
     assert result.logical_id.startswith("doc-")
@@ -85,28 +89,30 @@ def test_plain_markdown_without_frontmatter_flows_through_service() -> None:
 
 def test_plain_text_without_frontmatter_flows_through_service() -> None:
     """SPEC-2.2"""
-    objects = FakeObjectStore({"raw/manual-operativo.txt": "Texto operativo general."})
+    key = _raw("manual-operativo.txt")
+    objects = FakeObjectStore({key: "Texto operativo general."})
     vectors = FakeVectorStore()
 
-    result = _service(objects, vectors).ingest("raw/manual-operativo.txt")
+    result = _service(objects, vectors).ingest(key)
 
     assert result.status == "ingested"
     assert result.chunks == 1
 
 
 def test_changed_document_deletes_stale_chunk_objects() -> None:
-    objects = FakeObjectStore({"raw/policy.md": DOCUMENT_TWO_SECTIONS})
+    key = _raw("policy.md")
+    objects = FakeObjectStore({key: DOCUMENT_TWO_SECTIONS})
     vectors = FakeVectorStore()
     service = _service(objects, vectors)
 
-    first = service.ingest("raw/policy.md")
+    first = service.ingest(key)
     assert first.chunks == 2
     chunk_prefix = _LAYOUT.chunk_prefix("payment-retry-policy", "2.0")
     old_keys = objects.list_keys(chunk_prefix)
     assert len(old_keys) == 2
 
-    objects.put_text("raw/policy.md", DOCUMENT)
-    second = service.ingest("raw/policy.md")
+    objects.put_text(key, DOCUMENT)
+    second = service.ingest(key)
 
     assert second.status == "ingested"
     assert second.chunks == 1
