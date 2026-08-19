@@ -62,7 +62,7 @@ export PYTHON_VERSION UV_PYTHON LAMBDA_PYTHON_VERSION PODMAN_API_SOCKET MODEL_DI
 OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) EMBEDDING_TIMEOUT_SECONDS=$(EMBEDDING_TIMEOUT_SECONDS) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) RERANKER_TIMEOUT_SECONDS=$(RERANKER_TIMEOUT_SECONDS) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 
-.PHONY: up down help status connectivity config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: up down help status connectivity config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-infra local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 help:
 	@echo 'Canonical local workflow:'
@@ -160,7 +160,7 @@ local-data:
 retrieval-validate:
 	uv run python scripts/validate_retrieval.py
 
-local-provision: package-lambda
+local-infra: package-lambda
 	@set -a; [ ! -f .env ] || source .env; set +a; \
 	CONFIG_HASH="$$(uv run python -c 'import json; from pathlib import Path; p=Path(".local/config-snapshot.json"); print(json.loads(p.read_text()).get("config_hash", "0" * 64) if p.is_file() else "0" * 64)')"; \
 	export RAG_OPS_INFRA_TARGET=local; \
@@ -169,13 +169,19 @@ local-provision: package-lambda
 	export CONFIG_HASH; \
 	export AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)"; \
 	export AWS_REGION="$(CDK_LOCAL_REGION)"; \
+	export AWS_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
 	export AWS_ACCESS_KEY_ID="$${AWS_ACCESS_KEY_ID:-test}"; \
 	export AWS_SECRET_ACCESS_KEY="$${AWS_SECRET_ACCESS_KEY:-test}"; \
+	export LOCALSTACK_HOSTNAME="127.0.0.1"; \
+	export EDGE_PORT="$(FLOCI_HOST_PORT)"; \
 	export CDK_DEFAULT_ACCOUNT="$(CDK_LOCAL_ACCOUNT)"; \
 	export CDK_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
 	cd infra/cdk && $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
 	$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK) --require-approval never
 	@set -a; [ ! -f .env ] || source .env; set +a; RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
+
+local-provision: local-infra
+	@$(MAKE) config-bootstrap
 	@uv run python scripts/local/connectivity.py
 
 seed:
@@ -241,7 +247,6 @@ chainlit-gate:
 physical-up: generation-model local-core-up openvino-models
 	OVMS_NETWORK=$(RAG_OPS_NETWORK) uv run python scripts/openvino_runtime.py up
 	@$(MAKE) local-provision
-	@$(MAKE) config-bootstrap
 	CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/local/ensure_data.py
 
 physical-generation-contract: physical-up
@@ -253,7 +258,7 @@ physical-relevance-calibrate: physical-generation-contract
 
 physical-ready: physical-relevance-calibrate
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
-	@$(MAKE) local-provision
+	@$(MAKE) local-infra
 	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py
 	@uv run python scripts/local/connectivity.py
 
