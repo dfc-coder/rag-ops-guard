@@ -35,11 +35,11 @@ new RagOpsGuardStack(app, stackId, {
   embeddingBaseUrl: local
     ? process.env.LAMBDA_EMBEDDING_BASE_URL
     : process.env.RAG_OPS_AWS_EMBEDDING_BASE_URL,
-  embeddingModel: process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL,
+  embeddingModel: local ? process.env.OVMS_EMBEDDING_MODEL : process.env.EMBEDDING_MODEL,
   rerankerBaseUrl: local
     ? process.env.LAMBDA_RERANKER_BASE_URL
     : process.env.RAG_OPS_AWS_RERANKER_BASE_URL,
-  rerankerModel: process.env.LAMBDA_RERANKER_MODEL ?? process.env.RERANKER_MODEL,
+  rerankerModel: local ? process.env.OVMS_RERANKER_MODEL : process.env.RERANKER_MODEL,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
