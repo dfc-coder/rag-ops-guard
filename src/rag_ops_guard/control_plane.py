@@ -71,13 +71,66 @@ def _configuration_bytes(value: object) -> bytes:
     raise ControlPlaneResolutionError("AppConfigData returned an unsupported configuration body")
 
 
-def fetch_control_plane(*, client: Any | None = None) -> ControlPlaneConfig:
+def _named_resource_id(
+    client: Any,
+    operation: str,
+    expected_name: str,
+    **parameters: object,
+) -> str:
+    request = dict(parameters)
+    matches: list[str] = []
+    while True:
+        response = getattr(client, operation)(**request)
+        for item in response.get("Items", []):
+            if item.get("Name") == expected_name and item.get("Id"):
+                matches.append(str(item["Id"]))
+        next_token = response.get("NextToken")
+        if not next_token:
+            break
+        request["NextToken"] = str(next_token)
+
+    if len(matches) != 1:
+        raise ControlPlaneResolutionError(
+            f"AppConfig resource {expected_name!r} resolved to {len(matches)} physical ids"
+        )
+    return matches[0]
+
+
+def _resolve_physical_ids(appconfig: Any) -> tuple[str, str, str]:
+    application_id = _named_resource_id(
+        appconfig,
+        "list_applications",
+        APPCONFIG_APPLICATION,
+    )
+    environment_id = _named_resource_id(
+        appconfig,
+        "list_environments",
+        APPCONFIG_ENVIRONMENT,
+        ApplicationId=application_id,
+    )
+    profile_id = _named_resource_id(
+        appconfig,
+        "list_configuration_profiles",
+        APPCONFIG_PROFILE,
+        ApplicationId=application_id,
+    )
+    return application_id, environment_id, profile_id
+
+
+def fetch_control_plane(
+    *,
+    management_client: Any | None = None,
+    data_client: Any | None = None,
+) -> ControlPlaneConfig:
     """Resolve the active platform control plane through the standard AWS SDK provider chain."""
-    appconfigdata = client or boto3.client("appconfigdata")
+    appconfig = management_client or boto3.client("appconfig")
+    appconfigdata = data_client or boto3.client("appconfigdata")
+    application_id, environment_id, profile_id = _resolve_physical_ids(appconfig)
+
     session = appconfigdata.start_configuration_session(
-        ApplicationIdentifier=APPCONFIG_APPLICATION,
-        EnvironmentIdentifier=APPCONFIG_ENVIRONMENT,
-        ConfigurationProfileIdentifier=APPCONFIG_PROFILE,
+        ApplicationIdentifier=application_id,
+        EnvironmentIdentifier=environment_id,
+        ConfigurationProfileIdentifier=profile_id,
     )
     token = session.get("InitialConfigurationToken")
     if not token:
