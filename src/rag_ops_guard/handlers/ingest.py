@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from time import perf_counter
 from typing import Any
 
@@ -26,10 +25,8 @@ from rag_ops_guard.tenancy.runtime_auth import MissingApiKeyError, request_conte
 
 
 def _internal_error_body(exc: Exception) -> str:
-    payload: dict[str, str] = {"error": "internal_error"}
-    if os.environ.get("APP_ENV") == "local":
-        payload["detail"] = str(exc)
-    return json.dumps(payload)
+    del exc
+    return json.dumps({"error": "internal_error"})
 
 
 def _record_config_observability(
