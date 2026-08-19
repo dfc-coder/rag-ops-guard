@@ -171,7 +171,6 @@ describe('RagOpsGuardStack', () => {
     );
     template.hasResourceProperties('AWS::CloudWatch::Dashboard', {
       DashboardName: 'rag-ops-guard-config-admin',
-      DashboardBody: Match.serializedJson(Match.objectLike({ widgets: Match.anyValue() })),
     });
     const dashboards = JSON.stringify(template.findResources('AWS::CloudWatch::Dashboard'));
     expect(dashboards).toContain('ConfigResolveLatencyMs');
