@@ -1,0 +1,34 @@
+name: refresh-python313-lock
+
+on:
+  push:
+    branches: [chore/python313-cdk-canonical-infra]
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: chore/python313-cdk-canonical-infra
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.13'
+          version: '0.12.3'
+      - run: uv lock
+      - name: Commit refreshed lock
+        shell: bash
+        run: |
+          if git diff --quiet -- uv.lock; then
+            echo 'uv.lock already current'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add uv.lock
+          git commit -m 'chore: refresh uv lock for Python 3.13'
+          git push origin HEAD:chore/python313-cdk-canonical-infra
