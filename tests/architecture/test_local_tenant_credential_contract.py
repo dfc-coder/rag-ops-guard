@@ -32,7 +32,8 @@ def test_local_api_clients_read_tenant_credentials_from_os_secret_store() -> Non
 def test_make_up_is_tenant_independent_and_onboarding_is_explicit() -> None:
     makefile = _text("Makefile")
 
-    up_block = makefile[makefile.index("\nup:\n") : makefile.index("\ndown:", makefile.index("\nup:\n"))]
+    up_start = makefile.index("\nup:\n")
+    up_block = makefile[up_start : makefile.index("\nready:", up_start)]
     assert "physical-up" in up_block
     assert "physical-ready" not in up_block
     assert "tenant-create:" in makefile
