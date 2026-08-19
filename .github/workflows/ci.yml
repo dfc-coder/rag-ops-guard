@@ -143,8 +143,8 @@ jobs:
         run: |
           export RAG_OPS_LAMBDA_ASSET="$GITHUB_WORKSPACE/.local/lambda-package.zip"
           cd infra/cdk
-          npx --yes --package aws-cdk-local@3.0.4 cdklocal bootstrap --force aws://000000000000/us-east-1
-          npx --yes --package aws-cdk-local@3.0.4 cdklocal deploy RagOpsGuardLocal --require-approval never
+          npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal bootstrap --force aws://000000000000/us-east-1
+          npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal deploy RagOpsGuardLocal --require-approval never
       - name: Materialize declared S3 Vectors resources for Floci
         env:
           AWS_ENDPOINT_URL: http://localhost:4566
