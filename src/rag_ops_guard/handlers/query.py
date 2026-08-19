@@ -21,6 +21,8 @@ from rag_ops_guard.observability.runtime import (
     config_observability_fields,
     set_config_dimensions,
 )
+from rag_ops_guard.tenancy import ApiKeyAuthenticationError
+from rag_ops_guard.tenancy.runtime_auth import MissingApiKeyError, request_context_from_event
 
 
 def _internal_error_body(exc: Exception) -> str:
@@ -106,12 +108,14 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         source="unresolved",
     )
     try:
+        request_context = request_context_from_event(event)
         resolve_started = perf_counter()
         effective = resolve_effective_config()
         config_fields = _record_config_observability(
             effective,
             (perf_counter() - resolve_started) * 1000,
         )
+        config_fields["tenant_id"] = request_context.tenant_id
         add_count(QUERY_METRICS, "QueryCount")
 
         body = event.get("body", event)
@@ -143,7 +147,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             return _proxy_response(response)
 
         with tracing_context(metadata=config_fields):
-            response = conversation_agent().invoke(request).model_copy(
+            response = conversation_agent(request_context).invoke(request).model_copy(
                 update={"config_hash": effective.config_hash}
             )
         add_count(QUERY_METRICS, f"{response.status.value.title().replace('_', '')}Count")
@@ -159,6 +163,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             },
         )
         return _proxy_response(response)
+    except (MissingApiKeyError, ApiKeyAuthenticationError):
+        add_count(QUERY_METRICS, "UnauthorizedCount")
+        QUERY_LOGGER.warning("unauthorized_query_request", extra=config_fields)
+        return _json_proxy(401, {"error": "unauthorized"})
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         add_count(QUERY_METRICS, "InvalidRequestCount")
         QUERY_LOGGER.warning(
