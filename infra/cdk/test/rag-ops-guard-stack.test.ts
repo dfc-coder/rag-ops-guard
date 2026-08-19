@@ -24,6 +24,7 @@ describe('RagOpsGuardStack', () => {
           Variables: Match.objectLike({
             APP_ENV: 'local',
             AWS_ENDPOINT_URL: 'http://floci:4566',
+            TENANT_TABLE: Match.anyValue(),
             S3_VECTOR_BUCKET: 'rag-ops-guard-vectors-local',
             S3_VECTOR_INDEX: 'ops-knowledge-openvino-v1',
             EMBEDDING_BASE_URL: 'http://rag-ops-ovms-rag:8000/v3',
@@ -60,7 +61,7 @@ describe('RagOpsGuardStack', () => {
     });
   });
 
-  test('creates retained pay-per-request config table', () => {
+  test('creates retained pay-per-request config and tenant credential tables', () => {
     const app = new App();
     const stack = new RagOpsGuardStack(app, 'ConfigTestStack', {
       target: 'local',
@@ -69,7 +70,7 @@ describe('RagOpsGuardStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::DynamoDB::Table', 1);
+    template.resourceCountIs('AWS::DynamoDB::Table', 2);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'rag-ops-config',
       BillingMode: 'PAY_PER_REQUEST',
@@ -78,6 +79,12 @@ describe('RagOpsGuardStack', () => {
         { AttributeName: 'PK', KeyType: 'HASH' },
         { AttributeName: 'SK', KeyType: 'RANGE' },
       ],
+    });
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'rag-ops-tenants',
+      BillingMode: 'PAY_PER_REQUEST',
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+      KeySchema: [{ AttributeName: 'key_id', KeyType: 'HASH' }],
     });
   });
 
@@ -114,6 +121,7 @@ describe('RagOpsGuardStack', () => {
             APP_ENV: 'aws',
             AWS_ENDPOINT_URL: '',
             CONFIG_TABLE: Match.anyValue(),
+            TENANT_TABLE: Match.anyValue(),
             LLM_BASE_URL: 'https://llm.example.test/v1',
           }),
         },
