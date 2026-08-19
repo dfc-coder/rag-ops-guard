@@ -19,6 +19,7 @@ from rag_ops_guard.configstore.runtime import (
     RuntimeConfigResolver,
 )
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
+from rag_ops_guard.runtime_environment import settings_from_process_environment
 from rag_ops_guard.tenancy import KeyLayout
 
 SnapshotLoader = Callable[[], ConfigSnapshot | None]
@@ -99,7 +100,7 @@ def _baked_loader(tenant_id: str) -> SnapshotLoader:
 @lru_cache(maxsize=32)
 def _tenant_resolver(tenant_id: str) -> RuntimeConfigResolver:
     tenant = KeyLayout(tenant_id).tenant_id
-    bootstrap = Settings()
+    bootstrap = settings_from_process_environment()
     source_raw = os.environ.get("CONFIG_SOURCE", "db").strip().casefold()
     if source_raw not in {"db", "env"}:
         raise ValueError("CONFIG_SOURCE must be 'db' or 'env'")
