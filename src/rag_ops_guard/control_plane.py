@@ -63,10 +63,7 @@ class ControlPlaneConfig(BaseModel):
 
 
 def _configuration_bytes(value: object) -> bytes:
-    if hasattr(value, "read"):
-        raw = value.read()  # type: ignore[union-attr]
-    else:
-        raw = value
+    raw = value.read() if hasattr(value, "read") else value
     if isinstance(raw, str):
         return raw.encode("utf-8")
     if isinstance(raw, (bytes, bytearray)):
@@ -95,4 +92,6 @@ def fetch_control_plane(*, client: Any | None = None) -> ControlPlaneConfig:
         decoded = json.loads(payload.decode("utf-8"))
         return ControlPlaneConfig.model_validate(decoded)
     except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
-        raise ControlPlaneResolutionError("AppConfigData returned an invalid control-plane payload") from exc
+        raise ControlPlaneResolutionError(
+            "AppConfigData returned an invalid control-plane payload"
+        ) from exc
