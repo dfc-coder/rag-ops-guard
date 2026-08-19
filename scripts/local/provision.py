@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -48,11 +49,14 @@ def required_output(outputs: dict[str, str], name: str) -> str:
 
 
 def materialize_floci_s3_vectors(outputs: dict[str, str]) -> None:
-    """Materialize the S3 Vectors resources Floci 1.6.0 cannot create from CFN yet."""
+    """Materialize tenant S3 Vectors resources Floci 1.6.0 cannot create from CFN yet."""
 
     bucket = required_output(outputs, "VectorBucketName")
-    index = required_output(outputs, "VectorIndexName")
+    raw_indexes = required_output(outputs, "TenantVectorIndexNames")
     dimension = int(required_output(outputs, "VectorDimension"))
+    indexes = json.loads(raw_indexes)
+    if not isinstance(indexes, list) or not indexes or not all(isinstance(item, str) for item in indexes):
+        raise RuntimeError("CDK TenantVectorIndexNames output is invalid")
     vectors = client("s3vectors")
 
     try:
@@ -60,16 +64,17 @@ def materialize_floci_s3_vectors(outputs: dict[str, str]) -> None:
     except ClientError:
         vectors.create_vector_bucket(vectorBucketName=bucket)
 
-    try:
-        vectors.get_index(vectorBucketName=bucket, indexName=index)
-    except ClientError:
-        vectors.create_index(
-            vectorBucketName=bucket,
-            indexName=index,
-            dataType="float32",
-            dimension=dimension,
-            distanceMetric="cosine",
-        )
+    for index in indexes:
+        try:
+            vectors.get_index(vectorBucketName=bucket, indexName=index)
+        except ClientError:
+            vectors.create_index(
+                vectorBucketName=bucket,
+                indexName=index,
+                dataType="float32",
+                dimension=dimension,
+                distanceMetric="cosine",
+            )
 
 
 def bootstrap_local_tenant(outputs: dict[str, str]) -> None:
@@ -157,7 +162,7 @@ def main() -> None:
     Path(".local/api-url").write_text(endpoint, encoding="utf-8")
 
     print(f"CDK stack: {STACK_NAME}")
-    print("Floci S3 Vectors bridge: ready")
+    print("Floci tenant S3 Vectors bridge: ready")
     print("Local runtime secrets: synchronized")
     print(f"Local API: {endpoint}")
 
