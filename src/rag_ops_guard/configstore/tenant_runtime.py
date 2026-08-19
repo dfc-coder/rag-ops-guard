@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 import boto3
 from botocore.config import Config
@@ -13,13 +13,12 @@ from rag_ops_guard.configstore.runtime import (
     DEFAULT_HEAD_TTL_SECONDS,
     DEFAULT_MAX_STALE_SECONDS,
     ConfigSnapshot,
+    ConfigSource,
     EffectiveConfig,
     RuntimeConfigResolver,
 )
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
 from rag_ops_guard.tenancy import KeyLayout
-
-ConfigSource = Literal["db", "env"]
 
 
 def tenant_snapshot_key(tenant_id: str) -> str:
