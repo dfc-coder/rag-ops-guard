@@ -38,22 +38,35 @@ PHASE4_LAMBDA_ENV_KEYS = {
 }
 
 
+def _is_os_environ(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        and node.attr == "environ"
+    )
+
+
 def _env_read_files() -> set[str]:
     found: set[str] = set()
     for path in SRC.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name) and node.func.value.id == "os":
-                    if node.func.attr in {"getenv"}:
-                        found.add(path.relative_to(SRC).as_posix())
-            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
                 if (
-                    isinstance(node.value.value, ast.Name)
-                    and node.value.value.id == "os"
-                    and node.value.attr == "environ"
+                    isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "os"
+                    and node.func.attr == "getenv"
                 ):
                     found.add(path.relative_to(SRC).as_posix())
+                if node.func.attr == "get" and _is_os_environ(node.func.value):
+                    found.add(path.relative_to(SRC).as_posix())
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Load)
+                and _is_os_environ(node.value)
+            ):
+                found.add(path.relative_to(SRC).as_posix())
     return found
 
 
@@ -66,11 +79,7 @@ def test_phase5_freezes_lambda_application_environment_until_phase6() -> None:
     start = stack.index("const commonEnvironment = {")
     end = stack.index("};", start)
     block = stack[start:end]
-    present = {
-        key
-        for key in PHASE4_LAMBDA_ENV_KEYS
-        if f"{key}:" in block
-    }
+    present = {key for key in PHASE4_LAMBDA_ENV_KEYS if f"{key}:" in block}
     assert present == PHASE4_LAMBDA_ENV_KEYS
     uppercase_keys = {
         line.strip().split(":", 1)[0]
