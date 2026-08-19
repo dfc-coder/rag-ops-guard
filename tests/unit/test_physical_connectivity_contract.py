@@ -92,3 +92,14 @@ def test_local_cdk_uses_ovms_model_identity_not_generic_env_fallback() -> None:
     )
     assert 'process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL' not in cdk_app
     assert 'process.env.LAMBDA_RERANKER_MODEL ?? process.env.RERANKER_MODEL' not in cdk_app
+
+
+def test_physical_make_workflow_does_not_require_or_source_dotenv() -> None:
+    makefile = _read("Makefile")
+    up = makefile.split("up:\n", maxsplit=1)[1].split("\nready:", maxsplit=1)[0]
+
+    assert '$(MAKE) physical-up' in up
+    assert 'Missing .env' not in up
+    assert 'source .env' not in makefile
+    assert '[ ! -f .env ]' not in makefile
+    assert 'test -f .env' not in makefile
