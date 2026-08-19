@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 MIN_CPU_THREADS = 8
 MIN_MEMORY_GIB = 8
 MIN_FREE_DISK_GIB = 8
@@ -17,6 +18,15 @@ REQUIRED_PORTS = (
     ("LLAMA_RERANK_HOST_PORT", 8082),
 )
 REQUIRED_COMMANDS = ("uv", "node", "npm", "podman", "git")
+
+
+def project_python_version() -> tuple[int, int]:
+    raw = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    try:
+        major, minor = raw.split(".", maxsplit=1)
+        return int(major), int(minor)
+    except ValueError as exc:
+        raise RuntimeError(f"invalid .python-version: {raw!r}") from exc
 
 
 def gib(value: int) -> float:
@@ -64,8 +74,14 @@ def assert_port_available(port: int) -> None:
 def main() -> None:
     failures: list[str] = []
 
-    if not ((3, 12) <= sys.version_info[:2] < (3, 14)):
-        failures.append(f"Python 3.12 or 3.13 required; found {sys.version.split()[0]}")
+    try:
+        expected_python = project_python_version()
+    except (OSError, RuntimeError) as exc:
+        failures.append(str(exc))
+        expected_python = (-1, -1)
+    if sys.version_info[:2] != expected_python:
+        expected = ".".join(str(part) for part in expected_python)
+        failures.append(f"Python {expected} required by .python-version; found {sys.version.split()[0]}")
     print(f"python: {sys.version.split()[0]}")
 
     for command in REQUIRED_COMMANDS:
