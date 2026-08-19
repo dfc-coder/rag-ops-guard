@@ -60,13 +60,14 @@ def test_all_runtime_clients_resolve_the_canonical_agent_from_app() -> None:
     assert canonical.args.defaults[0].value is None
 
 
-def test_api_uses_canonical_agent_without_compatibility_alias() -> None:
+def test_api_uses_authenticated_context_with_canonical_agent() -> None:
     app = (ROOT / "src/rag_ops_guard/app.py").read_text(encoding="utf-8")
     handler = (ROOT / "src/rag_ops_guard/handlers/query.py").read_text(encoding="utf-8")
 
     assert "def query_workflow(" not in app
     assert "from rag_ops_guard.app import conversation_agent" in handler
-    assert "response = conversation_agent().invoke(request)" in handler
+    assert "request_context = request_context_from_event(event)" in handler
+    assert "response = conversation_agent(request_context).invoke(request)" in handler
     assert "query_workflow" not in handler
 
 
