@@ -11,7 +11,6 @@ def test_configure_langsmith_exports_runtime_environment(monkeypatch) -> None:
     monkeypatch.delenv("LANGSMITH_WORKSPACE_ID", raising=False)
 
     settings = Settings(
-        _env_file=None,
         langsmith_tracing=True,
         langsmith_project="rag-ops-guard-test",
         langsmith_endpoint="https://api.smith.langchain.com",
@@ -31,7 +30,6 @@ def test_configure_langsmith_stays_disabled_without_api_key(monkeypatch) -> None
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
 
     settings = Settings(
-        _env_file=None,
         langsmith_tracing=True,
         langsmith_api_key=None,
     )
