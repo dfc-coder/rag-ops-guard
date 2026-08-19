@@ -10,7 +10,6 @@ import httpx
 from botocore.config import Config
 
 from rag_ops_guard.config import Settings
-from rag_ops_guard.config_publish import publish_config_revision  # type: ignore[import-not-found]
 from rag_ops_guard.configstore.token_hashing import TenantTokenHasher
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
 from rag_ops_guard.tenancy import KeyLayout
@@ -124,7 +123,6 @@ def _list_chunks(layout: KeyLayout) -> set[str]:
 
 
 def main() -> None:
-    # Import the publisher from its script module without introducing a second config implementation.
     from scripts.config_publish import publish_config_revision
 
     api = _api_url()
@@ -189,18 +187,23 @@ def main() -> None:
         raise RuntimeError("tenant config HEAD verification failed")
 
     print("PHASE 4 TENANT ISOLATION READY")
-    print(json.dumps({
-        "tenant_a": tenant_a,
-        "tenant_b": tenant_b,
-        "config_head_a": head_a,
-        "config_head_b": head_b,
-        "vector_index_a": expected_index_a,
-        "vector_index_b": expected_index_b,
-        "chunks_a": len(chunks_a),
-        "chunks_b": len(chunks_b),
-        "cross_ingest_a_to_b": cross_a.status_code,
-        "cross_ingest_b_to_a": cross_b.status_code,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "tenant_a": tenant_a,
+                "tenant_b": tenant_b,
+                "config_head_a": head_a,
+                "config_head_b": head_b,
+                "vector_index_a": expected_index_a,
+                "vector_index_b": expected_index_b,
+                "chunks_a": len(chunks_a),
+                "chunks_b": len(chunks_b),
+                "cross_ingest_a_to_b": cross_a.status_code,
+                "cross_ingest_b_to_a": cross_b.status_code,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
