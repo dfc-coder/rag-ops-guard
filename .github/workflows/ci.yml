@@ -132,16 +132,30 @@ jobs:
         env:
           AWS_ENDPOINT_URL: http://localhost:4566
           AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
+          LOCALSTACK_HOSTNAME: localhost
+          EDGE_PORT: '4566'
           CDK_DEFAULT_ACCOUNT: '000000000000'
           CDK_DEFAULT_REGION: us-east-1
           RAG_OPS_INFRA_TARGET: local
         run: |
           export RAG_OPS_LAMBDA_ASSET="$GITHUB_WORKSPACE/.local/lambda-package.zip"
           cd infra/cdk
-          npx --yes --package aws-cdk-local@3.0.4 cdklocal bootstrap aws://000000000000/us-east-1
+          npx --yes --package aws-cdk-local@3.0.4 cdklocal bootstrap --force aws://000000000000/us-east-1
           npx --yes --package aws-cdk-local@3.0.4 cdklocal deploy RagOpsGuardLocal --require-approval never
+      - name: Materialize declared S3 Vectors resources for Floci
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          RAG_OPS_CDK_STACK_NAME: RagOpsGuardLocal
+        run: >-
+          uv run python -c
+          'from scripts.local.provision import stack_outputs, materialize_floci_s3_vectors;
+          materialize_floci_s3_vectors(stack_outputs())'
       - name: Run Floci integration contracts
         run: uv run pytest -m integration tests/integration
         env:
