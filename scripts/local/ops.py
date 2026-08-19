@@ -277,7 +277,7 @@ def status() -> int:
         if tracing.casefold() == "true":
             _ok("LangSmith", f"enabled - {project}")
         else:
-            _warn("LangSmith", f"disabled - {project}")
+            _ok("LangSmith", f"disabled - {project}")
 
     if physical_model:
         _ok("Model real", physical_model)
