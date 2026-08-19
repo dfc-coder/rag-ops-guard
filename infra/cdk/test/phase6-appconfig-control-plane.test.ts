@@ -57,7 +57,7 @@ describe('Phase 6.0 AppConfig control plane', () => {
     expect(rendered).not.toContain('ragas_judge_api_key');
   });
 
-  test('query and ingest roles can read AppConfigData', () => {
+  test('query and ingest roles can discover ids and read AppConfigData', () => {
     const app = new App();
     const stack = new RagOpsGuardStack(app, 'Phase6AppConfigIamStack', {
       target: 'local',
@@ -67,6 +67,9 @@ describe('Phase 6.0 AppConfig control plane', () => {
     const template = Template.fromStack(stack);
     const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
 
+    expect(policies).toContain('appconfig:ListApplications');
+    expect(policies).toContain('appconfig:ListEnvironments');
+    expect(policies).toContain('appconfig:ListConfigurationProfiles');
     expect(policies).toContain('appconfig:StartConfigurationSession');
     expect(policies).toContain('appconfig:GetLatestConfiguration');
   });
