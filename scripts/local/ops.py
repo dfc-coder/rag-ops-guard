@@ -16,6 +16,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from rag_ops_guard.config import Settings
 from rag_ops_guard.configstore.runtime import snapshot_for_values
 from rag_ops_guard.configstore.tenant_store import TenantDynamoDbConfigStore
+from rag_ops_guard.local_credentials import LocalCredentialError, require_local_api_key
 from rag_ops_guard.tenancy import KeyLayout
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -264,7 +265,7 @@ def status() -> int:
     if api_url:
         _ok("API", api_url)
     else:
-        _fail("API", ".local/api-url missing; run make physical-ready")
+        _fail("API", ".local/api-url missing; run make up")
 
     if lambda_env is None:
         _fail("Lambda", f"{QUERY_FUNCTION} unavailable")
@@ -316,14 +317,16 @@ def status() -> int:
     return 1 if config_mismatch or backend_mismatch else 0
 
 
-def _preflight(env: dict[str, str]) -> list[str]:
+def _preflight(env: dict[str, str], tenant_id: str) -> list[str]:
     problems: list[str] = []
     if _runner_active():
         problems.append("GitHub self-hosted runner is active and can steal CPU from Qwen")
     if not env.get("RAG_API_URL"):
         problems.append(".local/api-url is missing")
-    if not env.get("RAG_OPS_API_KEY", "").strip():
-        problems.append("RAG_OPS_API_KEY is missing")
+    try:
+        require_local_api_key(tenant_id)
+    except LocalCredentialError as exc:
+        problems.append(str(exc))
     containers = _container_states()
     for key, default in (
         ("FLOCI_CONTAINER_NAME", "rag-ops-floci"),
@@ -339,7 +342,9 @@ def _preflight(env: dict[str, str]) -> list[str]:
         problems.append(f"Lambda {QUERY_FUNCTION} is unavailable")
     else:
         if not _config_hash_matches(_local_config_hash(env), lambda_env):
-            problems.append("effective tenant config hash differs between local registry and Lambda bootstrap")
+            problems.append(
+                "effective tenant config hash differs between local registry and Lambda bootstrap"
+            )
         backend_errors = _lambda_backend_mismatches(env, lambda_env)
         if backend_errors:
             problems.append("Lambda RAG backend mismatch: " + "; ".join(backend_errors))
@@ -363,9 +368,10 @@ def _classify_failure(output: str, elapsed: float) -> str:
     return "runner/test failure - inspect the last lines above"
 
 
-def golden(case_id: str | None, all_cases: bool, force: bool) -> int:
+def golden(case_id: str | None, all_cases: bool, force: bool, tenant_id: str) -> int:
     env = runtime_env()
-    problems = _preflight(env)
+    normalized_tenant = KeyLayout(tenant_id).tenant_id
+    problems = _preflight(env, normalized_tenant)
     if problems and not force:
         print("\nPRE-FLIGHT FAILED")
         for problem in problems:
@@ -376,15 +382,27 @@ def golden(case_id: str | None, all_cases: bool, force: bool) -> int:
 
     if all_cases:
         label = f"ALL {_golden_count()} GOLDEN CASES"
-        command = [sys.executable, "evaluation/runners/run_golden.py"]
+        command = [
+            sys.executable,
+            "evaluation/runners/run_golden.py",
+            "--tenant-id",
+            normalized_tenant,
+        ]
     else:
         selected = case_id or "retry-count-1"
         label = f"GOLDEN CASE {selected}"
-        command = [sys.executable, "evaluation/runners/run_golden.py", "--case-id", selected]
+        command = [
+            sys.executable,
+            "evaluation/runners/run_golden.py",
+            "--case-id",
+            selected,
+            "--tenant-id",
+            normalized_tenant,
+        ]
 
     print(f"\nRUN  {label}")
     print(f"API       {env.get('RAG_API_URL', '<missing>')}")
-    print(f"TENANT    {env.get('RAG_OPS_TENANT_ID', 'default')}")
+    print(f"TENANT    {normalized_tenant}")
     lambda_env = _lambda_environment(env) or {}
     print(f"MODEL     {lambda_env.get('LLM_MODEL', env.get('LLM_MODEL', '<unknown>'))}")
     print(f"CONFIG    {lambda_env.get('CONFIG_HASH', '<missing>')}")
@@ -459,6 +477,7 @@ def main() -> int:
     golden_parser.add_argument("--case", dest="case_id")
     golden_parser.add_argument("--all", action="store_true", dest="all_cases")
     golden_parser.add_argument("--force", action="store_true")
+    golden_parser.add_argument("--tenant", dest="tenant_id", default="default")
 
     subparsers.add_parser("logs", help="Show recent Floci/LLM/OpenVINO logs")
     args = parser.parse_args()
@@ -466,7 +485,7 @@ def main() -> int:
     if args.command == "status":
         return status()
     if args.command == "golden":
-        return golden(args.case_id, args.all_cases, args.force)
+        return golden(args.case_id, args.all_cases, args.force, args.tenant_id)
     if args.command == "logs":
         return logs()
     return 2
