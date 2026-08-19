@@ -24,11 +24,11 @@ def test_phase2_calibration_publishes_and_shadow_check_is_blocking() -> None:
 
 
 def test_phase2_lambda_bootstrap_does_not_duplicate_runtime_tuning() -> None:
-    provision = (ROOT / "scripts/local/provision.py").read_text(encoding="utf-8")
+    stack = (ROOT / "infra/cdk/lib/rag-ops-guard-stack.ts").read_text(encoding="utf-8")
 
-    start = provision.index("def lambda_environment")
-    end = provision.index("def publish_lambda_code")
-    body = provision[start:end]
+    start = stack.index("const commonEnvironment =")
+    end = stack.index("const ingest =")
+    body = stack[start:end]
     for key in (
         "RETRIEVAL_TOP_K",
         "RETRIEVAL_CONTEXT_K",
@@ -38,4 +38,8 @@ def test_phase2_lambda_bootstrap_does_not_duplicate_runtime_tuning() -> None:
         "CHUNK_OVERLAP",
         "LLM_TEMPERATURE",
     ):
-        assert f'"{key}"' not in body
+        assert key not in body
+
+    assert "CONFIG_SOURCE: 'db'" in body
+    assert "CONFIG_TABLE:" in body
+    assert "CONFIG_HASH:" in body
