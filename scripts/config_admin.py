@@ -72,8 +72,6 @@ def _admin_store(settings: Settings, tenant_id: str) -> DynamoDbAdminStore:
 
 
 def _secret_backend(settings: Settings, request: SecretMutationRequest) -> EnvelopeSecretBackend:
-    if not request.kek_ref:
-        raise RuntimeError("secret mutation request has no KEK reference")
     resource = boto3.resource("dynamodb", **_client_kwargs(settings))
     kms = boto3.client("kms", **_client_kwargs(settings))
     envelope = EnvelopeSecretService(
