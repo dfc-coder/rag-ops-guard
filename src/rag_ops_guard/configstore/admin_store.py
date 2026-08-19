@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any
+from typing import cast
 
 import boto3
 
@@ -59,14 +59,14 @@ class DynamoDbAdminStore:
         return SecretMutationRequest(
             request_id=str(item["request_id"]),
             tenant_id=str(item["tenant_id"]),
-            action=action,  # type: ignore[arg-type]
+            action=cast(SecretMutationAction, action),
             key_name=str(item["key_name"]),
             requested_by=str(item["requested_by"]),
             change_reason=str(item["change_reason"]),
             payload_sha256=str(item["payload_sha256"])
             if item.get("payload_sha256") is not None
             else None,
-            status=status,  # type: ignore[arg-type]
+            status=cast(SecretMutationStatus, status),
             created_at=float(str(item["created_at"])),
             approved_by=str(item["approved_by"])
             if item.get("approved_by") is not None
