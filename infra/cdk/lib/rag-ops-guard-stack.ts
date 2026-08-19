@@ -255,7 +255,7 @@ export class RagOpsGuardStack extends Stack {
       deploymentStrategyId: 'AppConfig.AllAtOnce',
       description: 'Deploy the active RAG Ops Guard runtime control plane',
     });
-    controlPlaneDeployment.addDependency(controlPlaneVersion);
+    controlPlaneDeployment.addResourceDependency(controlPlaneVersion);
 
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
@@ -298,12 +298,22 @@ export class RagOpsGuardStack extends Stack {
       environment: commonEnvironment,
     });
 
+    const controlPlaneDiscover = new iam.PolicyStatement({
+      actions: [
+        'appconfig:ListApplications',
+        'appconfig:ListEnvironments',
+        'appconfig:ListConfigurationProfiles',
+      ],
+      resources: ['*'],
+    });
     const controlPlaneConfigurationArn = `arn:${this.partition}:appconfig:${this.region}:${this.account}:application/${controlPlaneApplication.ref}/environment/${controlPlaneEnvironment.ref}/configuration/${controlPlaneProfile.ref}`;
     const controlPlaneRead = new iam.PolicyStatement({
       actions: ['appconfig:StartConfigurationSession', 'appconfig:GetLatestConfiguration'],
       resources: [controlPlaneConfigurationArn],
     });
+    ingest.addToRolePolicy(controlPlaneDiscover);
     ingest.addToRolePolicy(controlPlaneRead);
+    query.addToRolePolicy(controlPlaneDiscover);
     query.addToRolePolicy(controlPlaneRead);
 
     documents.grantReadWrite(ingest);
@@ -348,10 +358,7 @@ export class RagOpsGuardStack extends Stack {
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: 'Configuration resolution',
-          left: [
-            metric('ConfigResolveLatencyMs', 'p99'),
-            metric('ConfigRevisionAge', 'Maximum'),
-          ],
+          left: [metric('ConfigResolveLatencyMs', 'p99'), metric('ConfigRevisionAge', 'Maximum')],
         }),
         new cloudwatch.GraphWidget({
           title: 'Configuration cache and availability',
