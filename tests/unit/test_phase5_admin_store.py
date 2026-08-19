@@ -187,5 +187,9 @@ def test_phase3_backend_satisfies_generic_secret_port() -> None:
         ("set", "TENANT#tenant-a", "x", b"value"),
         ("delete", "TENANT#tenant-a", "x", None),
     ]
+
+    delete_only = EnvelopeSecretBackend(service=service)
+    delete_only.delete_secret(scope="TENANT#tenant-a", key_name="old")
+    assert service.calls[-1] == ("delete", "TENANT#tenant-a", "old", None)
     with pytest.raises(ValueError, match="kek_ref"):
-        EnvelopeSecretBackend(service=service, kek_ref="")
+        delete_only.set_secret(scope="TENANT#tenant-a", key_name="x", secret=b"value")
