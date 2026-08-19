@@ -58,6 +58,13 @@ def api_url() -> str:
     return path.read_text().strip().rstrip("/")
 
 
+def api_key() -> str:
+    value = os.environ.get("RAG_OPS_API_KEY", "").strip()
+    if not value:
+        raise SystemExit("RAG_OPS_API_KEY is required for Phase 4 Golden evaluation")
+    return value
+
+
 def citation_identities(citation: Citation) -> set[str]:
     major = citation.version.split(".", maxsplit=1)[0]
     return {citation.logical_id, f"{citation.logical_id}-v{major}"}
@@ -185,6 +192,7 @@ def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any
         response = httpx.post(
             f"{base_url}/v1/query",
             json={"question": case["question"], "context": case.get("context", {})},
+            headers={"x-api-key": api_key()},
             timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
         )
     except httpx.TimeoutException as exc:
@@ -253,6 +261,7 @@ def main() -> None:
     cases = _select_cases(all_cases, args.case_id)
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
+    api_key()
     wall_timeout_seconds = _case_wall_timeout_seconds()
 
     output = Path("artifacts/evaluation")
