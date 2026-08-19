@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import io
-import json
 from pathlib import Path
 from types import ModuleType
 
-import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,63 +42,6 @@ def test_lambda_packaging_python_and_dependencies_are_canonical() -> None:
     assert ".local/lambda-package.zip" in package_script
 
 
-def test_api_probe_accepts_lambda_invalid_request_response() -> None:
-    provision = _load_provision()
-    response = httpx.Response(
-        400,
-        headers={"content-type": "application/json"},
-        json={"error": "invalid_request", "detail": "missing field"},
-    )
-    provision.validate_api_probe(response, route="/v1/ingest")
-
-
-def test_api_probe_rejects_s3_xml_misrouting() -> None:
-    provision = _load_provision()
-    response = httpx.Response(
-        400,
-        headers={"content-type": "application/xml"},
-        text=(
-            '<?xml version="1.0"?><Error><Code>InvalidArgument</Code>'
-            "<Message>POST requires either ?uploads or ?uploadId.</Message></Error>"
-        ),
-    )
-    with pytest.raises(RuntimeError, match="API Gateway data-plane probe failed"):
-        provision.validate_api_probe(response, route="/v1/ingest")
-
-
-def test_direct_lambda_probe_surfaces_function_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    provision = _load_provision()
-
-    class FakeLambda:
-        def invoke(self, **_: object) -> dict[str, object]:
-            return {
-                "FunctionError": "Unhandled",
-                "Payload": io.BytesIO(b'{"errorMessage":"ImportModuleError"}'),
-            }
-
-    monkeypatch.setattr(provision, "client", lambda service, **kwargs: FakeLambda())
-    with pytest.raises(RuntimeError, match="ImportModuleError"):
-        provision.probe_lambda("rag-ops-guard-ingest")
-
-
-def test_direct_lambda_probe_accepts_invalid_request_proxy_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provision = _load_provision()
-    proxy_payload = {
-        "statusCode": 400,
-        "headers": {"content-type": "application/json"},
-        "body": json.dumps({"error": "invalid_request", "detail": "missing field"}),
-    }
-
-    class FakeLambda:
-        def invoke(self, **_: object) -> dict[str, object]:
-            return {"Payload": io.BytesIO(json.dumps(proxy_payload).encode())}
-
-    monkeypatch.setattr(provision, "client", lambda service, **kwargs: FakeLambda())
-    provision.probe_lambda("rag-ops-guard-ingest")
-
-
 def test_local_provisioner_does_not_duplicate_cdk_resources() -> None:
     provision = (ROOT / "scripts/local/provision.py").read_text(encoding="utf-8")
     compose = (ROOT / "docker/docker-compose.yml").read_text(encoding="utf-8")
@@ -112,6 +52,8 @@ def test_local_provisioner_does_not_duplicate_cdk_resources() -> None:
     assert "create_api" not in provision
     assert "create_table" not in provision
     assert "create_bucket" not in provision
+    assert "probe_lambda" not in provision
+    assert "probe_api_route" not in provision
     assert '"hot-reload"' not in provision
     assert "floci:override-id" not in provision
     assert "FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED" not in compose
