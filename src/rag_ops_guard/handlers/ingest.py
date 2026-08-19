@@ -20,6 +20,8 @@ from rag_ops_guard.observability.runtime import (
     config_observability_fields,
     set_config_dimensions,
 )
+from rag_ops_guard.tenancy import ApiKeyAuthenticationError
+from rag_ops_guard.tenancy.runtime_auth import MissingApiKeyError, request_context_from_event
 
 
 def _internal_error_body(exc: Exception) -> str:
@@ -29,7 +31,9 @@ def _internal_error_body(exc: Exception) -> str:
     return json.dumps(payload)
 
 
-def _record_config_observability(effective: EffectiveConfig, resolve_latency_ms: float) -> dict[str, object]:
+def _record_config_observability(
+    effective: EffectiveConfig, resolve_latency_ms: float
+) -> dict[str, object]:
     fields = config_observability_fields(
         revision_no=effective.revision_no,
         config_hash=effective.config_hash,
@@ -55,6 +59,14 @@ def _record_config_observability(effective: EffectiveConfig, resolve_latency_ms:
     return dict(fields)
 
 
+def _json_proxy(status_code: int, payload: dict[str, object]) -> dict[str, Any]:
+    return {
+        "statusCode": status_code,
+        "headers": {"content-type": "application/json"},
+        "body": json.dumps(payload),
+    }
+
+
 def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     del context
     started = perf_counter()
@@ -70,18 +82,20 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         source="unresolved",
     )
     try:
+        request_context = request_context_from_event(event)
         resolve_started = perf_counter()
         effective = resolve_effective_config()
         config_fields = _record_config_observability(
             effective,
             (perf_counter() - resolve_started) * 1000,
         )
+        config_fields["tenant_id"] = request_context.tenant_id
         add_count(INGEST_METRICS, "IngestRequestCount")
 
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         request = IngestRequest.model_validate(payload)
-        response = ingestion_service().ingest(request.s3_key)
+        response = ingestion_service(request_context).ingest(request.s3_key)
         add_count(INGEST_METRICS, "IngestedCount" if response.status == "ingested" else "NoOpCount")
         INGEST_LOGGER.info(
             "ingest_completed",
@@ -98,6 +112,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
             "headers": {"content-type": "application/json"},
             "body": response.model_dump_json(),
         }
+    except (MissingApiKeyError, ApiKeyAuthenticationError):
+        add_count(INGEST_METRICS, "UnauthorizedCount")
+        INGEST_LOGGER.warning("unauthorized_ingest_request", extra=config_fields)
+        return _json_proxy(401, {"error": "unauthorized"})
     except DocumentValidationError as exc:
         add_count(INGEST_METRICS, "InvalidDocumentCount")
         INGEST_LOGGER.warning(
