@@ -176,7 +176,7 @@ def test_physical_admission_validation_uses_one_labelled_calibration_dataset() -
     )[0]
     assert "CONFIG_SOURCE=db" in physical_ready
     assert "source .local/relevance-floors.env" not in physical_ready
-    assert "$(MAKE) local-provision" in physical_ready
+    assert "$(MAKE) local-infra" in physical_ready
     assert "publish_config_revision" in calibrator
     assert "expected_grounded_score" in calibrator
     assert dataset_name in calibrator
