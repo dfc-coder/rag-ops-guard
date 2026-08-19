@@ -99,6 +99,9 @@ class EnvelopeSecretService:
             key_name=key_name,
         )
 
+    def delete_secret(self, *, scope: str, key_name: str) -> None:
+        self._store.delete_secret(scope=scope, key_name=key_name)
+
     def rotate_kek(self, *, scope: str, new_kek_ref: str) -> int:
         if self._key_rewrapper is None:
             raise RuntimeError("configured key provider does not support KEK re-wrapping")
