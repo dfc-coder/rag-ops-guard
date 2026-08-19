@@ -21,6 +21,13 @@ def _api_url() -> str:
     raise SystemExit("API local no provisionada. Ejecutá `make up` primero.")
 
 
+def _api_key() -> str:
+    value = os.environ.get("RAG_OPS_API_KEY", "").strip()
+    if not value:
+        raise SystemExit("RAG_OPS_API_KEY is required for the Phase 4 API")
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run one RAG Ops Guard query through the canonical Floci/Lambda data plane"
@@ -46,7 +53,12 @@ def main() -> None:
     }
 
     timeout = float(os.environ.get("DEMO_HTTP_TIMEOUT_SECONDS", "300"))
-    response = httpx.post(f"{_api_url()}/v1/query", json=payload, timeout=timeout)
+    response = httpx.post(
+        f"{_api_url()}/v1/query",
+        json=payload,
+        headers={"x-api-key": _api_key()},
+        timeout=timeout,
+    )
     try:
         body = response.json()
     except ValueError:

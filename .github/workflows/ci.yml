@@ -95,6 +95,26 @@ jobs:
       - name: Evaluation runner contracts
         run: uv run --extra eval pytest tests/evaluation -q
 
+  tenant-isolation:
+    name: ci/tenant-isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.13'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - name: Reject skipped isolation acceptance tests
+        run: |
+          if grep -RInE 'pytest\.(skip|xfail)|@pytest\.mark\.(skip|xfail)' tests/tenant_isolation; then
+            echo "Phase 4 isolation gates may not be skipped or xfailed"
+            exit 1
+          fi
+      - name: Prove deterministic two-tenant isolation
+        run: uv run pytest tests/tenant_isolation -q
+
   floci-integration:
     name: ci/floci-integration
     runs-on: ubuntu-latest
@@ -144,6 +164,7 @@ jobs:
           CDK_DEFAULT_ACCOUNT: '000000000000'
           CDK_DEFAULT_REGION: us-east-1
           RAG_OPS_INFRA_TARGET: local
+          RAG_OPS_TENANTS: default,tenant-b
         run: |
           export RAG_OPS_LAMBDA_ASSET="$GITHUB_WORKSPACE/.local/lambda-package.zip"
           cd infra/cdk
@@ -252,7 +273,7 @@ jobs:
   gate:
     name: ci/gate
     if: always()
-    needs: [quality, unit, property, evaluation-contract, floci-integration, security, cdk]
+    needs: [quality, unit, property, evaluation-contract, tenant-isolation, floci-integration, security, cdk]
     runs-on: ubuntu-latest
     steps:
       - name: Require blocking CI jobs

@@ -10,8 +10,9 @@ from typing import Any
 
 import httpx
 
-from rag_ops_guard.app import query_workflow
+from rag_ops_guard.app import conversation_agent
 from rag_ops_guard.domain.models import QueryRequest
+from rag_ops_guard.tenancy import RequestContext
 
 
 def api_url() -> str:
@@ -24,6 +25,18 @@ def api_url() -> str:
     return path.read_text().strip().rstrip("/")
 
 
+def api_key() -> str:
+    value = os.environ.get("RAG_OPS_API_KEY", "").strip()
+    if not value:
+        raise SystemExit("RAG_OPS_API_KEY is required for Phase 4 API benchmarks")
+    return value
+
+
+def direct_context() -> RequestContext:
+    tenant_id = os.environ.get("RAG_OPS_TENANT_ID", "default").strip() or "default"
+    return RequestContext(principal="local:benchmark", tenant_id=tenant_id)
+
+
 def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     index = max(0, min(len(ordered) - 1, round((len(ordered) - 1) * fraction)))
@@ -32,7 +45,7 @@ def percentile(values: list[float], fraction: float) -> float:
 
 def run_one_direct(question: str) -> tuple[float, dict[str, Any]]:
     started = time.perf_counter()
-    response = query_workflow().invoke(QueryRequest(question=question))
+    response = conversation_agent(direct_context()).invoke(QueryRequest(question=question))
     elapsed_ms = (time.perf_counter() - started) * 1000
     return elapsed_ms, dict(response.model_dump(mode="json"))
 
@@ -42,6 +55,7 @@ def run_one_api(url: str, question: str) -> tuple[float, dict[str, Any]]:
     response = httpx.post(
         f"{url}/v1/query",
         json={"question": question, "context": {}},
+        headers={"x-api-key": api_key()},
         timeout=180,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000
@@ -64,6 +78,8 @@ def main() -> None:
         raise SystemExit("requests and concurrency must be >= 1")
 
     url = api_url() if args.transport == "api" else ""
+    if args.transport == "api":
+        api_key()
     wall_started = time.perf_counter()
 
     def run(_: int) -> tuple[float, dict[str, Any]]:
