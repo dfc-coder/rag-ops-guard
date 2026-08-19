@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol
 
 import boto3
 from botocore.config import Config
@@ -17,6 +16,7 @@ from rag_ops_guard.config import Settings
 from rag_ops_guard.configstore.dynamo_store import ConfigHead, DynamoDbConfigStore
 from rag_ops_guard.configstore.hashing import content_hash
 from rag_ops_guard.configstore.registry import registry_entries
+from rag_ops_guard.runtime_settings import runtime_control_plane, settings_from_control_plane
 
 ConfigSource = Literal["db", "env"]
 ResolvedSource = Literal["dynamodb", "cache", "s3_snapshot", "baked", "code_default", "env"]
@@ -25,8 +25,6 @@ DEFAULT_HEAD_TTL_SECONDS = 45.0
 DEFAULT_MAX_STALE_SECONDS = 300.0
 SNAPSHOT_KEY = "config/runtime-snapshot.json"
 
-# These values bind a process to its execution environment or external resources. They remain
-# bootstrap inputs while Phase 2 moves behavioral/tuning policy to the versioned registry.
 BOOTSTRAP_FIELDS = frozenset(
     {
         "app_env",
@@ -318,9 +316,7 @@ class RuntimeConfigResolver:
                 db_unavailable=db_unavailable,
             )
 
-        fallbacks: tuple[
-            tuple[ResolvedSource, Callable[[], ConfigSnapshot | None]], ...
-        ] = (
+        fallbacks: tuple[tuple[ResolvedSource, Callable[[], ConfigSnapshot | None]], ...] = (
             ("s3_snapshot", self._s3_loader),
             ("baked", self._baked_loader),
         )
@@ -387,15 +383,10 @@ def _load_snapshot_file(path: Path) -> ConfigSnapshot | None:
 
 
 def _default_baked_loader() -> ConfigSnapshot | None:
-    configured = os.environ.get("CONFIG_BAKED_SNAPSHOT", "").strip()
-    candidates = [
-        Path(configured) if configured else None,
+    for candidate in (
         Path(".local/config-snapshot.json"),
         Path(__file__).with_name("baked_snapshot.json"),
-    ]
-    for candidate in candidates:
-        if candidate is None:
-            continue
+    ):
         snapshot = _load_snapshot_file(candidate)
         if snapshot is not None:
             return snapshot
@@ -404,51 +395,29 @@ def _default_baked_loader() -> ConfigSnapshot | None:
 
 def _default_s3_loader(bootstrap: Settings) -> Callable[[], ConfigSnapshot | None]:
     def load() -> ConfigSnapshot | None:
-        client = boto3.client(
-            "s3",
-            endpoint_url=bootstrap.aws_endpoint_url or None,
-            region_name=bootstrap.aws_region,
-            aws_access_key_id=bootstrap.aws_access_key_id,
-            aws_secret_access_key=bootstrap.aws_secret_access_key.get_secret_value(),
-            config=Config(s3={"addressing_style": "path"}),
-        )
+        client = boto3.client("s3", config=Config(s3={"addressing_style": "path"}))
         response = client.get_object(Bucket=bootstrap.s3_document_bucket, Key=SNAPSHOT_KEY)
         return ConfigSnapshot.from_json(response["Body"].read().decode("utf-8"))
 
     return load
 
 
-def _float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, str(default)).strip()
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be numeric") from exc
-    if value <= 0:
-        raise ValueError(f"{name} must be > 0")
-    return value
+class _ProviderChainDynamoDbConfigStore(DynamoDbConfigStore):
+    def __init__(self, table: str) -> None:
+        self.table = table
+        self._client = boto3.client("dynamodb")
 
 
 @lru_cache(maxsize=1)
 def _global_resolver() -> RuntimeConfigResolver:
-    bootstrap = Settings()
-    source_raw = os.environ.get("CONFIG_SOURCE", "db").strip().casefold()
-    if source_raw not in {"db", "env"}:
-        raise ValueError("CONFIG_SOURCE must be 'db' or 'env'")
-    source = cast(ConfigSource, source_raw)
-    store = DynamoDbConfigStore(
-        endpoint_url=bootstrap.aws_endpoint_url,
-        region=bootstrap.aws_region,
-        access_key=bootstrap.aws_access_key_id,
-        secret_key=bootstrap.aws_secret_access_key.get_secret_value(),
-        table=os.environ.get("CONFIG_TABLE", "rag-ops-config"),
-    )
+    control_plane = runtime_control_plane()
+    bootstrap = settings_from_control_plane(control_plane)
     return RuntimeConfigResolver(
-        store=store,
+        store=_ProviderChainDynamoDbConfigStore(control_plane.resources.config_table),
         bootstrap=bootstrap,
-        source=source,
-        head_ttl_s=_float_env("CONFIG_HEAD_TTL_SECONDS", DEFAULT_HEAD_TTL_SECONDS),
-        max_stale_s=_float_env("CONFIG_MAX_STALE_SECONDS", DEFAULT_MAX_STALE_SECONDS),
+        source="db",
+        head_ttl_s=float(control_plane.bootstrap.config_head_ttl_seconds),
+        max_stale_s=float(control_plane.bootstrap.config_max_stale_seconds),
         s3_loader=_default_s3_loader(bootstrap),
         baked_loader=_default_baked_loader,
     )
