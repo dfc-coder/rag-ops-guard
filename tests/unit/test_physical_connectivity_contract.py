@@ -64,5 +64,6 @@ def test_local_provision_is_tenant_independent_and_ready_runs_authenticated_conn
     assert 'scripts/local/provision.py' in infra
     assert '$(MAKE) config-bootstrap' in provision
     assert 'scripts/local/connectivity.py' not in provision
+    assert provision.index('$(MAKE) config-bootstrap') < provision.index('$(MAKE) local-infra')
     assert '$(MAKE) tenant-sync TENANT=$(TENANT)' in ready
     assert 'scripts/local/connectivity.py --tenant-id "$(TENANT)"' in ready
