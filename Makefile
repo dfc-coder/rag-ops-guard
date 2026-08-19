@@ -201,13 +201,14 @@ local-infra: package-lambda
 	export EDGE_PORT="$(FLOCI_HOST_PORT)"; \
 	export CDK_DEFAULT_ACCOUNT="$(CDK_LOCAL_ACCOUNT)"; \
 	export CDK_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
-	cd infra/cdk && $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
+	cd infra/cdk && \
+	if [ "$(SKIP_CDK_BOOTSTRAP)" != "1" ]; then $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION); fi && \
 	$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK) --require-approval never
 	@set -a; [ ! -f .env ] || source .env; set +a; RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
 
 local-provision: local-infra
 	@$(MAKE) config-bootstrap
-	@$(MAKE) local-infra
+	@$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1
 
 seed:
 	uv run python scripts/seed.py
