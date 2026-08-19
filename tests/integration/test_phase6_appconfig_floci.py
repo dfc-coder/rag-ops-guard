@@ -11,7 +11,11 @@ def test_floci_serves_canonical_appconfig_control_plane_through_application_reso
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Platform/test-runner concern only: application code still relies exclusively on the SDK provider chain.
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://localhost:4566")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
 
     resolved = fetch_control_plane()
 
