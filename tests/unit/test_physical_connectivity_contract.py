@@ -115,3 +115,11 @@ def test_local_status_does_not_load_or_compare_against_dotenv() -> None:
     assert '_env_file=None' in ops
     assert 'Lambda={lambda_model} | server={physical_model}' in ops
     assert '(Lambda = llama.cpp)' in ops
+
+
+def test_langsmith_disabled_is_a_healthy_status() -> None:
+    ops = _read("scripts/local/ops.py")
+
+    assert '_ok("LangSmith", f"enabled - {project}")' in ops
+    assert '_ok("LangSmith", f"disabled - {project}")' in ops
+    assert '_warn("LangSmith", f"disabled - {project}")' not in ops
