@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 from rag_ops_guard.domain.models import Manifest
 from rag_ops_guard.ingestion.manifest import document_sha256, manifest_key
 from rag_ops_guard.ingestion.metadata import parse_document
+from rag_ops_guard.tenancy import KeyLayout
 
 ENDPOINT = os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
@@ -24,6 +25,7 @@ DOC_BUCKET = os.environ.get("S3_DOCUMENT_BUCKET", "rag-ops-guard-docs-local")
 VECTOR_BUCKET = os.environ.get("S3_VECTOR_BUCKET", "rag-ops-guard-vectors-local")
 VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 VECTOR_DIMENSION = int(os.environ.get("VECTOR_DIMENSION", "1024"))
+LAYOUT = KeyLayout(os.environ.get("RAG_OPS_TENANT_ID", "default"))
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,7 @@ def local_documents() -> list[LocalDocument]:
         metadata, _ = parse_document(content)
         documents.append(
             LocalDocument(
-                manifest_key=manifest_key(metadata.logical_id, metadata.version),
+                manifest_key=manifest_key(metadata.logical_id, metadata.version, LAYOUT),
                 digest=document_sha256(content),
             )
         )
@@ -93,7 +95,7 @@ def local_documents() -> list[LocalDocument]:
 
 
 def corpus_ready() -> bool:
-    """Verify every repository document manifest and every referenced vector."""
+    """Verify every repository document manifest and every referenced vector for one tenant."""
     documents = local_documents()
     if not documents:
         return False
@@ -128,7 +130,7 @@ def corpus_ready() -> bool:
 
 
 def clear_local_manifests() -> None:
-    """Force ingestion to regenerate vectors when the selected vector index is stale."""
+    """Force tenant ingestion to regenerate vectors when the selected vector index is stale."""
     s3 = client("s3", config=Config(s3={"addressing_style": "path"}))
     for document in local_documents():
         with contextlib.suppress(ClientError):
@@ -136,7 +138,7 @@ def clear_local_manifests() -> None:
 
 
 def rebuild_demo_data() -> None:
-    print("local knowledge base incomplete or stale; rebuilding demo corpus")
+    print(f"tenant {LAYOUT.tenant_id} knowledge base incomplete or stale; rebuilding demo corpus")
     clear_local_manifests()
     subprocess.run([sys.executable, "scripts/seed.py"], check=True)
     subprocess.run([sys.executable, "scripts/demo_prepare.py"], check=True)
@@ -152,7 +154,7 @@ def main() -> None:
         rebuild_demo_data()
         return
 
-    print("local knowledge base: ready (all manifests and vectors verified)")
+    print(f"tenant {LAYOUT.tenant_id} knowledge base: ready (all manifests and vectors verified)")
 
 
 if __name__ == "__main__":
