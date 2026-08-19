@@ -47,13 +47,17 @@ def test_golden_preflight_requires_direct_lambda_and_api_connectivity() -> None:
     assert '$(MAKE) connectivity' in golden_all
 
 
-def test_local_provision_redeploys_cdk_then_runs_connectivity_gate() -> None:
+def test_local_provision_materializes_cdk_publishes_config_then_runs_connectivity() -> None:
     makefile = _read("Makefile")
-    block = makefile.split("local-provision: package-lambda", maxsplit=1)[1].split(
+    infra = makefile.split("local-infra: package-lambda", maxsplit=1)[1].split(
+        "\nlocal-provision:", maxsplit=1
+    )[0]
+    provision = makefile.split("local-provision: local-infra", maxsplit=1)[1].split(
         "\nseed:", maxsplit=1
     )[0]
 
-    assert 'RAG_OPS_INFRA_TARGET=local' in block
-    assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in block
-    assert 'scripts/local/provision.py' in block
-    assert 'scripts/local/connectivity.py' in block
+    assert 'RAG_OPS_INFRA_TARGET=local' in infra
+    assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in infra
+    assert 'scripts/local/provision.py' in infra
+    assert '$(MAKE) config-bootstrap' in provision
+    assert 'scripts/local/connectivity.py' in provision
