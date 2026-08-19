@@ -28,6 +28,14 @@ def _imports(path: Path) -> set[str]:
     return modules
 
 
+def _function(path: Path, name: str) -> ast.FunctionDef:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"missing function {name} in {path.relative_to(ROOT)}")
+
+
 def test_runtime_entrypoints_do_not_import_legacy_orchestrators() -> None:
     offenders: list[str] = []
     for path in RUNTIME_ENTRYPOINTS:
@@ -40,13 +48,16 @@ def test_runtime_entrypoints_do_not_import_legacy_orchestrators() -> None:
 def test_all_runtime_clients_resolve_the_canonical_agent_from_app() -> None:
     chainlit = (ROOT / "scripts/chainlit_react_ui.py").read_text(encoding="utf-8")
     gradio = (ROOT / "scripts/gradio_react_ui.py").read_text(encoding="utf-8")
-    app = (ROOT / "src/rag_ops_guard/app.py").read_text(encoding="utf-8")
+    canonical = _function(ROOT / "src/rag_ops_guard/app.py", "conversation_agent")
 
     assert "from rag_ops_guard.app import conversation_agent" in chainlit
     assert "AGENT = conversation_agent()" in chainlit
     assert "from rag_ops_guard.app import conversation_agent" in gradio
     assert "AGENT = conversation_agent()" in gradio
-    assert "def conversation_agent() -> ConversationAgent:" in app
+    assert canonical.args.args[0].arg == "context"
+    assert canonical.args.defaults
+    assert isinstance(canonical.args.defaults[0], ast.Constant)
+    assert canonical.args.defaults[0].value is None
 
 
 def test_api_uses_canonical_agent_without_compatibility_alias() -> None:
