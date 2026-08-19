@@ -23,9 +23,9 @@ ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID", "test")
 SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "test")
 DOC_BUCKET = os.environ.get("S3_DOCUMENT_BUCKET", "rag-ops-guard-docs-local")
 VECTOR_BUCKET = os.environ.get("S3_VECTOR_BUCKET", "rag-ops-guard-vectors-local")
-VECTOR_INDEX = os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1")
 VECTOR_DIMENSION = int(os.environ.get("VECTOR_DIMENSION", "1024"))
 LAYOUT = KeyLayout(os.environ.get("RAG_OPS_TENANT_ID", "default"))
+VECTOR_INDEX = LAYOUT.vector_index(os.environ.get("S3_VECTOR_INDEX", "ops-knowledge-v1"))
 
 
 @dataclass(frozen=True)
