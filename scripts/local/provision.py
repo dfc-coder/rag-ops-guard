@@ -77,6 +77,46 @@ def materialize_floci_s3_vectors(outputs: dict[str, str]) -> None:
         )
 
 
+def _langsmith_environment() -> dict[str, str]:
+    tracing_requested = os.environ.get("LANGSMITH_TRACING", "false").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    api_key = os.environ.get("LANGSMITH_API_KEY", "").strip()
+    values = {
+        "LANGSMITH_TRACING": "true" if tracing_requested and api_key else "false",
+        "LANGSMITH_PROJECT": os.environ.get("LANGSMITH_PROJECT", "rag-ops-guard-local"),
+        "LANGSMITH_ENDPOINT": os.environ.get(
+            "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"
+        ),
+    }
+    if api_key:
+        values["LANGSMITH_API_KEY"] = api_key
+    workspace_id = os.environ.get("LANGSMITH_WORKSPACE_ID", "").strip()
+    if workspace_id:
+        values["LANGSMITH_WORKSPACE_ID"] = workspace_id
+    return values
+
+
+def apply_local_runtime_secrets(function_names: tuple[str, ...]) -> None:
+    """Inject local-only observability secrets without placing them in CDK/CFN templates."""
+
+    lamb = client("lambda")
+    desired = _langsmith_environment()
+    for function_name in function_names:
+        current = lamb.get_function_configuration(FunctionName=function_name)
+        variables = dict(current.get("Environment", {}).get("Variables", {}))
+        variables.pop("LANGSMITH_API_KEY", None)
+        variables.pop("LANGSMITH_WORKSPACE_ID", None)
+        variables.update(desired)
+        lamb.update_function_configuration(
+            FunctionName=function_name,
+            Environment={"Variables": variables},
+        )
+
+
 def parse_proxy_payload(raw: bytes) -> dict[str, Any]:
     try:
         payload = json.loads(raw)
@@ -150,6 +190,7 @@ def main() -> None:
     query_name = required_output(outputs, "QueryFunctionName")
     api_id = required_output(outputs, "ApiId")
 
+    apply_local_runtime_secrets((ingest_name, query_name))
     probe_lambda(ingest_name)
     probe_lambda(query_name)
 
@@ -162,6 +203,7 @@ def main() -> None:
 
     print(f"CDK stack: {STACK_NAME}")
     print("Floci S3 Vectors bridge: ready")
+    print("Local runtime secrets: synchronized")
     print("Lambda direct invoke: ready")
     print(f"Local API: {endpoint}")
     print("API data plane: ready")
