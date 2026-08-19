@@ -165,8 +165,12 @@ export class RagOpsGuardStack extends Stack {
 
     documents.grantReadWrite(ingest);
     documents.grantRead(query);
-    tenantTable.grantReadData(ingest);
-    tenantTable.grantReadData(query);
+    const tenantCredentialRead = new iam.PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+      resources: [tenantTable.tableArn],
+    });
+    ingest.addToRolePolicy(tenantCredentialRead);
+    query.addToRolePolicy(tenantCredentialRead);
     ingest.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3vectors:PutVectors', 's3vectors:GetVectors', 's3vectors:DeleteVectors'],
