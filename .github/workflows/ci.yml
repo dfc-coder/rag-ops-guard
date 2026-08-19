@@ -113,6 +113,8 @@ jobs:
       - run: uv sync --frozen --group dev
       - working-directory: infra/cdk
         run: npm ci
+      - working-directory: infra/cdk
+        run: npm ls aws-cdk aws-cdk-local
       - name: Start Floci
         run: |
           docker run -d --name floci \
@@ -143,8 +145,8 @@ jobs:
         run: |
           export RAG_OPS_LAMBDA_ASSET="$GITHUB_WORKSPACE/.local/lambda-package.zip"
           cd infra/cdk
-          npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal bootstrap --force aws://000000000000/us-east-1
-          npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal deploy RagOpsGuardLocal --require-approval never
+          npx cdklocal bootstrap --force aws://000000000000/us-east-1
+          npx cdklocal deploy RagOpsGuardLocal --require-approval never
       - name: Materialize declared S3 Vectors resources for Floci
         env:
           AWS_ENDPOINT_URL: http://localhost:4566
