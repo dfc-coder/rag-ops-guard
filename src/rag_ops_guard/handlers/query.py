@@ -21,7 +21,7 @@ from rag_ops_guard.observability.runtime import (
     config_observability_fields,
     set_config_dimensions,
 )
-from rag_ops_guard.tenancy import ApiKeyAuthenticationError
+from rag_ops_guard.tenancy import ApiKeyAuthenticationError, RequestContext
 from rag_ops_guard.tenancy.runtime_auth import MissingApiKeyError, request_context_from_event
 
 
@@ -48,10 +48,13 @@ def _json_proxy(status_code: int, payload: dict[str, object]) -> dict[str, Any]:
     }
 
 
-def _connectivity_probe_response(effective: EffectiveConfig) -> dict[str, Any]:
+def _connectivity_probe_response(
+    effective: EffectiveConfig,
+    request_context: RequestContext,
+) -> dict[str, Any]:
     if os.environ.get("APP_ENV") != "local":
         return _json_proxy(404, {"error": "not_found"})
-    result = probe_runtime_connectivity(effective)
+    result = probe_runtime_connectivity(effective, request_context)
     payload: dict[str, object] = {
         "probe": "runtime_connectivity",
         "function_name": os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "rag-ops-guard-query"),
@@ -121,7 +124,7 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
         body = event.get("body", event)
         payload = json.loads(body) if isinstance(body, str) else body
         if isinstance(payload, dict) and payload.get("__rag_ops_probe__") == "connectivity":
-            return _connectivity_probe_response(effective)
+            return _connectivity_probe_response(effective, request_context)
 
         request = QueryRequest.model_validate(payload)
         if effective.fail_closed:

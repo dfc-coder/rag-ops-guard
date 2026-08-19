@@ -67,7 +67,7 @@ def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> 
     )
     vectors = S3VectorsStore(
         vector_bucket=settings.s3_vector_bucket,
-        index_name=settings.s3_vector_index,
+        index_name=keys.vector_index(settings.s3_vector_index),
         object_store=objects,
         endpoint_url=settings.aws_endpoint_url,
         region_name=settings.aws_region,

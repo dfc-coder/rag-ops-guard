@@ -11,6 +11,7 @@ from botocore.config import Config
 from rag_ops_guard.app import embeddings, reranker, vector_store
 from rag_ops_guard.configstore.dynamo_store import DynamoDbConfigStore
 from rag_ops_guard.configstore.runtime import EffectiveConfig
+from rag_ops_guard.tenancy import KeyLayout, RequestContext
 
 
 def _check(operation: Callable[[], dict[str, object]]) -> dict[str, object]:
@@ -78,18 +79,23 @@ def _probe_s3(effective: EffectiveConfig) -> dict[str, object]:
     }
 
 
-def _probe_s3vectors(effective: EffectiveConfig, vector: list[float]) -> dict[str, object]:
+def _probe_s3vectors(
+    effective: EffectiveConfig,
+    vector: list[float],
+    context: RequestContext,
+) -> dict[str, object]:
     settings = effective.settings
+    index_name = KeyLayout(context.tenant_id).vector_index(settings.s3_vector_index)
     client = _aws_client("s3vectors", effective)
     client.get_index(
         vectorBucketName=settings.s3_vector_bucket,
-        indexName=settings.s3_vector_index,
+        indexName=index_name,
     )
-    hits = vector_store().query(vector, top_k=1)
+    hits = vector_store(context).query(vector, top_k=1)
     return {
         "endpoint": settings.aws_endpoint_url,
         "bucket": settings.s3_vector_bucket,
-        "index": settings.s3_vector_index,
+        "index": index_name,
         "query_hits": len(hits),
     }
 
@@ -116,9 +122,12 @@ def _probe_llm(effective: EffectiveConfig) -> dict[str, object]:
     }
 
 
-def _probe_embeddings(effective: EffectiveConfig) -> tuple[dict[str, object], list[float]]:
+def _probe_embeddings(
+    effective: EffectiveConfig,
+    context: RequestContext,
+) -> tuple[dict[str, object], list[float]]:
     settings = effective.settings
-    vector = embeddings().embed_query("rag ops guard physical connectivity probe")
+    vector = embeddings(context).embed_query("rag ops guard physical connectivity probe")
     if len(vector) != settings.embedding_dimension:
         raise RuntimeError(
             f"embedding dimension mismatch: {len(vector)} != {settings.embedding_dimension}"
@@ -133,9 +142,9 @@ def _probe_embeddings(effective: EffectiveConfig) -> tuple[dict[str, object], li
     )
 
 
-def _probe_reranker(effective: EffectiveConfig) -> dict[str, object]:
+def _probe_reranker(effective: EffectiveConfig, context: RequestContext) -> dict[str, object]:
     settings = effective.settings
-    grades = reranker().grade(
+    grades = reranker(context).grade(
         "rag ops guard physical connectivity probe",
         ["rag ops guard physical connectivity probe"],
     )
@@ -148,8 +157,11 @@ def _probe_reranker(effective: EffectiveConfig) -> dict[str, object]:
     }
 
 
-def probe_runtime_connectivity(effective: EffectiveConfig) -> dict[str, object]:
-    """Exercise every physical dependency from the Lambda runtime network namespace."""
+def probe_runtime_connectivity(
+    effective: EffectiveConfig,
+    context: RequestContext,
+) -> dict[str, object]:
+    """Exercise every physical dependency from one authenticated tenant runtime."""
     checks: dict[str, dict[str, object]] = {}
     checks["dynamodb"] = _check(lambda: _probe_dynamodb(effective))
     checks["s3"] = _check(lambda: _probe_s3(effective))
@@ -157,7 +169,7 @@ def probe_runtime_connectivity(effective: EffectiveConfig) -> dict[str, object]:
 
     vector: list[float] | None = None
     try:
-        embedding_detail, vector = _probe_embeddings(effective)
+        embedding_detail, vector = _probe_embeddings(effective, context)
         checks["embeddings"] = {"ok": True, **embedding_detail}
     except Exception as exc:
         checks["embeddings"] = {
@@ -166,7 +178,7 @@ def probe_runtime_connectivity(effective: EffectiveConfig) -> dict[str, object]:
             "error": str(exc),
         }
 
-    checks["reranker"] = _check(lambda: _probe_reranker(effective))
+    checks["reranker"] = _check(lambda: _probe_reranker(effective, context))
     if vector is None:
         checks["s3vectors"] = {
             "ok": False,
@@ -174,10 +186,11 @@ def probe_runtime_connectivity(effective: EffectiveConfig) -> dict[str, object]:
             "error": "embedding probe failed; vector query was not attempted",
         }
     else:
-        checks["s3vectors"] = _check(lambda: _probe_s3vectors(effective, vector))
+        checks["s3vectors"] = _check(lambda: _probe_s3vectors(effective, vector, context))
 
     return {
         "ok": all(bool(check.get("ok")) for check in checks.values()),
+        "tenant_id": context.tenant_id,
         "config_revision": effective.revision_no,
         "config_hash": effective.config_hash,
         "config_source": effective.source,
