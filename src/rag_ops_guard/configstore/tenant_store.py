@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, cast
 
 import boto3
 
+from rag_ops_guard.configstore.admin import AdminAuditEvent
 from rag_ops_guard.configstore.dynamo_store import (
     ConfigHead,
     DynamoDbConfigStore,
@@ -108,8 +110,26 @@ class TenantDynamoDbConfigStore(DynamoDbConfigStore):
         actor: str,
         change_reason: str,
     ) -> PublishedRevision:
+        return self.publish_admin(
+            values,
+            actor=actor,
+            change_reason=change_reason,
+            action="publish",
+        )
+
+    def publish_admin(
+        self,
+        values: dict[str, object],
+        *,
+        actor: str,
+        change_reason: str,
+        action: str,
+        audit_metadata: Mapping[str, object] | None = None,
+    ) -> PublishedRevision:
         if not change_reason.strip():
             raise ValueError("change_reason is required")
+        if action not in {"publish", "rollback"}:
+            raise ValueError(f"unsupported config admin action {action!r}")
         previous = self.get_head()
         revision_no = 1 if previous is None else previous.revision_no + 1
         digest = content_hash(values)
@@ -139,6 +159,22 @@ class TenantDynamoDbConfigStore(DynamoDbConfigStore):
             )
 
         published_at = time.time_ns()
+        audit: dict[str, object] = {
+            "PK": self.scope_key,
+            "SK": f"AUDIT#{published_at}#{uuid.uuid4().hex[:12]}",
+            "tenant_id": self.tenant_id,
+            "actor": actor,
+            "action": action,
+            "change_reason": change_reason,
+            "hash_before": previous.content_hash if previous else "",
+            "hash_after": digest,
+            "resulting_revision": revision_no,
+            "published_at": str(published_at),
+        }
+        for key, value in dict(audit_metadata or {}).items():
+            if key not in audit and value is not None:
+                audit[key] = value
+
         transaction.extend(
             [
                 {
@@ -161,16 +197,7 @@ class TenantDynamoDbConfigStore(DynamoDbConfigStore):
                 {
                     "Put": {
                         "TableName": self.table,
-                        "Item": _item(
-                            {
-                                "PK": self.scope_key,
-                                "SK": f"AUDIT#{published_at}#{uuid.uuid4().hex[:12]}",
-                                "actor": actor,
-                                "action": "publish",
-                                "hash_before": previous.content_hash if previous else "",
-                                "hash_after": digest,
-                            }
-                        ),
+                        "Item": _item(audit),
                         "ConditionExpression": "attribute_not_exists(SK)",
                     }
                 },
@@ -196,3 +223,47 @@ class TenantDynamoDbConfigStore(DynamoDbConfigStore):
         )
         self._client.transact_write_items(TransactItems=transaction)
         return PublishedRevision(revision_no=revision_no, content_hash=digest)
+
+    def list_audit_events(self, *, limit: int = 50) -> list[AdminAuditEvent]:
+        if limit < 1 or limit > 100:
+            raise ValueError("audit limit must be between 1 and 100")
+        response = self._client.query(
+            TableName=self.table,
+            KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+            ExpressionAttributeValues={
+                ":pk": _av(self.scope_key),
+                ":prefix": _av("AUDIT#"),
+            },
+            ScanIndexForward=False,
+            Limit=limit,
+            ConsistentRead=True,
+        )
+        events: list[AdminAuditEvent] = []
+        for raw in cast(list[dict[str, Any]], response.get("Items", [])):
+            item = _decode_item(raw)
+            published_at = _published_at_seconds(item.get("published_at")) or 0.0
+            source = item.get("rollback_from_revision")
+            resulting = item.get("resulting_revision")
+            events.append(
+                AdminAuditEvent(
+                    tenant_id=str(item.get("tenant_id") or self.tenant_id),
+                    actor=str(item.get("actor") or "unknown"),
+                    action=str(item.get("action") or "unknown"),
+                    change_reason=str(item.get("change_reason") or ""),
+                    timestamp=published_at,
+                    approving_principal=str(item["approving_principal"])
+                    if item.get("approving_principal") is not None
+                    else None,
+                    hash_before=str(item.get("hash_before") or ""),
+                    hash_after=str(item.get("hash_after") or ""),
+                    source_revision=int(source) if source is not None else None,
+                    resulting_revision=int(resulting) if resulting is not None else None,
+                    secret_ref=str(item["secret_ref"])
+                    if item.get("secret_ref") is not None
+                    else None,
+                    correlation_id=str(item["correlation_id"])
+                    if item.get("correlation_id") is not None
+                    else None,
+                )
+            )
+        return events

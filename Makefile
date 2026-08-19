@@ -58,20 +58,24 @@ CDK_LOCAL_STACK ?= RagOpsGuardLocal
 CDK_LOCAL_ACCOUNT ?= 000000000000
 CDK_LOCAL_REGION ?= us-east-1
 CDK_LOCAL_S3_ENDPOINT ?= http://s3.localhost.localstack.cloud:$(FLOCI_HOST_PORT)
+TENANT ?= default
 export PYTHON_VERSION UV_PYTHON LAMBDA_PYTHON_VERSION PODMAN_API_SOCKET MODEL_DIR OVMS_MODEL_DIR COMPOSE_PROJECT_NAME RAG_OPS_NETWORK FLOCI_IMAGE FLOCI_CONTAINER_NAME LLAMA_GEN_CONTAINER_NAME LLAMA_EMBED_CONTAINER_NAME LLAMA_RERANK_CONTAINER_NAME OVMS_CONTAINER_NAME FLOCI_HOST_PORT LLAMA_GEN_HOST_PORT LLAMA_EMBED_HOST_PORT LLAMA_RERANK_HOST_PORT OVMS_HOST_PORT OVMS_IMAGE OVMS_EMBEDDING_MODEL OVMS_RERANKER_MODEL LLAMA_CTX_SIZE LLAMA_PARALLEL RETRIEVAL_TOP_K RETRIEVAL_CONTEXT_K RETRIEVAL_DOMAIN_MIN_RELEVANCE RETRIEVAL_MIN_RELEVANCE LLM_ANSWER_MAX_TOKENS LLM_TEMPERATURE LLM_TOP_P LLM_TOP_K LLM_MIN_P LLM_PRESENCE_PENALTY LLM_REPEAT_PENALTY EMBEDDING_TIMEOUT_SECONDS RERANKER_TIMEOUT_SECONDS GOLDEN_HTTP_TIMEOUT_SECONDS GOLDEN_CASE_TIMEOUT_SECONDS RAGAS_JUDGE_TIMEOUT_SECONDS RAGAS_OPERATION_TIMEOUT_SECONDS RAGAS_MAX_RETRIES RAGAS_MAX_WAIT_SECONDS RAGAS_MAX_WORKERS RAGAS_SUITE_TIMEOUT_SECONDS
 
 OPENVINO_BACKEND_ENV := EMBEDDING_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 EMBEDDING_MODEL=$(OVMS_EMBEDDING_MODEL) EMBEDDING_TIMEOUT_SECONDS=$(EMBEDDING_TIMEOUT_SECONDS) RERANKER_BASE_URL=http://127.0.0.1:$(OVMS_HOST_PORT)/v3 RERANKER_MODEL=$(OVMS_RERANKER_MODEL) RERANKER_TIMEOUT_SECONDS=$(RERANKER_TIMEOUT_SECONDS) S3_VECTOR_INDEX=$(OPENVINO_VECTOR_INDEX) RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K)
 OPENVINO_ENV := $(OPENVINO_BACKEND_ENV) RETRIEVAL_DOMAIN_MIN_RELEVANCE=$(RETRIEVAL_DOMAIN_MIN_RELEVANCE) RETRIEVAL_MIN_RELEVANCE=$(RETRIEVAL_MIN_RELEVANCE)
 
-.PHONY: up down help status connectivity config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-infra local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
+.PHONY: up ready down help status connectivity tenant-create tenant-sync tenant-rotate tenant-revoke tenant-status config-bootstrap config-publish config-shadow-check golden golden-all logs doctor setup models generation-model package-lambda local-up local-core-up local-down local-clean local-data retrieval-validate local-infra local-provision seed ingest-corpus smoke demo demo-prepare demo-query ui ui-init beta openvino-models openvino-up openvino-down openvino-status openvino-smoke beta-openvino beta-react gradio-react chainlit-beta chainlit-gate physical-up physical-generation-contract physical-relevance-calibrate physical-ready physical-eval physical-eval-measure physical-smoke demo-ready demo-client benchmark benchmark-api test test-unit test-property test-integration test-e2e lint lint-advisory types ci eval eval-measure eval-human-review eval-judge-calibrate eval-langsmith release-check reset
 
 help:
 	@echo 'Canonical local workflow:'
-	@echo '  make up                         # start/provision the complete physical stack'
+	@echo '  make up                         # start/provision physical infrastructure; no .env or tenant credential required'
+	@echo '  make tenant-create TENANT=default # one-time local credential -> OS Secret Service + Argon2id verifier'
+	@echo '  make tenant-sync TENANT=default # restore verifier after local-clean without exposing plaintext'
+	@echo '  make ready TENANT=default       # authenticated ingestion/connectivity readiness'
 	@echo '  make ui                         # interactive UI through Floci -> Lambda -> Agent'
 	@echo '  make config-publish REASON="..." # publish append-only config revision'
 	@echo '  make config-shadow-check        # compare DB revision with publisher environment'
-	@echo '  make connectivity               # execute dependency probes from Lambda and API Gateway'
+	@echo '  make connectivity TENANT=default # execute authenticated dependency probes'
 	@echo '  make golden CASE=<id>           # one Golden through the same /v1/query'
 	@echo '  make golden-all                 # all 34 Golden cases through the same /v1/query'
 	@echo '  make status                     # runtime/model/API/config-hash state'
@@ -82,31 +86,48 @@ status:
 	@uv run python scripts/local/ops.py status
 
 connectivity:
-	@uv run python scripts/local/connectivity.py
+	@uv run python scripts/local/connectivity.py --tenant-id "$(TENANT)"
+
+tenant-create:
+	@AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)" AWS_REGION="$(CDK_LOCAL_REGION)" RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)" uv run python scripts/local/tenant_credentials.py create --tenant-id "$(TENANT)"
+
+tenant-sync:
+	@AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)" AWS_REGION="$(CDK_LOCAL_REGION)" RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)" uv run python scripts/local/tenant_credentials.py sync --tenant-id "$(TENANT)"
+
+tenant-rotate:
+	@AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)" AWS_REGION="$(CDK_LOCAL_REGION)" RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)" uv run python scripts/local/tenant_credentials.py rotate --tenant-id "$(TENANT)"
+
+tenant-revoke:
+	@AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)" AWS_REGION="$(CDK_LOCAL_REGION)" RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)" uv run python scripts/local/tenant_credentials.py revoke --tenant-id "$(TENANT)"
+
+tenant-status:
+	@AWS_ENDPOINT_URL="http://127.0.0.1:$(FLOCI_HOST_PORT)" AWS_REGION="$(CDK_LOCAL_REGION)" RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)" uv run python scripts/local/tenant_credentials.py status --tenant-id "$(TENANT)"
 
 config-bootstrap:
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=env $(OPENVINO_BACKEND_ENV) uv run python scripts/config_publish.py --reason "physical runtime baseline" --actor "$${USER:-local}"
+	@CONFIG_SOURCE=env $(OPENVINO_BACKEND_ENV) uv run python scripts/config_publish.py --reason "physical runtime baseline" --actor "$${USER:-local}"
 
 config-publish:
 	@test -n "$(REASON)" || { echo 'REASON is required'; exit 2; }
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=env uv run python scripts/config_publish.py --reason "$(REASON)" --actor "$${USER:-local}"
+	@CONFIG_SOURCE=env uv run python scripts/config_publish.py --reason "$(REASON)" --actor "$${USER:-local}"
 
 config-shadow-check:
-	@set -a; [ ! -f .env ] || source .env; set +a; uv run python scripts/config_shadow_check.py
+	@uv run python scripts/config_shadow_check.py
 
 up:
-	@test -f .env || { echo 'Missing .env. Copy/configure .env before starting the runtime.'; exit 2; }
-	@set -a; source .env; set +a; $(MAKE) physical-ready
+	@$(MAKE) physical-up
+	@$(MAKE) status
+
+ready: physical-ready
 	@$(MAKE) status
 
 down: local-down
 
 golden:
-	@$(MAKE) connectivity
+	@$(MAKE) connectivity TENANT=$(TENANT)
 	@uv run --extra eval python scripts/local/ops.py golden $(if $(CASE),--case "$(CASE)",) $(if $(FORCE),--force,)
 
 golden-all:
-	@$(MAKE) connectivity
+	@$(MAKE) connectivity TENANT=$(TENANT)
 	@uv run --extra eval python scripts/local/ops.py golden --all $(if $(FORCE),--force,)
 
 logs:
@@ -162,8 +183,7 @@ retrieval-validate:
 	uv run python scripts/validate_retrieval.py
 
 local-infra: package-lambda
-	@set -a; [ ! -f .env ] || source .env; set +a; \
-	CONFIG_HASH="$$(uv run python -c 'import json; from pathlib import Path; p=Path(".local/config-snapshot.json"); print(json.loads(p.read_text()).get("config_hash", "0" * 64) if p.is_file() else "0" * 64)')"; \
+	@CONFIG_HASH="$$(uv run python -c 'import json; from pathlib import Path; p=Path(".local/config-snapshot.json"); print(json.loads(p.read_text()).get("config_hash", "0" * 64) if p.is_file() else "0" * 64)')"; \
 	export RAG_OPS_INFRA_TARGET=local; \
 	export RAG_OPS_LAMBDA_ASSET="$(abspath .local/lambda-package.zip)"; \
 	export RAG_OPS_CDK_STACK_NAME="$(CDK_LOCAL_STACK)"; \
@@ -179,19 +199,20 @@ local-infra: package-lambda
 	export EDGE_PORT="$(FLOCI_HOST_PORT)"; \
 	export CDK_DEFAULT_ACCOUNT="$(CDK_LOCAL_ACCOUNT)"; \
 	export CDK_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
-	cd infra/cdk && $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
+	cd infra/cdk && \
+	if [ "$(SKIP_CDK_BOOTSTRAP)" != "1" ]; then $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION); fi && \
 	$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK) --require-approval never
-	@set -a; [ ! -f .env ] || source .env; set +a; RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
+	@RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
 
 local-provision: local-infra
 	@$(MAKE) config-bootstrap
-	@uv run python scripts/local/connectivity.py
+	@$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1
 
 seed:
 	uv run python scripts/seed.py
 
 ingest-corpus:
-	uv run python scripts/ingest_corpus.py
+	uv run python scripts/ingest_corpus.py --tenant-id "$(TENANT)"
 
 smoke:
 	uv run python scripts/smoke.py
@@ -199,20 +220,20 @@ smoke:
 demo-prepare: local-provision seed
 	uv run python scripts/demo_prepare.py
 
-demo: up
-	uv run python scripts/demo.py "What is the current maximum automated retry count for Calypso timeouts?" --system payments --environment production
+demo: ready
+	uv run python scripts/demo.py "What is the current maximum automated retry count for Calypso timeouts?" --system payments --environment production --tenant-id "$(TENANT)"
 
 demo-query:
 	@test -n "$(QUESTION)" || { echo 'QUESTION is required'; exit 2; }
 	@test -s .local/api-url || { echo 'Canonical API is not provisioned. Run: make up'; exit 2; }
-	uv run python scripts/demo.py "$(QUESTION)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
+	uv run python scripts/demo.py "$(QUESTION)" --tenant-id "$(TENANT)" $(if $(SYSTEM),--system "$(SYSTEM)",) $(if $(ENVIRONMENT),--environment "$(ENVIRONMENT)",)
 
 ui:
 	@test -s .local/api-url || { echo 'Canonical API is not provisioned. Run: make up'; exit 2; }
-	@CHAINLIT_HOST_PORT=$(CHAINLIT_HOST_PORT) CHAINLIT_VERSION=$(CHAINLIT_VERSION) bash scripts/run_chainlit_beta.sh
+	@RAG_OPS_TENANT_ID="$(TENANT)" CHAINLIT_HOST_PORT=$(CHAINLIT_HOST_PORT) CHAINLIT_VERSION=$(CHAINLIT_VERSION) bash scripts/run_chainlit_beta.sh
 
-ui-init: up
-	@$(MAKE) ui
+ui-init: ready
+	@$(MAKE) ui TENANT=$(TENANT)
 
 beta: models local-up local-data
 	RETRIEVAL_TOP_K=$(BETA_RETRIEVAL_TOP_K) RETRIEVAL_CONTEXT_K=$(BETA_RETRIEVAL_CONTEXT_K) uv run --with "gradio==$(UI_GRADIO_VERSION)" python scripts/gradio_ui.py
@@ -260,19 +281,20 @@ physical-relevance-calibrate: physical-generation-contract
 	@cat .local/relevance-floors.env
 
 physical-ready: physical-relevance-calibrate
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/validate_retrieval.py
 	@$(MAKE) local-infra
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py
-	@uv run python scripts/local/connectivity.py
+	@$(MAKE) tenant-sync TENANT=$(TENANT)
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run python scripts/ingest_corpus.py --tenant-id "$(TENANT)"
+	@uv run python scripts/local/connectivity.py --tenant-id "$(TENANT)"
 
 physical-eval-measure: physical-ready
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python scripts/prepare_judge_human_review.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) RAGAS_REQUIRE_CALIBRATION=0 uv run --extra eval python evaluation/runners/run_ragas.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python scripts/prepare_judge_human_review.py
 
 physical-eval: physical-ready
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
-	@set -a; [ ! -f .env ] || source .env; set +a; CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_ragas.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_golden.py
+	@CONFIG_SOURCE=db $(OPENVINO_BACKEND_ENV) uv run --extra eval python evaluation/runners/run_ragas.py
 
 physical-smoke: physical-ready
 	CONFIG_SOURCE=db uv run python scripts/smoke.py

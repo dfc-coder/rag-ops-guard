@@ -5,8 +5,10 @@ import {
   Stack,
   StackProps,
   aws_apigatewayv2 as apigwv2,
+  aws_cloudwatch as cloudwatch,
   aws_dynamodb as dynamodb,
   aws_iam as iam,
+  aws_kms as kms,
   aws_lambda as lambda,
   aws_s3 as s3,
   aws_s3vectors as s3vectors,
@@ -118,6 +120,16 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    const configSecretsKey = new kms.Key(this, 'ConfigSecretsKey', {
+      description: 'Envelope-encryption KEK for Phase 5 recoverable configuration secrets',
+      enableKeyRotation: !local,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const configSecretsAlias = new kms.Alias(this, 'ConfigSecretsKeyAlias', {
+      aliasName: 'alias/rag-ops-guard-config-secrets',
+      targetKey: configSecretsKey,
+    });
+
     tenants.forEach((tenantId, position) => {
       const tenantConfigAdmin = new iam.Role(this, `TenantConfigAdmin${position}`, {
         assumedBy: new iam.AccountPrincipal(this.account),
@@ -137,7 +149,10 @@ export class RagOpsGuardStack extends Stack {
           resources: [configTable.tableArn],
           conditions: {
             'ForAllValues:StringEquals': {
-              'dynamodb:LeadingKeys': [`TENANT#${tenantId}`],
+              'dynamodb:LeadingKeys': [
+                `TENANT#${tenantId}`,
+                `SECRET_SCOPE#TENANT#${tenantId}`,
+              ],
             },
           },
         }),
@@ -148,6 +163,7 @@ export class RagOpsGuardStack extends Stack {
           resources: [configTable.tableArn],
         }),
       );
+      configSecretsKey.grantEncryptDecrypt(tenantConfigAdmin);
     });
 
     const llmBaseUrl = targetUrl(
@@ -238,6 +254,41 @@ export class RagOpsGuardStack extends Stack {
     ingest.addToRolePolicy(configRead);
     query.addToRolePolicy(configRead);
 
+    if (!local) {
+      const metric = (metricName: string, statistic = 'Sum') =>
+        new cloudwatch.Metric({
+          namespace: 'RagOpsGuard',
+          metricName,
+          statistic,
+          period: Duration.minutes(5),
+        });
+      const dashboard = new cloudwatch.Dashboard(this, 'ConfigAdminDashboard', {
+        dashboardName: 'rag-ops-guard-config-admin',
+      });
+      dashboard.addWidgets(
+        new cloudwatch.GraphWidget({
+          title: 'Configuration resolution',
+          left: [
+            metric('ConfigResolveLatencyMs', 'p99'),
+            metric('ConfigRevisionAge', 'Maximum'),
+          ],
+        }),
+        new cloudwatch.GraphWidget({
+          title: 'Configuration cache and availability',
+          left: [
+            metric('ConfigCacheHit'),
+            metric('ConfigCacheMiss'),
+            metric('ConfigStaleServed'),
+            metric('ConfigDbUnavailable'),
+          ],
+        }),
+        new cloudwatch.GraphWidget({
+          title: 'Security signals',
+          left: [metric('SecretDecryptFailure'), metric('TenantIsolationViolation')],
+        }),
+      );
+    }
+
     const api = new apigwv2.CfnApi(this, 'HttpApi', {
       name: local ? 'rag-ops-guard-local' : 'rag-ops-guard',
       protocolType: 'HTTP',
@@ -287,6 +338,7 @@ export class RagOpsGuardStack extends Stack {
     new CfnOutput(this, 'TenantVectorIndexNames', { value: JSON.stringify(tenantVectorIndexes) });
     new CfnOutput(this, 'VectorDimension', { value: '1024' });
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
+    new CfnOutput(this, 'ConfigSecretsKeyAliasOutput', { value: configSecretsAlias.aliasName });
     new CfnOutput(this, 'TenantTableName', { value: tenantTable.tableName });
     new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
     new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });

@@ -115,6 +115,38 @@ jobs:
       - name: Prove deterministic two-tenant isolation
         run: uv run pytest tests/tenant_isolation -q
 
+  config-admin:
+    name: ci/config-admin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          python-version: '3.13'
+          version: '0.12.3'
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - name: Reject skipped Phase 5 acceptance tests
+        run: |
+          if grep -RInE 'pytest\.(skip|xfail)|@pytest\.mark\.(skip|xfail)' \
+            tests/config_admin \
+            tests/unit/test_phase5_config_admin.py \
+            tests/unit/test_phase5_secret_admin.py \
+            tests/architecture/test_phase5_admin_contract.py; then
+            echo "Phase 5 administration acceptance gates may not be skipped or xfailed"
+            exit 1
+          fi
+      - name: Compile administration CLI
+        run: uv run python -m py_compile scripts/config_admin.py
+      - name: Phase 5 BDD and architecture contracts
+        run: >-
+          uv run pytest
+          tests/config_admin
+          tests/unit/test_phase5_config_admin.py
+          tests/unit/test_phase5_secret_admin.py
+          tests/architecture/test_phase5_admin_contract.py
+          -q
+
   floci-integration:
     name: ci/floci-integration
     runs-on: ubuntu-latest
@@ -273,7 +305,7 @@ jobs:
   gate:
     name: ci/gate
     if: always()
-    needs: [quality, unit, property, evaluation-contract, tenant-isolation, floci-integration, security, cdk]
+    needs: [quality, unit, property, evaluation-contract, tenant-isolation, config-admin, floci-integration, security, cdk]
     runs-on: ubuntu-latest
     steps:
       - name: Require blocking CI jobs

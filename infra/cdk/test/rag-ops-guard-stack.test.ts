@@ -92,7 +92,22 @@ describe('RagOpsGuardStack', () => {
     });
   });
 
-  test('tenant config admin roles enforce dynamodb LeadingKeys', () => {
+  test('Phase 5 creates a retained KMS key with a stable secret-management alias', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'Phase5KmsStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::KMS::Key', 1);
+    template.hasResourceProperties('AWS::KMS::Alias', {
+      AliasName: 'alias/rag-ops-guard-config-secrets',
+    });
+  });
+
+  test('tenant config admin roles enforce config and encrypted-secret LeadingKeys', () => {
     const app = new App();
     const stack = new RagOpsGuardStack(app, 'TenantIamTestStack', {
       target: 'local',
@@ -106,7 +121,11 @@ describe('RagOpsGuardStack', () => {
     expect(policies).toContain('dynamodb:LeadingKeys');
     expect(policies).toContain('TENANT#tenant-a');
     expect(policies).toContain('TENANT#tenant-b');
+    expect(policies).toContain('SECRET_SCOPE#TENANT#tenant-a');
+    expect(policies).toContain('SECRET_SCOPE#TENANT#tenant-b');
     expect(policies).toContain('ForAllValues:StringEquals');
+    expect(policies).toContain('kms:Decrypt');
+    expect(policies).toContain('kms:GenerateDataKey');
     expect(policies).not.toContain('dynamodb:Scan');
   });
 
@@ -122,7 +141,7 @@ describe('RagOpsGuardStack', () => {
     ).toThrow(/RAG_OPS_AWS_LLM_BASE_URL/);
   });
 
-  test('AWS target declares real endpoint semantics when explicit endpoints are supplied', () => {
+  test('AWS target declares real endpoint semantics and Phase 5 dashboard', () => {
     const app = new App();
     const stack = new RagOpsGuardStack(app, 'AwsTestStack', {
       target: 'aws',
@@ -150,6 +169,25 @@ describe('RagOpsGuardStack', () => {
       },
       2,
     );
+    template.hasResourceProperties('AWS::CloudWatch::Dashboard', {
+      DashboardName: 'rag-ops-guard-config-admin',
+    });
+    const dashboards = JSON.stringify(template.findResources('AWS::CloudWatch::Dashboard'));
+    expect(dashboards).toContain('ConfigResolveLatencyMs');
+    expect(dashboards).toContain('ConfigCacheHit');
+    expect(dashboards).toContain('ConfigDbUnavailable');
+    expect(dashboards).toContain('SecretDecryptFailure');
+    expect(dashboards).toContain('TenantIsolationViolation');
+  });
+
+  test('local target does not create CloudWatch dashboard resources', () => {
+    const app = new App();
+    const stack = new RagOpsGuardStack(app, 'LocalDashboardStack', {
+      target: 'local',
+      pythonVersion: '3.13',
+      lambdaCode: inlineCode(),
+    });
+    Template.fromStack(stack).resourceCountIs('AWS::CloudWatch::Dashboard', 0);
   });
 
   test('config table policy never grants Scan', () => {

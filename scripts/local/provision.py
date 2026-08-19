@@ -8,8 +8,6 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
-from rag_ops_guard.configstore.token_hashing import TenantTokenHasher
-
 ENDPOINT = os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID", "test")
@@ -77,31 +75,6 @@ def materialize_floci_s3_vectors(outputs: dict[str, str]) -> None:
             )
 
 
-def bootstrap_local_tenant(outputs: dict[str, str]) -> None:
-    """Persist only an Argon2id hash for the locally supplied Phase 4 API key."""
-
-    api_key = os.environ.get("RAG_OPS_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError(
-            "RAG_OPS_API_KEY is required for Phase 4 local provisioning; use key_id.secret format"
-        )
-    tenant_id = os.environ.get("RAG_OPS_TENANT_ID", "default").strip() or "default"
-    key_id, separator, secret = api_key.partition(".")
-    if not separator or not key_id or not secret:
-        raise RuntimeError("RAG_OPS_API_KEY must use key_id.secret format")
-
-    client("dynamodb").put_item(
-        TableName=required_output(outputs, "TenantTableName"),
-        Item={
-            "key_id": {"S": key_id},
-            "tenant_id": {"S": tenant_id},
-            "token_hash": {"S": TenantTokenHasher().hash_token(secret)},
-            "enabled": {"BOOL": True},
-        },
-    )
-    print(f"Tenant credential: ready (tenant={tenant_id}, key_id={key_id})")
-
-
 def _langsmith_environment() -> dict[str, str]:
     tracing_requested = os.environ.get("LANGSMITH_TRACING", "false").strip().casefold() in {
         "1",
@@ -149,7 +122,6 @@ def floci_execution_endpoint(base_endpoint: str, api_id: str) -> str:
 def main() -> None:
     outputs = stack_outputs()
     materialize_floci_s3_vectors(outputs)
-    bootstrap_local_tenant(outputs)
 
     ingest_name = required_output(outputs, "IngestFunctionName")
     query_name = required_output(outputs, "QueryFunctionName")
@@ -163,6 +135,7 @@ def main() -> None:
 
     print(f"CDK stack: {STACK_NAME}")
     print("Floci tenant S3 Vectors bridge: ready")
+    print("Tenant credentials: managed separately by tenant-create/tenant-sync")
     print("Local runtime secrets: synchronized")
     print(f"Local API: {endpoint}")
 

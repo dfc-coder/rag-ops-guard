@@ -15,6 +15,7 @@ import httpx
 import yaml
 
 from rag_ops_guard.domain.models import Citation
+from rag_ops_guard.local_credentials import require_local_api_key
 
 GOLDEN_DATASETS = (
     Path("evaluation/datasets/golden-v1.json"),
@@ -56,13 +57,6 @@ def api_url() -> str:
     if not path.exists():
         raise SystemExit("RAG_API_URL missing and .local/api-url not found")
     return path.read_text().strip().rstrip("/")
-
-
-def api_key() -> str:
-    value = os.environ.get("RAG_OPS_API_KEY", "").strip()
-    if not value:
-        raise SystemExit("RAG_OPS_API_KEY is required for Phase 4 Golden evaluation")
-    return value
 
 
 def citation_identities(citation: Citation) -> set[str]:
@@ -185,14 +179,18 @@ def case_wall_timeout(case_id: str, seconds: float) -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def run_case(base_url: str, case: dict[str, Any]) -> tuple[Result, dict[str, Any]]:
+def run_case(
+    base_url: str,
+    case: dict[str, Any],
+    api_key_value: str,
+) -> tuple[Result, dict[str, Any]]:
     case_id = str(case["id"])
     print(f"GOLDEN {case_id} PHASE agent-query", flush=True)
     try:
         response = httpx.post(
             f"{base_url}/v1/query",
             json={"question": case["question"], "context": case.get("context", {})},
-            headers={"x-api-key": api_key()},
+            headers={"x-api-key": api_key_value},
             timeout=float(os.environ.get("GOLDEN_HTTP_TIMEOUT_SECONDS", "180")),
         )
     except httpx.TimeoutException as exc:
@@ -252,6 +250,7 @@ def _parse_args() -> argparse.Namespace:
         "--case-id",
         help="Run exactly one golden case for physical diagnostics; aggregate gates are skipped.",
     )
+    parser.add_argument("--tenant-id", default="default")
     return parser.parse_args()
 
 
@@ -261,7 +260,7 @@ def main() -> None:
     cases = _select_cases(all_cases, args.case_id)
     thresholds = yaml.safe_load(Path("evaluation/thresholds.yaml").read_text())
     base_url = api_url()
-    api_key()
+    api_key_value = require_local_api_key(str(args.tenant_id))
     wall_timeout_seconds = _case_wall_timeout_seconds()
 
     output = Path("artifacts/evaluation")
@@ -282,7 +281,7 @@ def main() -> None:
         print(f"GOLDEN [{index}/{len(cases)}] START {case_id}", flush=True)
         try:
             with case_wall_timeout(case_id, wall_timeout_seconds):
-                result, sample = run_case(base_url, case)
+                result, sample = run_case(base_url, case, api_key_value)
         except TimeoutError as exc:
             elapsed = perf_counter() - started
             print(f"GOLDEN [{index}/{len(cases)}] TIMEOUT {case_id} ({elapsed:.1f}s)", flush=True)

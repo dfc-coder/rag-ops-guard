@@ -47,7 +47,7 @@ def test_golden_preflight_requires_direct_lambda_and_api_connectivity() -> None:
     assert '$(MAKE) connectivity' in golden_all
 
 
-def test_local_provision_materializes_cdk_publishes_config_then_runs_connectivity() -> None:
+def test_local_provision_is_tenant_independent_and_ready_runs_authenticated_connectivity() -> None:
     makefile = _read("Makefile")
     infra = makefile.split("local-infra: package-lambda", maxsplit=1)[1].split(
         "\nlocal-provision:", maxsplit=1
@@ -55,9 +55,71 @@ def test_local_provision_materializes_cdk_publishes_config_then_runs_connectivit
     provision = makefile.split("local-provision: local-infra", maxsplit=1)[1].split(
         "\nseed:", maxsplit=1
     )[0]
+    ready = makefile.split("physical-ready: physical-relevance-calibrate", maxsplit=1)[1].split(
+        "\nphysical-eval-measure:", maxsplit=1
+    )[0]
 
     assert 'RAG_OPS_INFRA_TARGET=local' in infra
     assert '$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK)' in infra
     assert 'scripts/local/provision.py' in infra
+    assert 'if [ "$(SKIP_CDK_BOOTSTRAP)" != "1" ]' in infra
     assert '$(MAKE) config-bootstrap' in provision
-    assert 'scripts/local/connectivity.py' in provision
+    assert 'scripts/local/connectivity.py' not in provision
+    assert '$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1' in provision
+    assert provision.index('$(MAKE) config-bootstrap') < provision.index(
+        '$(MAKE) local-infra SKIP_CDK_BOOTSTRAP=1'
+    )
+    assert '$(MAKE) tenant-sync TENANT=$(TENANT)' in ready
+    assert 'scripts/local/connectivity.py --tenant-id "$(TENANT)"' in ready
+
+
+def test_local_cdk_uses_ovms_model_identity_not_generic_env_fallback() -> None:
+    makefile = _read("Makefile")
+    cdk_app = _read("infra/cdk/bin/rag-ops-guard.ts")
+
+    assert 'OVMS_EMBEDDING_MODEL ?= OpenVINO/Qwen3-Embedding-0.6B-int8-ov' in makefile
+    assert 'OVMS_RERANKER_MODEL ?= OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov' in makefile
+    assert 'OVMS_EMBEDDING_MODEL' in makefile.split("export ", maxsplit=1)[1].split("\n", maxsplit=1)[0]
+    assert 'OVMS_RERANKER_MODEL' in makefile.split("export ", maxsplit=1)[1].split("\n", maxsplit=1)[0]
+
+    assert (
+        'embeddingModel: local ? process.env.OVMS_EMBEDDING_MODEL : process.env.EMBEDDING_MODEL'
+        in cdk_app
+    )
+    assert (
+        'rerankerModel: local ? process.env.OVMS_RERANKER_MODEL : process.env.RERANKER_MODEL'
+        in cdk_app
+    )
+    assert 'process.env.LAMBDA_EMBEDDING_MODEL ?? process.env.EMBEDDING_MODEL' not in cdk_app
+    assert 'process.env.LAMBDA_RERANKER_MODEL ?? process.env.RERANKER_MODEL' not in cdk_app
+
+
+def test_physical_make_workflow_does_not_require_or_source_dotenv() -> None:
+    makefile = _read("Makefile")
+    up = makefile.split("up:\n", maxsplit=1)[1].split("\nready:", maxsplit=1)[0]
+
+    assert '$(MAKE) physical-up' in up
+    assert 'Missing .env' not in up
+    assert 'source .env' not in makefile
+    assert '[ ! -f .env ]' not in makefile
+    assert 'test -f .env' not in makefile
+
+
+def test_local_status_does_not_load_or_compare_against_dotenv() -> None:
+    ops = _read("scripts/local/ops.py")
+
+    assert 'env.update(_env_file(ROOT / ".env"))' not in ops
+    assert '_env_file=ROOT / ".env"' not in ops
+    assert '.env={local_model}' not in ops
+    assert 'server={physical_model} | .env=' not in ops
+    assert '_env_file=None' in ops
+    assert 'Lambda={lambda_model} | server={physical_model}' in ops
+    assert '(Lambda = llama.cpp)' in ops
+
+
+def test_langsmith_disabled_is_a_healthy_status() -> None:
+    ops = _read("scripts/local/ops.py")
+
+    assert '_ok("LangSmith", f"enabled - {project}")' in ops
+    assert '_ok("LangSmith", f"disabled - {project}")' in ops
+    assert '_warn("LangSmith", f"disabled - {project}")' not in ops
