@@ -53,7 +53,7 @@ RAGAS_MAX_RETRIES ?= 2
 RAGAS_MAX_WAIT_SECONDS ?= 5
 RAGAS_MAX_WORKERS ?= 2
 RAGAS_SUITE_TIMEOUT_SECONDS ?= 1800
-CDK_LOCAL ?= npx --yes --package aws-cdk-local@3.0.4 cdklocal
+CDK_LOCAL ?= npx --yes --package aws-cdk-local@3.0.4 --package aws-cdk@2.1133.0 cdklocal
 CDK_LOCAL_STACK ?= RagOpsGuardLocal
 CDK_LOCAL_ACCOUNT ?= 000000000000
 CDK_LOCAL_REGION ?= us-east-1
@@ -173,7 +173,7 @@ local-provision: package-lambda
 	export AWS_SECRET_ACCESS_KEY="$${AWS_SECRET_ACCESS_KEY:-test}"; \
 	export CDK_DEFAULT_ACCOUNT="$(CDK_LOCAL_ACCOUNT)"; \
 	export CDK_DEFAULT_REGION="$(CDK_LOCAL_REGION)"; \
-	cd infra/cdk && $(CDK_LOCAL) bootstrap aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
+	cd infra/cdk && $(CDK_LOCAL) bootstrap --force aws://$(CDK_LOCAL_ACCOUNT)/$(CDK_LOCAL_REGION) && \
 	$(CDK_LOCAL) deploy $(CDK_LOCAL_STACK) --require-approval never
 	@set -a; [ ! -f .env ] || source .env; set +a; RAG_OPS_CDK_STACK_NAME=$(CDK_LOCAL_STACK) uv run python scripts/local/provision.py
 	@uv run python scripts/local/connectivity.py
