@@ -3,10 +3,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_local_provision_deploys_canonical_cdk_and_preserves_openvino_topology() -> None:
+def test_local_infra_deploys_canonical_cdk_and_preserves_openvino_topology() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    block = makefile.split("local-provision: package-lambda", maxsplit=1)[1].split(
-        "\nseed:", maxsplit=1
+    block = makefile.split("local-infra: package-lambda", maxsplit=1)[1].split(
+        "\nlocal-provision:", maxsplit=1
     )[0]
 
     assert "RAG_OPS_INFRA_TARGET=local" in block
