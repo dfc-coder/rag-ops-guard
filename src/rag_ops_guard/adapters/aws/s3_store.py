@@ -11,20 +11,24 @@ class S3ObjectStore:
     def __init__(
         self,
         bucket: str,
-        endpoint_url: str,
-        region_name: str,
-        access_key: str,
-        secret_key: str,
+        endpoint_url: str | None = None,
+        region_name: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
     ) -> None:
         self._bucket = bucket
-        self._client: Any = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            region_name=region_name,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            config=Config(s3={"addressing_style": "path"}),
-        )
+        client_kwargs: dict[str, object] = {
+            "config": Config(s3={"addressing_style": "path"}),
+        }
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+        if region_name:
+            client_kwargs["region_name"] = region_name
+        if access_key is not None:
+            client_kwargs["aws_access_key_id"] = access_key
+        if secret_key is not None:
+            client_kwargs["aws_secret_access_key"] = secret_key
+        self._client: Any = boto3.client("s3", **client_kwargs)
 
     def get_text(self, key: str) -> str:
         response = self._client.get_object(Bucket=self._bucket, Key=key)
