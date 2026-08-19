@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from rag_ops_guard.configstore.admin import SecretMutationRequest
+from rag_ops_guard.configstore.admin import SecretMutationRequest, SecretMutationStatus
 from rag_ops_guard.configstore.admin_store import DynamoDbAdminStore
 from rag_ops_guard.configstore.dynamo_store import _decode_item
 from rag_ops_guard.configstore.phase3_secret_backend import EnvelopeSecretBackend
@@ -37,10 +37,16 @@ class FakeLowLevelDynamo:
         key = self._key(kwargs["Key"])
         raw = self.items[key]
         decoded = _decode_item(raw)
-        values = {name: _decode_item({"v": value})["v"] for name, value in kwargs["ExpressionAttributeValues"].items()}
+        values = {
+            name: _decode_item({"v": value})["v"]
+            for name, value in kwargs["ExpressionAttributeValues"].items()
+        }
         condition = kwargs["ConditionExpression"]
         if condition == "#status = :pending AND requested_by <> :approved_by":
-            if decoded["status"] != values[":pending"] or decoded["requested_by"] == values[":approved_by"]:
+            if (
+                decoded["status"] != values[":pending"]
+                or decoded["requested_by"] == values[":approved_by"]
+            ):
                 raise RuntimeError("conditional update failed")
             decoded["status"] = values[":processing"]
             decoded["approved_by"] = values[":approved_by"]
@@ -68,7 +74,11 @@ class FakeEnvelopeService:
         self.calls.append(("delete", scope, key_name, None))
 
 
-def _request(*, request_id: str = "req-1", status: str = "pending") -> SecretMutationRequest:
+def _request(
+    *,
+    request_id: str = "req-1",
+    status: SecretMutationStatus = "pending",
+) -> SecretMutationRequest:
     return SecretMutationRequest(
         request_id=request_id,
         tenant_id="tenant-a",
@@ -77,15 +87,20 @@ def _request(*, request_id: str = "req-1", status: str = "pending") -> SecretMut
         requested_by="operator-a",
         change_reason="rotate credential",
         payload_sha256="a" * 64,
-        status=status,  # type: ignore[arg-type]
+        status=status,
         created_at=123.0,
         kek_ref="kms-key",
     )
 
 
-def test_dynamo_admin_store_round_trip_claim_finish_and_audit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dynamo_admin_store_round_trip_claim_finish_and_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = FakeLowLevelDynamo()
-    monkeypatch.setattr("rag_ops_guard.configstore.admin_store.boto3.client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(
+        "rag_ops_guard.configstore.admin_store.boto3.client",
+        lambda *args, **kwargs: client,
+    )
     store = DynamoDbAdminStore(
         endpoint_url="http://localhost:4566",
         region="us-east-1",
@@ -100,7 +115,8 @@ def test_dynamo_admin_store_round_trip_claim_finish_and_audit(monkeypatch: pytes
     assert store.get_secret_request("missing") is None
     loaded = store.get_secret_request(request.request_id)
     assert loaded == request
-    assert "secret" not in _decode_item(client.items[("TENANT#tenant-a", "SECRET_CHANGE#req-1")])
+    persisted = _decode_item(client.items[("TENANT#tenant-a", "SECRET_CHANGE#req-1")])
+    assert "secret" not in persisted
 
     claimed = store.claim_secret_request(request.request_id, approved_by="operator-b")
     assert claimed.status == "processing"
@@ -120,9 +136,14 @@ def test_dynamo_admin_store_round_trip_claim_finish_and_audit(monkeypatch: pytes
     assert "payload_sha256" not in audit_items[0]
 
 
-def test_dynamo_admin_store_rejects_invalid_lifecycle_and_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dynamo_admin_store_rejects_invalid_lifecycle_and_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = FakeLowLevelDynamo()
-    monkeypatch.setattr("rag_ops_guard.configstore.admin_store.boto3.client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(
+        "rag_ops_guard.configstore.admin_store.boto3.client",
+        lambda *args, **kwargs: client,
+    )
     store = DynamoDbAdminStore(
         endpoint_url="",
         region="us-east-1",
@@ -148,15 +169,16 @@ def test_dynamo_admin_store_rejects_invalid_lifecycle_and_tenant(monkeypatch: py
                 created_at=1.0,
             )
         )
+    invalid_status = cast(SecretMutationStatus, "pending")
     with pytest.raises(ValueError, match="completed or failed"):
-        store.finish_secret_request("missing", status="pending")  # type: ignore[arg-type]
+        store.finish_secret_request("missing", status=invalid_status)
     with pytest.raises(ValueError, match="completed"):
         store.append_secret_audit(_request())
 
 
 def test_phase3_backend_satisfies_generic_secret_port() -> None:
     service = FakeEnvelopeService()
-    backend = EnvelopeSecretBackend(service=service, kek_ref="kms-key")  # type: ignore[arg-type]
+    backend = EnvelopeSecretBackend(service=service, kek_ref="kms-key")
 
     backend.set_secret(scope="TENANT#tenant-a", key_name="x", secret=b"value")
     backend.delete_secret(scope="TENANT#tenant-a", key_name="x")
@@ -166,4 +188,4 @@ def test_phase3_backend_satisfies_generic_secret_port() -> None:
         ("delete", "TENANT#tenant-a", "x", None),
     ]
     with pytest.raises(ValueError, match="kek_ref"):
-        EnvelopeSecretBackend(service=service, kek_ref="")  # type: ignore[arg-type]
+        EnvelopeSecretBackend(service=service, kek_ref="")
