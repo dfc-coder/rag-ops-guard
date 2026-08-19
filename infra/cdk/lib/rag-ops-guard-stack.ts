@@ -12,23 +12,60 @@ import {
   aws_s3vectors as s3vectors,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import path from 'node:path';
+
+export type InfraTarget = 'local' | 'aws';
+
+export interface RagOpsGuardStackProps extends StackProps {
+  readonly target: InfraTarget;
+  readonly pythonVersion: string;
+  readonly lambdaCode: lambda.Code;
+  readonly configHash?: string;
+  readonly llmBaseUrl?: string;
+  readonly llmModel?: string;
+  readonly embeddingBaseUrl?: string;
+  readonly embeddingModel?: string;
+  readonly rerankerBaseUrl?: string;
+  readonly rerankerModel?: string;
+}
+
+function requireHttps(name: string, value: string | undefined): string {
+  if (!value || !value.startsWith('https://')) {
+    throw new Error(`${name} is required and must use https:// for the AWS target`);
+  }
+  return value;
+}
 
 export class RagOpsGuardStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: RagOpsGuardStackProps) {
     super(scope, id, props);
 
+    const local = props.target === 'local';
+    const runtime = new lambda.Runtime(`python${props.pythonVersion}`, lambda.RuntimeFamily.PYTHON, {
+      supportsInlineCode: true,
+    });
+
+    const documentBucketName = local ? 'rag-ops-guard-docs-local' : undefined;
+    const vectorBucketName = local
+      ? 'rag-ops-guard-vectors-local'
+      : `rag-ops-guard-vectors-${this.account}-${this.region}`;
+    const vectorIndexName = local ? 'ops-knowledge-openvino-v1' : 'ops-knowledge-v1';
+
     const documents = new s3.Bucket(this, 'Documents', {
+      bucketName: documentBucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
+      enforceSSL: !local,
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    const vectors = new s3vectors.CfnVectorBucket(this, 'VectorBucket');
+    const vectors = new s3vectors.CfnVectorBucket(this, 'VectorBucket', {
+      vectorBucketName,
+    });
+    vectors.applyRemovalPolicy(RemovalPolicy.RETAIN);
+
     const index = new s3vectors.CfnIndex(this, 'KnowledgeIndex', {
-      vectorBucketName: vectors.ref,
-      indexName: 'ops-knowledge-v1',
+      vectorBucketName,
+      indexName: vectorIndexName,
       dataType: 'float32',
       dimension: 1024,
       distanceMetric: 'cosine',
@@ -37,6 +74,7 @@ export class RagOpsGuardStack extends Stack {
       },
     });
     index.addDependency(vectors);
+    index.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
     const configTable = new dynamodb.Table(this, 'ConfigTable', {
       tableName: 'rag-ops-config',
@@ -48,33 +86,52 @@ export class RagOpsGuardStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    const code = lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda-placeholder'));
+    const llmBaseUrl = local
+      ? 'http://llama-gen:8080/v1'
+      : requireHttps('RAG_OPS_AWS_LLM_BASE_URL', props.llmBaseUrl);
+    const embeddingBaseUrl = local
+      ? 'http://rag-ops-ovms-rag:8000/v3'
+      : requireHttps('RAG_OPS_AWS_EMBEDDING_BASE_URL', props.embeddingBaseUrl);
+    const rerankerBaseUrl = local
+      ? 'http://rag-ops-ovms-rag:8000/v3'
+      : requireHttps('RAG_OPS_AWS_RERANKER_BASE_URL', props.rerankerBaseUrl);
+
     const commonEnvironment = {
       S3_DOCUMENT_BUCKET: documents.bucketName,
-      S3_VECTOR_BUCKET: vectors.ref,
-      S3_VECTOR_INDEX: 'ops-knowledge-v1',
+      S3_VECTOR_BUCKET: vectorBucketName,
+      S3_VECTOR_INDEX: vectorIndexName,
       VECTOR_DIMENSION: '1024',
       CONFIG_SOURCE: 'db',
       CONFIG_TABLE: configTable.tableName,
+      CONFIG_HASH: props.configHash ?? '0'.repeat(64),
       CONFIG_HEAD_TTL_SECONDS: '45',
       CONFIG_MAX_STALE_SECONDS: '300',
-      APP_ENV: 'aws',
-      AWS_ENDPOINT_URL: '',
+      APP_ENV: local ? 'local' : 'aws',
+      AWS_ENDPOINT_URL: local ? 'http://floci:4566' : '',
+      LLM_BASE_URL: llmBaseUrl,
+      LLM_MODEL: props.llmModel ?? 'qwen3.5-2b-unsloth-ud-q4-k-xl',
+      EMBEDDING_BASE_URL: embeddingBaseUrl,
+      EMBEDDING_MODEL: props.embeddingModel ?? 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov',
+      EMBEDDING_DIMENSION: '1024',
+      RERANKER_BASE_URL: rerankerBaseUrl,
+      RERANKER_MODEL: props.rerankerModel ?? 'OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov',
     };
 
     const ingest = new lambda.Function(this, 'IngestFunction', {
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'index.handler',
-      code,
-      timeout: Duration.seconds(120),
+      functionName: 'rag-ops-guard-ingest',
+      runtime,
+      handler: 'rag_ops_guard.handlers.ingest.handler',
+      code: props.lambdaCode,
+      timeout: Duration.seconds(180),
       memorySize: 1024,
       environment: commonEnvironment,
     });
     const query = new lambda.Function(this, 'QueryFunction', {
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'index.handler',
-      code,
-      timeout: Duration.seconds(120),
+      functionName: 'rag-ops-guard-query',
+      runtime,
+      handler: 'rag_ops_guard.handlers.query.handler',
+      code: props.lambdaCode,
+      timeout: Duration.seconds(180),
       memorySize: 1024,
       environment: commonEnvironment,
     });
@@ -102,7 +159,7 @@ export class RagOpsGuardStack extends Stack {
     query.addToRolePolicy(configRead);
 
     const api = new apigwv2.CfnApi(this, 'HttpApi', {
-      name: 'rag-ops-guard',
+      name: local ? 'rag-ops-guard-local' : 'rag-ops-guard',
       protocolType: 'HTTP',
     });
 
@@ -145,8 +202,12 @@ export class RagOpsGuardStack extends Stack {
     });
 
     new CfnOutput(this, 'DocumentBucketName', { value: documents.bucketName });
-    new CfnOutput(this, 'VectorBucketName', { value: vectors.ref });
-    new CfnOutput(this, 'VectorIndexName', { value: 'ops-knowledge-v1' });
+    new CfnOutput(this, 'VectorBucketName', { value: vectorBucketName });
+    new CfnOutput(this, 'VectorIndexName', { value: vectorIndexName });
+    new CfnOutput(this, 'VectorDimension', { value: '1024' });
     new CfnOutput(this, 'ConfigTableName', { value: configTable.tableName });
+    new CfnOutput(this, 'QueryFunctionName', { value: query.functionName });
+    new CfnOutput(this, 'IngestFunctionName', { value: ingest.functionName });
+    new CfnOutput(this, 'ApiId', { value: api.ref });
   }
 }
