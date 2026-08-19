@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
+
+from rag_ops_guard.local_credentials import LocalCredentialError, require_local_api_key
 
 ROOT = Path(__file__).resolve().parents[2]
 API_FILE = ROOT / ".local" / "api-url"
@@ -132,15 +134,8 @@ def _decode_proxy(payload: dict[str, Any], *, source: str) -> dict[str, Any]:
     return parsed
 
 
-def _api_key(env: dict[str, str]) -> str:
-    value = env.get("RAG_OPS_API_KEY", "").strip()
-    if not value:
-        raise RuntimeError("RAG_OPS_API_KEY is required for Phase 4 connectivity")
-    return value
-
-
-def _invoke_lambda_connectivity(env: dict[str, str]) -> dict[str, Any]:
-    event = {"headers": {"x-api-key": _api_key(env)}, "body": json.dumps(PROBE)}
+def _invoke_lambda_connectivity(env: dict[str, str], api_key: str) -> dict[str, Any]:
+    event = {"headers": {"x-api-key": api_key}, "body": json.dumps(PROBE)}
     response = _client("lambda", env).invoke(
         FunctionName=QUERY_FUNCTION,
         Payload=json.dumps(event).encode("utf-8"),
@@ -159,11 +154,16 @@ def _invoke_lambda_connectivity(env: dict[str, str]) -> dict[str, Any]:
     return _decode_proxy(proxy, source="direct Lambda")
 
 
-def _invoke_api_connectivity(api_url: str, env: dict[str, str]) -> dict[str, Any]:
+def _invoke_api_connectivity(
+    api_url: str,
+    env: dict[str, str],
+    api_key: str,
+) -> dict[str, Any]:
+    del env
     response = httpx.post(
         f"{api_url.rstrip('/')}/v1/query",
         json=PROBE,
-        headers={"x-api-key": _api_key(env)},
+        headers={"x-api-key": api_key},
         timeout=120.0,
     )
     try:
@@ -184,9 +184,13 @@ def _validate_probe(payload: dict[str, Any], *, source: str, expected_hash: str)
     if payload.get("probe") != "runtime_connectivity":
         problems.append(f"{source}: wrong probe identity {payload.get('probe')!r}")
     if payload.get("function_name") != QUERY_FUNCTION:
-        problems.append(f"{source}: function identity {payload.get('function_name')!r} != {QUERY_FUNCTION!r}")
+        problems.append(
+            f"{source}: function identity {payload.get('function_name')!r} != {QUERY_FUNCTION!r}"
+        )
     if payload.get("config_hash") != expected_hash:
-        problems.append(f"{source}: config_hash={payload.get('config_hash')!r} expected={expected_hash!r}")
+        problems.append(
+            f"{source}: config_hash={payload.get('config_hash')!r} expected={expected_hash!r}"
+        )
     if payload.get("ok") is not True:
         problems.append(f"{source}: runtime connectivity probe failed")
     checks = payload.get("checks")
@@ -198,7 +202,8 @@ def _validate_probe(payload: dict[str, Any], *, source: str, expected_hash: str)
         if not isinstance(check, dict):
             problems.append(f"{source}: missing {name} check")
         elif check.get("ok") is not True:
-            problems.append(f"{source}: {name} failed: {check.get('error_type', 'error')} {check.get('error', '')}".rstrip())
+            detail = f"{check.get('error_type', 'error')} {check.get('error', '')}".rstrip()
+            problems.append(f"{source}: {name} failed: {detail}")
     return problems
 
 
@@ -215,10 +220,19 @@ def _print_probe(payload: dict[str, Any]) -> None:
             detail = f" @ {endpoint}" if endpoint else ""
             print(f"OK   {name:<12}{detail}")
         else:
-            print(f"FAIL {name:<12} {check.get('error_type', 'error')}: {check.get('error', '')}")
+            error_type = check.get("error_type", "error")
+            error = check.get("error", "")
+            print(f"FAIL {name:<12} {error_type}: {error}")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Validate the authenticated physical data plane")
+    parser.add_argument("--tenant-id", default="default")
+    return parser.parse_args()
 
 
 def main() -> int:
+    args = _parse_args()
     env = runtime_env()
     api_url = env.get("RAG_API_URL", "").strip()
     problems: list[str] = []
@@ -229,8 +243,8 @@ def main() -> int:
         print("FAIL API          .local/api-url missing")
         return 2
     try:
-        _api_key(env)
-    except RuntimeError as exc:
+        api_key = require_local_api_key(str(args.tenant_id))
+    except LocalCredentialError as exc:
         print(f"FAIL auth         {exc}")
         return 2
 
@@ -260,7 +274,7 @@ def main() -> int:
 
     expected_hash = lambda_env.get("CONFIG_HASH", "")
     try:
-        direct = _invoke_lambda_connectivity(env)
+        direct = _invoke_lambda_connectivity(env, api_key)
     except Exception as exc:
         problems.append(f"direct Lambda runtime connectivity probe failed: {exc}")
         print(f"FAIL Lambda probe {type(exc).__name__}: {exc}")
@@ -271,7 +285,7 @@ def main() -> int:
         _print_probe(direct)
 
     try:
-        api_payload = _invoke_api_connectivity(api_url, env)
+        api_payload = _invoke_api_connectivity(api_url, env, api_key)
     except Exception as exc:
         problems.append(f"API connectivity probe failed: {exc}")
         print(f"FAIL API probe    {type(exc).__name__}: {exc}")
