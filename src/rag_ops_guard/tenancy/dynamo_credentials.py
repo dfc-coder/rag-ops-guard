@@ -16,20 +16,23 @@ class DynamoDbTenantCredentialStore:
     def __init__(
         self,
         *,
-        endpoint_url: str,
-        region: str,
-        access_key: str,
-        secret_key: str,
         table: str,
+        endpoint_url: str | None = None,
+        region: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
     ) -> None:
         self._table = table
-        self._client = boto3.client(
-            "dynamodb",
-            endpoint_url=endpoint_url or None,
-            region_name=region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-        )
+        client_kwargs: dict[str, object] = {}
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+        if region:
+            client_kwargs["region_name"] = region
+        if access_key is not None:
+            client_kwargs["aws_access_key_id"] = access_key
+        if secret_key is not None:
+            client_kwargs["aws_secret_access_key"] = secret_key
+        self._client = boto3.client("dynamodb", **client_kwargs)
 
     def get(self, key_id: str) -> TenantCredential | None:
         response = self._client.get_item(
