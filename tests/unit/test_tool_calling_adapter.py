@@ -149,7 +149,7 @@ def test_structured_response_uses_configured_completion_budget_without_hidden_ca
     assert fake.bind_kwargs["max_completion_tokens"] == 768
 
 
-def test_structured_response_limits_citation_ids_to_retrieved_sources() -> None:
+def test_structured_response_limits_citation_ids_from_any_source_providing_tool() -> None:
     adapter = _adapter()
     fake = _FakeModel(
         AIMessage(
@@ -164,7 +164,7 @@ def test_structured_response_limits_citation_ids_to_retrieved_sources() -> None:
         ModelMessage(role="user", content="x"),
         ModelMessage(
             role="tool",
-            name="search_documents",
+            name="policy_lookup",
             tool_call_id="call-1",
             content=(
                 '{"ok":true,"payload":{"sources":['
