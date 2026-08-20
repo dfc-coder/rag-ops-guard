@@ -134,8 +134,9 @@ class OpenAIToolCallingAdapter:
         ReAct still uses native tool calling. The final response intentionally uses
         llama.cpp JSON-schema constrained generation instead of a forced function call,
         because some local chat templates ignore forced tool_choice for that last turn.
-        Citation IDs are additionally constrained to chunk IDs returned by search_documents,
-        so the model cannot invent an ID that the application must reject afterwards.
+        Citation IDs are additionally constrained to chunk IDs exposed by any tool result
+        using the generic ``payload.sources[*].chunk_id`` contract, so the model cannot
+        invent an ID that the application must reject afterwards.
 
         Final structured generation is deterministic and uses the effective configured
         completion budget. The same versioned setting therefore governs normal and
@@ -183,10 +184,11 @@ def _structured_input_messages(messages: list[ModelMessage]) -> list[ModelMessag
     return messages
 
 
-def _retrieved_citation_ids(messages: list[ModelMessage]) -> list[str]:
+def _source_citation_ids(messages: list[ModelMessage]) -> list[str]:
+    """Collect citation IDs from any tool implementing the generic sources payload contract."""
     ids: set[str] = set()
     for message in messages:
-        if message.role != "tool" or message.name != "search_documents":
+        if message.role != "tool":
             continue
         try:
             result = json.loads(message.content)
@@ -214,7 +216,7 @@ def _constrain_citation_ids(
     messages: list[ModelMessage],
 ) -> dict[str, Any]:
     constrained = copy.deepcopy(schema)
-    allowed_ids = _retrieved_citation_ids(messages)
+    allowed_ids = _source_citation_ids(messages)
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
