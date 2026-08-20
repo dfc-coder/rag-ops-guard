@@ -18,6 +18,7 @@ from rag_ops_guard.container import Container
 from rag_ops_guard.ingestion.chunker import MarkdownChunker
 from rag_ops_guard.ingestion.service import IngestionService
 from rag_ops_guard.observability.langsmith import configure_langsmith
+from rag_ops_guard.ports.interfaces import Tool
 from rag_ops_guard.retrieval.resilient import ResilientKnowledgeSearch
 from rag_ops_guard.retrieval.resolver import EvidenceResolver
 from rag_ops_guard.tenancy import KeyLayout, RequestContext
@@ -114,7 +115,7 @@ def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> 
         domain_min_relevance=settings.retrieval_domain_min_relevance,
     )
     catalog = KnowledgeCatalog(objects, keys)
-    tools = [
+    tools: list[Tool] = [
         SearchDocumentsTool(knowledge, current_query_context),
         ListDocumentsTool(catalog, current_query_context),
     ]
