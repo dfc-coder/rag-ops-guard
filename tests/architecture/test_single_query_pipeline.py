@@ -80,6 +80,20 @@ def test_canonical_agent_uses_tool_calling_port_without_fabricated_calls() -> No
     assert "SemanticGroundingGate" not in source
 
 
+def test_conversation_agent_is_domain_agnostic_and_reflective() -> None:
+    source = (ROOT / "src/rag_ops_guard/agent/conversation.py").read_text(encoding="utf-8")
+
+    assert "KnowledgeSearch" not in source
+    assert "KnowledgeCatalog" not in source
+    assert "SearchDocumentsTool" not in source
+    assert "ListDocumentsTool" not in source
+    assert "_probe_relevance" not in source
+    assert "_context_requires_document_verification" not in source
+    assert "ToolRuntime" in source
+    assert "ModelReflector" in source
+    assert "while True:" in source
+
+
 def test_legacy_langgraph_runtime_is_not_reintroduced() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     runtime_dependencies = [str(item).lower() for item in pyproject["project"]["dependencies"]]
