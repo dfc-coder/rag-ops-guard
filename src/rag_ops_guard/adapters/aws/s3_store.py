@@ -8,21 +8,10 @@ from botocore.exceptions import ClientError
 
 
 class S3ObjectStore:
-    def __init__(
-        self,
-        bucket: str,
-        endpoint_url: str,
-        region_name: str,
-        access_key: str,
-        secret_key: str,
-    ) -> None:
+    def __init__(self, bucket: str, *, client: Any | None = None) -> None:
         self._bucket = bucket
-        self._client: Any = boto3.client(
+        self._client: Any = client or boto3.client(
             "s3",
-            endpoint_url=endpoint_url,
-            region_name=region_name,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
             config=Config(s3={"addressing_style": "path"}),
         )
 

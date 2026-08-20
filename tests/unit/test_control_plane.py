@@ -70,6 +70,7 @@ def _payload() -> dict[str, object]:
             "document_bucket": "docs",
             "vector_bucket": "vectors",
             "vector_index_base": "ops-knowledge-openvino-v1",
+            "tenant_data_role_arn": "arn:aws:iam::123456789012:role/rag-ops-guard-tenant-data",
         },
         "services": {
             "llm": {"base_url": "http://llama-gen:8080/v1", "model": "qwen"},

@@ -13,6 +13,7 @@ import {
   aws_lambda as lambda,
   aws_s3 as s3,
   aws_s3vectors as s3vectors,
+  aws_secretsmanager as secretsmanager,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
@@ -67,7 +68,6 @@ export class RagOpsGuardStack extends Stack {
       supportsInlineCode: true,
     });
     const tenants = tenantIds(props.tenantIds);
-
     const documentBucketName = local ? 'rag-ops-guard-docs-local' : undefined;
     const localVectorBucketName = local ? 'rag-ops-guard-vectors-local' : undefined;
     const vectorIndexBaseName = local ? 'ops-knowledge-openvino-v1' : 'ops-knowledge-v1';
@@ -88,7 +88,6 @@ export class RagOpsGuardStack extends Stack {
     );
     vectors.applyRemovalPolicy(RemovalPolicy.RETAIN);
     const vectorBucketName = localVectorBucketName ?? vectors.ref;
-
     tenantVectorIndexes.forEach((indexName, position) => {
       const index = new s3vectors.CfnIndex(this, `KnowledgeIndex${position}`, {
         vectorBucketName,
@@ -111,7 +110,6 @@ export class RagOpsGuardStack extends Stack {
       encryption: dynamodb.TableEncryption.AWS_MANAGED,
       removalPolicy: RemovalPolicy.RETAIN,
     });
-
     const tenantTable = new dynamodb.Table(this, 'TenantCredentialTable', {
       tableName: 'rag-ops-tenants',
       partitionKey: { name: 'key_id', type: dynamodb.AttributeType.STRING },
@@ -122,7 +120,7 @@ export class RagOpsGuardStack extends Stack {
     });
 
     const configSecretsKey = new kms.Key(this, 'ConfigSecretsKey', {
-      description: 'Envelope-encryption KEK for Phase 5 recoverable configuration secrets',
+      description: 'Legacy Phase-3/5 envelope KEK retained only for migration history',
       enableKeyRotation: !local,
       removalPolicy: RemovalPolicy.RETAIN,
     });
@@ -139,69 +137,84 @@ export class RagOpsGuardStack extends Stack {
       tenantConfigAdmin.addToPolicy(
         new iam.PolicyStatement({
           actions: [
-            'dynamodb:GetItem',
-            'dynamodb:BatchGetItem',
-            'dynamodb:Query',
-            'dynamodb:PutItem',
-            'dynamodb:UpdateItem',
-            'dynamodb:DeleteItem',
-            'dynamodb:TransactWriteItems',
+            'dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:PutItem',
+            'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:TransactWriteItems',
           ],
           resources: [configTable.tableArn],
           conditions: {
             'ForAllValues:StringEquals': {
-              'dynamodb:LeadingKeys': [
-                `TENANT#${tenantId}`,
-                `SECRET_SCOPE#TENANT#${tenantId}`,
-              ],
+              'dynamodb:LeadingKeys': [`TENANT#${tenantId}`, `SECRET_SCOPE#TENANT#${tenantId}`],
             },
           },
         }),
       );
-      tenantConfigAdmin.addToPolicy(
-        new iam.PolicyStatement({
-          actions: ['dynamodb:DescribeTable'],
-          resources: [configTable.tableArn],
-        }),
-      );
+      tenantConfigAdmin.addToPolicy(new iam.PolicyStatement({
+        actions: ['dynamodb:DescribeTable'], resources: [configTable.tableArn],
+      }));
       configSecretsKey.grantEncryptDecrypt(tenantConfigAdmin);
     });
 
-    const llmBaseUrl = targetUrl(
-      local,
-      props.llmBaseUrl,
-      'http://llama-gen:8080/v1',
-      'RAG_OPS_AWS_LLM_BASE_URL',
-    );
-    const embeddingBaseUrl = targetUrl(
-      local,
-      props.embeddingBaseUrl,
-      'http://rag-ops-ovms-rag:8000/v3',
-      'RAG_OPS_AWS_EMBEDDING_BASE_URL',
-    );
-    const rerankerBaseUrl = targetUrl(
-      local,
-      props.rerankerBaseUrl,
-      'http://rag-ops-ovms-rag:8000/v3',
-      'RAG_OPS_AWS_RERANKER_BASE_URL',
-    );
+    const tenantDataRole = new iam.Role(this, 'TenantDataRole', {
+      roleName: 'rag-ops-guard-tenant-data',
+      assumedBy: new iam.AccountPrincipal(this.account),
+      description: 'Tenant data plane role assumed only after API-key authentication',
+      maxSessionDuration: Duration.hours(1),
+    });
+    tenantDataRole.assumeRolePolicy?.addStatements(new iam.PolicyStatement({
+      actions: ['sts:TagSession'],
+      principals: [new iam.AccountPrincipal(this.account)],
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query'],
+      resources: [configTable.tableArn],
+      conditions: {
+        'ForAllValues:StringEquals': {
+          'dynamodb:LeadingKeys': ['TENANT#${aws:PrincipalTag/tenant_id}'],
+        },
+      },
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['dynamodb:DescribeTable'], resources: [configTable.tableArn],
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+      resources: [`${documents.bucketArn}/t/\${aws:PrincipalTag/tenant_id}/*`],
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:ListBucket'],
+      resources: [documents.bucketArn],
+      conditions: { StringLike: { 's3:prefix': ['t/${aws:PrincipalTag/tenant_id}/*'] } },
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3vectors:PutVectors', 's3vectors:GetVectors', 's3vectors:DeleteVectors', 's3vectors:QueryVectors'],
+      resources: ['*'],
+    }));
+    tenantDataRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:rag-ops-guard/tenant/\${aws:PrincipalTag/tenant_id}/*`],
+    }));
+
+    const runtimeLangSmithSecret = new secretsmanager.Secret(this, 'RuntimeLangSmithSecret', {
+      secretName: 'rag-ops-guard/runtime/langsmith-api-key',
+      description: 'Operator-rotated LangSmith API key; tracing is disabled until explicitly enabled',
+      generateSecretString: { excludePunctuation: true, passwordLength: 32 },
+    });
+
+    const llmBaseUrl = targetUrl(local, props.llmBaseUrl, 'http://llama-gen:8080/v1', 'RAG_OPS_AWS_LLM_BASE_URL');
+    const embeddingBaseUrl = targetUrl(local, props.embeddingBaseUrl, 'http://rag-ops-ovms-rag:8000/v3', 'RAG_OPS_AWS_EMBEDDING_BASE_URL');
+    const rerankerBaseUrl = targetUrl(local, props.rerankerBaseUrl, 'http://rag-ops-ovms-rag:8000/v3', 'RAG_OPS_AWS_RERANKER_BASE_URL');
     const llmModel = props.llmModel ?? 'qwen3.5-2b-unsloth-ud-q4-k-xl';
     const embeddingModel = props.embeddingModel ?? 'OpenVINO/Qwen3-Embedding-0.6B-int8-ov';
     const rerankerModel = props.rerankerModel ?? 'OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov';
 
     const controlPlaneApplication = new appconfig.CfnApplication(this, 'ControlPlaneApplication', {
-      name: 'rag-ops-guard',
-      description: 'RAG Ops Guard platform discovery control plane',
+      name: 'rag-ops-guard', description: 'RAG Ops Guard platform discovery control plane',
     });
     const controlPlaneEnvironment = new appconfig.CfnEnvironment(this, 'ControlPlaneEnvironment', {
-      applicationId: controlPlaneApplication.ref,
-      name: 'runtime',
-      description: 'Runtime workload control plane',
+      applicationId: controlPlaneApplication.ref, name: 'runtime', description: 'Runtime workload control plane',
     });
     const controlPlaneProfile = new appconfig.CfnConfigurationProfile(this, 'ControlPlaneProfile', {
-      applicationId: controlPlaneApplication.ref,
-      name: 'control-plane',
-      locationUri: 'hosted',
+      applicationId: controlPlaneApplication.ref, name: 'control-plane', locationUri: 'hosted',
       description: 'Non-secret platform discovery configuration',
     });
     const controlPlanePayload = this.toJsonString({
@@ -212,41 +225,24 @@ export class RagOpsGuardStack extends Stack {
         document_bucket: documents.bucketName,
         vector_bucket: vectorBucketName,
         vector_index_base: vectorIndexBaseName,
+        tenant_data_role_arn: tenantDataRole.roleArn,
       },
       services: {
-        llm: {
-          base_url: llmBaseUrl,
-          model: llmModel,
-        },
-        embedding: {
-          base_url: embeddingBaseUrl,
-          model: embeddingModel,
-          dimension: 1024,
-        },
-        reranker: {
-          base_url: rerankerBaseUrl,
-          model: rerankerModel,
-        },
+        llm: { base_url: llmBaseUrl, model: llmModel },
+        embedding: { base_url: embeddingBaseUrl, model: embeddingModel, dimension: 1024 },
+        reranker: { base_url: rerankerBaseUrl, model: rerankerModel },
       },
-      secret_refs: {},
-      bootstrap: {
-        config_head_ttl_seconds: 45,
-        config_max_stale_seconds: 300,
-        fail_closed: true,
-      },
+      secret_refs: { langsmith_api_key: runtimeLangSmithSecret.secretArn },
+      bootstrap: { config_head_ttl_seconds: 45, config_max_stale_seconds: 300, fail_closed: true },
     });
-    const controlPlaneVersion = new appconfig.CfnHostedConfigurationVersion(
-      this,
-      'ControlPlaneHostedVersion',
-      {
-        applicationId: controlPlaneApplication.ref,
-        configurationProfileId: controlPlaneProfile.ref,
-        content: controlPlanePayload,
-        contentType: 'application/json',
-        description: 'Schema v1 RAG Ops Guard platform discovery payload',
-        versionLabel: 'schema-v1',
-      },
-    );
+    const controlPlaneVersion = new appconfig.CfnHostedConfigurationVersion(this, 'ControlPlaneHostedVersion', {
+      applicationId: controlPlaneApplication.ref,
+      configurationProfileId: controlPlaneProfile.ref,
+      content: controlPlanePayload,
+      contentType: 'application/json',
+      description: 'Schema v1 RAG Ops Guard platform discovery payload',
+      versionLabel: 'schema-v1',
+    });
     const controlPlaneDeployment = new appconfig.CfnDeployment(this, 'ControlPlaneDeployment', {
       applicationId: controlPlaneApplication.ref,
       environmentId: controlPlaneEnvironment.ref,
@@ -257,53 +253,19 @@ export class RagOpsGuardStack extends Stack {
     });
     controlPlaneDeployment.addResourceDependency(controlPlaneVersion);
 
-    const commonEnvironment = {
-      S3_DOCUMENT_BUCKET: documents.bucketName,
-      S3_VECTOR_BUCKET: vectorBucketName,
-      S3_VECTOR_INDEX: vectorIndexBaseName,
-      VECTOR_DIMENSION: '1024',
-      CONFIG_SOURCE: 'db',
-      CONFIG_TABLE: configTable.tableName,
-      TENANT_TABLE: tenantTable.tableName,
-      CONFIG_HASH: props.configHash ?? '0'.repeat(64),
-      CONFIG_HEAD_TTL_SECONDS: '45',
-      CONFIG_MAX_STALE_SECONDS: '300',
-      APP_ENV: local ? 'local' : 'aws',
-      AWS_ENDPOINT_URL: local ? 'http://floci:4566' : '',
-      LLM_BASE_URL: llmBaseUrl,
-      LLM_MODEL: llmModel,
-      EMBEDDING_BASE_URL: embeddingBaseUrl,
-      EMBEDDING_MODEL: embeddingModel,
-      EMBEDDING_DIMENSION: '1024',
-      RERANKER_BASE_URL: rerankerBaseUrl,
-      RERANKER_MODEL: rerankerModel,
-    };
-
     const ingest = new lambda.Function(this, 'IngestFunction', {
-      functionName: 'rag-ops-guard-ingest',
-      runtime,
-      handler: 'rag_ops_guard.handlers.ingest.handler',
-      code: props.lambdaCode,
-      timeout: Duration.seconds(180),
-      memorySize: 1024,
-      environment: commonEnvironment,
+      functionName: 'rag-ops-guard-ingest', runtime,
+      handler: 'rag_ops_guard.handlers.ingest.handler', code: props.lambdaCode,
+      timeout: Duration.seconds(180), memorySize: 1024,
     });
     const query = new lambda.Function(this, 'QueryFunction', {
-      functionName: 'rag-ops-guard-query',
-      runtime,
-      handler: 'rag_ops_guard.handlers.query.handler',
-      code: props.lambdaCode,
-      timeout: Duration.seconds(180),
-      memorySize: 1024,
-      environment: commonEnvironment,
+      functionName: 'rag-ops-guard-query', runtime,
+      handler: 'rag_ops_guard.handlers.query.handler', code: props.lambdaCode,
+      timeout: Duration.seconds(180), memorySize: 1024,
     });
 
     const controlPlaneDiscover = new iam.PolicyStatement({
-      actions: [
-        'appconfig:ListApplications',
-        'appconfig:ListEnvironments',
-        'appconfig:ListConfigurationProfiles',
-      ],
+      actions: ['appconfig:ListApplications', 'appconfig:ListEnvironments', 'appconfig:ListConfigurationProfiles'],
       resources: ['*'],
     });
     const controlPlaneConfigurationArn = `arn:${this.partition}:appconfig:${this.region}:${this.account}:application/${controlPlaneApplication.ref}/environment/${controlPlaneEnvironment.ref}/configuration/${controlPlaneProfile.ref}`;
@@ -311,105 +273,46 @@ export class RagOpsGuardStack extends Stack {
       actions: ['appconfig:StartConfigurationSession', 'appconfig:GetLatestConfiguration'],
       resources: [controlPlaneConfigurationArn],
     });
-    ingest.addToRolePolicy(controlPlaneDiscover);
-    ingest.addToRolePolicy(controlPlaneRead);
-    query.addToRolePolicy(controlPlaneDiscover);
-    query.addToRolePolicy(controlPlaneRead);
-
-    documents.grantReadWrite(ingest);
-    documents.grantRead(query);
     const tenantCredentialRead = new iam.PolicyStatement({
-      actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-      resources: [tenantTable.tableArn],
+      actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'], resources: [tenantTable.tableArn],
     });
-    ingest.addToRolePolicy(tenantCredentialRead);
-    query.addToRolePolicy(tenantCredentialRead);
-    ingest.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3vectors:PutVectors', 's3vectors:GetVectors', 's3vectors:DeleteVectors'],
-        resources: ['*'],
-      }),
-    );
-    query.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3vectors:QueryVectors', 's3vectors:GetVectors'],
-        resources: ['*'],
-      }),
-    );
-
-    const configRead = new iam.PolicyStatement({
-      actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-      resources: [configTable.tableArn],
+    const assumeTenantData = new iam.PolicyStatement({
+      actions: ['sts:AssumeRole', 'sts:TagSession'], resources: [tenantDataRole.roleArn],
     });
-    ingest.addToRolePolicy(configRead);
-    query.addToRolePolicy(configRead);
+    for (const fn of [ingest, query]) {
+      fn.addToRolePolicy(controlPlaneDiscover);
+      fn.addToRolePolicy(controlPlaneRead);
+      fn.addToRolePolicy(tenantCredentialRead);
+      fn.addToRolePolicy(assumeTenantData);
+      runtimeLangSmithSecret.grantRead(fn);
+    }
 
     if (!local) {
-      const metric = (metricName: string, statistic = 'Sum') =>
-        new cloudwatch.Metric({
-          namespace: 'RagOpsGuard',
-          metricName,
-          statistic,
-          period: Duration.minutes(5),
-        });
+      const metric = (metricName: string, statistic = 'Sum') => new cloudwatch.Metric({
+        namespace: 'RagOpsGuard', metricName, statistic, period: Duration.minutes(5),
+      });
       const dashboard = new cloudwatch.Dashboard(this, 'ConfigAdminDashboard', {
         dashboardName: 'rag-ops-guard-config-admin',
       });
       dashboard.addWidgets(
-        new cloudwatch.GraphWidget({
-          title: 'Configuration resolution',
-          left: [metric('ConfigResolveLatencyMs', 'p99'), metric('ConfigRevisionAge', 'Maximum')],
-        }),
-        new cloudwatch.GraphWidget({
-          title: 'Configuration cache and availability',
-          left: [
-            metric('ConfigCacheHit'),
-            metric('ConfigCacheMiss'),
-            metric('ConfigStaleServed'),
-            metric('ConfigDbUnavailable'),
-          ],
-        }),
-        new cloudwatch.GraphWidget({
-          title: 'Security signals',
-          left: [metric('SecretDecryptFailure'), metric('TenantIsolationViolation')],
-        }),
+        new cloudwatch.GraphWidget({ title: 'Configuration resolution', left: [metric('ConfigResolveLatencyMs', 'p99'), metric('ConfigRevisionAge', 'Maximum')] }),
+        new cloudwatch.GraphWidget({ title: 'Configuration cache and availability', left: [metric('ConfigCacheHit'), metric('ConfigCacheMiss'), metric('ConfigStaleServed'), metric('ConfigDbUnavailable')] }),
+        new cloudwatch.GraphWidget({ title: 'Security signals', left: [metric('SecretDecryptFailure'), metric('TenantIsolationViolation')] }),
       );
     }
 
     const api = new apigwv2.CfnApi(this, 'HttpApi', {
-      name: local ? 'rag-ops-guard-local' : 'rag-ops-guard',
-      protocolType: 'HTTP',
+      name: local ? 'rag-ops-guard-local' : 'rag-ops-guard', protocolType: 'HTTP',
     });
-
     const queryIntegration = new apigwv2.CfnIntegration(this, 'QueryIntegration', {
-      apiId: api.ref,
-      integrationType: 'AWS_PROXY',
-      integrationUri: query.functionArn,
-      payloadFormatVersion: '2.0',
+      apiId: api.ref, integrationType: 'AWS_PROXY', integrationUri: query.functionArn, payloadFormatVersion: '2.0',
     });
     const ingestIntegration = new apigwv2.CfnIntegration(this, 'IngestIntegration', {
-      apiId: api.ref,
-      integrationType: 'AWS_PROXY',
-      integrationUri: ingest.functionArn,
-      payloadFormatVersion: '2.0',
+      apiId: api.ref, integrationType: 'AWS_PROXY', integrationUri: ingest.functionArn, payloadFormatVersion: '2.0',
     });
-
-    new apigwv2.CfnRoute(this, 'QueryRoute', {
-      apiId: api.ref,
-      routeKey: 'POST /v1/query',
-      target: `integrations/${queryIntegration.ref}`,
-    });
-    new apigwv2.CfnRoute(this, 'IngestRoute', {
-      apiId: api.ref,
-      routeKey: 'POST /v1/ingest',
-      target: `integrations/${ingestIntegration.ref}`,
-    });
-    new apigwv2.CfnStage(this, 'DefaultStage', {
-      apiId: api.ref,
-      stageName: '$default',
-      autoDeploy: true,
-    });
-
+    new apigwv2.CfnRoute(this, 'QueryRoute', { apiId: api.ref, routeKey: 'POST /v1/query', target: `integrations/${queryIntegration.ref}` });
+    new apigwv2.CfnRoute(this, 'IngestRoute', { apiId: api.ref, routeKey: 'POST /v1/ingest', target: `integrations/${ingestIntegration.ref}` });
+    new apigwv2.CfnStage(this, 'DefaultStage', { apiId: api.ref, stageName: '$default', autoDeploy: true });
     query.addPermission('ApiGatewayQueryInvoke', {
       principal: new iam.ServicePrincipal('apigateway.amazonaws.com'),
       sourceArn: `arn:${this.partition}:execute-api:${this.region}:${this.account}:${api.ref}/*/*`,

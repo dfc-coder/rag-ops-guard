@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from rag_ops_guard.configstore.tenant_runtime import settings_from_process_environment
+from rag_ops_guard.config import Settings
 
 JUDGE_SYSTEM_PROMPT = (
     "Judge only the provided question, response, reference, and contexts. "
@@ -58,10 +58,10 @@ def evaluation_dataset_sha256(
     return digest.hexdigest()
 
 
-def judge_identity_from_env(
+def judge_identity_from_settings(
+    settings: Settings,
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeIdentity:
-    settings = settings_from_process_environment()
     return JudgeIdentity(
         provider=settings.ragas_judge_provider,
         model=settings.resolved_ragas_judge_model,
@@ -70,16 +70,11 @@ def judge_identity_from_env(
     )
 
 
-def judge_connection_from_env(
+def judge_connection_from_settings(
+    settings: Settings,
     dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
 ) -> JudgeConnection:
-    settings = settings_from_process_environment()
-    identity = JudgeIdentity(
-        provider=settings.ragas_judge_provider,
-        model=settings.resolved_ragas_judge_model,
-        prompt_sha256=_sha256_bytes(JUDGE_SYSTEM_PROMPT.encode("utf-8")),
-        dataset_sha256=evaluation_dataset_sha256(dataset_paths),
-    )
+    identity = judge_identity_from_settings(settings, dataset_paths)
     api_key = (
         settings.ragas_judge_api_key.get_secret_value()
         if settings.ragas_judge_api_key is not None
@@ -90,3 +85,19 @@ def judge_connection_from_env(
         base_url=settings.resolved_ragas_judge_base_url.rstrip("/"),
         api_key=api_key,
     )
+
+
+def judge_identity_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeIdentity:
+    """Legacy tooling wrapper; application code does not read process environment."""
+
+    return judge_identity_from_settings(Settings(), dataset_paths)
+
+
+def judge_connection_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeConnection:
+    """Legacy tooling wrapper; application code does not read process environment."""
+
+    return judge_connection_from_settings(Settings(), dataset_paths)

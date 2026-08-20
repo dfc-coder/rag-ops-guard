@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from rag_ops_guard.evaluation.judge import judge_connection_from_env
+from rag_ops_guard.config import Settings
+from rag_ops_guard.evaluation.judge import judge_connection_from_settings
 
 
 def _dataset(tmp_path: Path) -> Path:
@@ -14,18 +15,14 @@ def _dataset(tmp_path: Path) -> Path:
     return path
 
 
-def test_local_judge_uses_runtime_endpoint_without_external_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "local")
-    monkeypatch.setenv("LLM_MODEL", "runtime-model")
-    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:8080/v1")
-    monkeypatch.delenv("RAGAS_JUDGE_MODEL", raising=False)
-    monkeypatch.delenv("RAGAS_JUDGE_BASE_URL", raising=False)
-    monkeypatch.delenv("RAGAS_JUDGE_API_KEY", raising=False)
+def test_local_judge_uses_explicit_runtime_settings(tmp_path: Path) -> None:
+    settings = Settings(
+        ragas_judge_provider="local",
+        llm_model="runtime-model",
+        llm_base_url="http://localhost:8080/v1",
+    )
 
-    connection = judge_connection_from_env(_dataset(tmp_path))
+    connection = judge_connection_from_settings(settings, _dataset(tmp_path))
 
     assert connection.identity.provider == "local"
     assert connection.identity.model == "runtime-model"
@@ -33,24 +30,24 @@ def test_local_judge_uses_runtime_endpoint_without_external_credentials(
     assert connection.api_key == "local"
 
 
-def test_external_openai_compatible_judge_requires_explicit_endpoint_and_secret(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("RAGAS_JUDGE_PROVIDER", "openai")
-    monkeypatch.setenv("RAGAS_JUDGE_MODEL", "judge-model")
-    monkeypatch.delenv("RAGAS_JUDGE_BASE_URL", raising=False)
-    monkeypatch.delenv("RAGAS_JUDGE_API_KEY", raising=False)
-
+def test_external_openai_judge_requires_explicit_endpoint_and_secret(tmp_path: Path) -> None:
     with pytest.raises(ValidationError, match="ragas_judge_base_url"):
-        judge_connection_from_env(_dataset(tmp_path))
+        Settings(ragas_judge_provider="openai", ragas_judge_model="judge-model")
 
-    monkeypatch.setenv("RAGAS_JUDGE_BASE_URL", "https://judge.example/v1")
     with pytest.raises(ValidationError, match="ragas_judge_api_key"):
-        judge_connection_from_env(_dataset(tmp_path))
+        Settings(
+            ragas_judge_provider="openai",
+            ragas_judge_model="judge-model",
+            ragas_judge_base_url="https://judge.example/v1",
+        )
 
-    monkeypatch.setenv("RAGAS_JUDGE_API_KEY", "secret-value")
-    connection = judge_connection_from_env(_dataset(tmp_path))
+    settings = Settings(
+        ragas_judge_provider="openai",
+        ragas_judge_model="judge-model",
+        ragas_judge_base_url="https://judge.example/v1",
+        ragas_judge_api_key="secret-value",
+    )
+    connection = judge_connection_from_settings(settings, _dataset(tmp_path))
 
     assert connection.identity.provider == "openai"
     assert connection.identity.model == "judge-model"

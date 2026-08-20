@@ -48,13 +48,7 @@ _CONTAINER: Container[DependencyBundle] = Container(
 def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> DependencyBundle:
     settings = effective.settings
     keys = KeyLayout(context.tenant_id)
-    objects = S3ObjectStore(
-        bucket=settings.s3_document_bucket,
-        endpoint_url=settings.aws_endpoint_url,
-        region_name=settings.aws_region,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key.get_secret_value(),
-    )
+    objects = S3ObjectStore(bucket=settings.s3_document_bucket)
     embeddings_adapter = LlamaCppEmbeddingAdapter(
         settings.embedding_base_url,
         settings.embedding_model,
@@ -70,10 +64,6 @@ def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> 
         vector_bucket=settings.s3_vector_bucket,
         index_name=keys.vector_index(settings.s3_vector_index),
         object_store=objects,
-        endpoint_url=settings.aws_endpoint_url,
-        region_name=settings.aws_region,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key.get_secret_value(),
         key_layout=keys,
     )
     configure_langsmith(settings)
