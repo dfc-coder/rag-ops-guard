@@ -7,6 +7,7 @@ import boto3
 import botocore.session
 from botocore.credentials import RefreshableCredentials
 
+from rag_ops_guard.runtime_settings import runtime_control_plane
 from rag_ops_guard.tenancy.context import RequestContext
 
 
@@ -61,3 +62,22 @@ def tenant_session(
     if region:
         botocore_session.set_config_variable("region", region)
     return boto3.Session(botocore_session=botocore_session)
+
+
+@lru_cache(maxsize=32)
+def _runtime_session(tenant_id: str, principal: str, role_arn: str) -> boto3.Session:
+    return tenant_session(
+        RequestContext(principal=principal, tenant_id=tenant_id),
+        role_arn=role_arn,
+    )
+
+
+def runtime_tenant_session(context: RequestContext) -> boto3.Session:
+    """Resolve one refreshable tenant-scoped session from the authenticated request context."""
+
+    role_arn = runtime_control_plane().resources.tenant_data_role_arn
+    return _runtime_session(context.tenant_id, context.principal, role_arn)
+
+
+def clear_tenant_session_cache() -> None:
+    _runtime_session.cache_clear()
