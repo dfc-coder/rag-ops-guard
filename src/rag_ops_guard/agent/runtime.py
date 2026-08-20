@@ -31,7 +31,12 @@ class ToolVerifier:
     def verify_call(self, call: ToolCall, tool: Tool | None) -> VerificationResult:
         if tool is None:
             return VerificationResult(ok=False, reason="unknown_tool", retryable=True)
-        return _verify_arguments(call.arguments, tool.schema())
+        try:
+            schema = tool.schema()
+        except Exception:
+            logger.exception("tool schema resolution failed tool=%s", call.name)
+            return VerificationResult(ok=False, reason="tool_schema_error", retryable=False)
+        return _verify_arguments(call.arguments, schema)
 
     def verify_result(self, result: ToolResult) -> VerificationResult:
         if result.ok:
@@ -92,7 +97,7 @@ def _verify_arguments(
     schema: dict[str, Any],
 ) -> VerificationResult:
     schema_type = schema.get("type")
-    if schema_type not in {None, "object"}:
+    if schema_type is not None and schema_type != "object":
         return VerificationResult(
             ok=False,
             reason="unsupported_tool_schema",
