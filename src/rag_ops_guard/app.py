@@ -9,7 +9,9 @@ from rag_ops_guard.adapters.llm.openai_tool_calling import OpenAIToolCallingAdap
 from rag_ops_guard.adapters.llm.tokenizer import LlamaCppTokenCounter
 from rag_ops_guard.adapters.reranking.llamacpp_reranker import LlamaCppRerankerAdapter
 from rag_ops_guard.agent.catalog import KnowledgeCatalog
+from rag_ops_guard.agent.context import current_query_context
 from rag_ops_guard.agent.conversation import ConversationAgent
+from rag_ops_guard.agent.tools import ListDocumentsTool, SearchDocumentsTool
 from rag_ops_guard.configstore.runtime import EffectiveConfig
 from rag_ops_guard.configstore.tenant_runtime import resolve_tenant_effective_config
 from rag_ops_guard.container import Container
@@ -112,7 +114,11 @@ def _build_dependencies(context: RequestContext, effective: EffectiveConfig) -> 
         domain_min_relevance=settings.retrieval_domain_min_relevance,
     )
     catalog = KnowledgeCatalog(objects, keys)
-    agent = ConversationAgent(knowledge=knowledge, catalog=catalog, model=model)
+    tools = [
+        SearchDocumentsTool(knowledge, current_query_context),
+        ListDocumentsTool(catalog, current_query_context),
+    ]
+    agent = ConversationAgent(model=model, tools=tools)
     return DependencyBundle(
         context=context,
         config_hash=effective.config_hash,
