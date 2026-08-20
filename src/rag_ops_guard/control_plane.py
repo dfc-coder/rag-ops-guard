@@ -23,6 +23,7 @@ class PlatformResources(BaseModel):
     document_bucket: str = Field(min_length=1)
     vector_bucket: str = Field(min_length=1)
     vector_index_base: str = Field(min_length=1)
+    tenant_data_role_arn: str = Field(min_length=1)
 
 
 class ModelService(BaseModel):
