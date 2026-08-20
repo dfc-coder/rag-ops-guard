@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from rag_ops_guard.agent.conversation import ConversationAgent
-from rag_ops_guard.domain.models import GeneratedSegment, QueryContext, StructuredAnswer
-from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn
+from rag_ops_guard.agent.tools import SearchDocumentsTool
+from rag_ops_guard.domain.models import QueryContext, StructuredAnswer
+from rag_ops_guard.ports.interfaces import ModelMessage, ModelTurn, Tool
 from rag_ops_guard.retrieval.hybrid import KnowledgeSearch, KnowledgeSearchResult
 from tests.fixtures.builders import evidence
 from tests.fixtures.fakes import FakeEmbeddingProvider, FakeObjectStore, FakeReranker, FakeVectorStore
@@ -101,42 +102,31 @@ class ProbeKnowledge:
         )
 
 
-class EmptyCatalog:
-    def render(self, _question: str, _context: QueryContext) -> str:
-        return "No documents"
-
-
 class DirectModel:
-    def bind_tools(self, _tools: list[Any]) -> DirectModel:
+    def bind_tools(self, _tools: list[Tool]) -> DirectModel:
         return self
 
     def invoke(self, _messages: list[ModelMessage]) -> ModelTurn:
         return ModelTurn(content="Eight planets orbit the Sun.")
 
     def invoke_structured(self, _messages: list[ModelMessage], _schema: type[Any]) -> StructuredAnswer:
-        return StructuredAnswer(
-            segments=[GeneratedSegment(text="Eight planets orbit the Sun.", citation_ids=[])]
+        return StructuredAnswer.model_validate(
+            {"segments": [{"text": "Eight planets orbit the Sun.", "citation_ids": []}]}
         )
 
 
-def test_every_turn_records_a_non_tool_probe_without_forcing_document_tool_use() -> None:
-    """SPEC-4.3 / SPEC-4.4"""
+def test_direct_turn_does_not_probe_document_retrieval_without_a_tool_call() -> None:
     knowledge = ProbeKnowledge()
-    agent = ConversationAgent(
-        knowledge=knowledge,  # type: ignore[arg-type]
-        catalog=EmptyCatalog(),  # type: ignore[arg-type]
-        model=DirectModel(),
-    )
+    search_tool = SearchDocumentsTool(knowledge)  # type: ignore[arg-type]
+    agent = ConversationAgent(model=DirectModel(), tools=[search_tool])
 
     result = agent.invoke(
         "How many planets are in the solar system?",
-        thread_id="probe",
+        thread_id="no-probe",
         context=QueryContext(),
     )
 
-    assert knowledge.calls == [
-        ("How many planets are in the solar system?", "probe"),
-    ]
+    assert knowledge.calls == []
     assert result.tool_calls == 0
-    assert result.domain_relevance_score == 0.12
-    assert result.grounded_relevance_score == 0.0
+    assert result.domain_relevance_score is None
+    assert result.grounded_relevance_score is None
