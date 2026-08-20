@@ -85,3 +85,19 @@ def judge_connection_from_settings(
         base_url=settings.resolved_ragas_judge_base_url.rstrip("/"),
         api_key=api_key,
     )
+
+
+def judge_identity_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeIdentity:
+    """Legacy tooling wrapper; application code does not read process environment."""
+
+    return judge_identity_from_settings(Settings(), dataset_paths)
+
+
+def judge_connection_from_env(
+    dataset_paths: Path | tuple[Path, ...] = DEFAULT_DATASET_PATHS,
+) -> JudgeConnection:
+    """Legacy tooling wrapper; application code does not read process environment."""
+
+    return judge_connection_from_settings(Settings(), dataset_paths)
